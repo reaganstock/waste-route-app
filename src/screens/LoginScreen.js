@@ -39,7 +39,7 @@ const LoginScreen = ({ navigation }) => {
       }
 
       // Navigate to main app
-      navigation.replace('(tabs)');
+      navigation.replace('/(tabs)');
     } catch (error) {
       Alert.alert('Error', error.message);
     } finally {

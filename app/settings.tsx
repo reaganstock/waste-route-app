@@ -2,7 +2,7 @@ import { View } from 'react-native';
 import { useRouter } from 'expo-router';
 import SettingsScreen from '../src/screens/SettingsScreen';
 
-export default function SettingsPage() {
+export default function Settings() {
   const router = useRouter();
   
   return (
@@ -10,22 +10,18 @@ export default function SettingsPage() {
       <SettingsScreen 
         navigation={{
           goBack: () => router.back(),
+          replace: (screen: string) => router.replace(screen),
           navigate: (screen: string) => {
-            if (screen === 'index') {
-              router.replace('/(tabs)');
-            } else if (screen.startsWith('/')) {
-              router.push(screen);
+            if (screen === 'EditProfile') {
+              router.push('/profile/edit');
+            } else if (screen === 'Help') {
+              router.push('/help');
+            } else if (screen === 'ContactSupport') {
+              router.push('/support');
+            } else if (screen === 'PrivacyPolicy') {
+              router.push('/privacy');
             } else {
-              router.push(`/${screen.toLowerCase()}`);
-            }
-          },
-          replace: (screen: string) => {
-            if (screen === 'index') {
-              router.replace('/(tabs)');
-            } else if (screen.startsWith('/')) {
-              router.replace(screen);
-            } else {
-              router.replace(`/${screen.toLowerCase()}`);
+              router.push(screen.toLowerCase());
             }
           }
         }} 

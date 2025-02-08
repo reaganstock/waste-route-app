@@ -12,7 +12,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 import { mockRoutes } from '../lib/mockData';
-import { useRouter } from 'expo-router';
 
 const { width } = Dimensions.get('window');
 
@@ -71,7 +70,6 @@ const HomeScreen = ({ navigation }) => {
     completedRoutes: 0,
     efficiency: 85
   });
-  const router = useRouter();
 
   useEffect(() => {
     fetchData();
@@ -104,7 +102,7 @@ const HomeScreen = ({ navigation }) => {
           <Text style={styles.greeting}>Welcome back</Text>
           <TouchableOpacity 
             style={styles.settingsButton}
-            onPress={() => router.push("/(tabs)/settings")}
+            onPress={() => navigation.navigate('settings')}
           >
             <Ionicons name="settings-outline" size={24} color="#fff" />
           </TouchableOpacity>
