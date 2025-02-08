@@ -59,16 +59,10 @@ export default function SignupScreen({ navigation }) {
       };
 
       mockAuth.users.push(newUser);
-      Alert.alert(
-        'Success',
-        'Account created successfully!',
-        [
-          {
-            text: 'OK',
-            onPress: () => navigation.replace('/(auth)'),
-          },
-        ]
-      );
+      
+      // Use the correct navigation path
+      navigation.replace('/(tabs)');
+      
     } catch (error) {
       Alert.alert('Error', error.message);
     } finally {
@@ -210,7 +204,7 @@ export default function SignupScreen({ navigation }) {
 
         <TouchableOpacity 
           style={styles.loginButton}
-          onPress={() => navigation.replace('/(auth)')}
+          onPress={() => navigation.navigate('index')}
         >
           <Text style={styles.loginText}>
             Already have an account? <Text style={styles.loginTextBold}>Log in</Text>

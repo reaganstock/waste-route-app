@@ -1,29 +1,14 @@
-import { Stack, useRootNavigationState, useRouter, useSegments } from 'expo-router';
+import { Stack, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
 
-// Mock auth for now
-const useAuth = () => {
-  return { isAuthenticated: false };
-};
-
 export default function RootLayout() {
-  const { isAuthenticated } = useAuth();
-  const segments = useSegments();
   const router = useRouter();
-  const navigationState = useRootNavigationState();
 
+  // Always redirect to home screen on app start
   useEffect(() => {
-    if (!navigationState?.key) return;
-
-    const inAuthGroup = segments[0] === '(auth)';
-
-    if (isAuthenticated && inAuthGroup) {
-      router.replace('/(tabs)');
-    } else if (!isAuthenticated && !inAuthGroup) {
-      router.replace('/(auth)');
-    }
-  }, [isAuthenticated, segments, navigationState?.key]);
+    router.replace('/(tabs)');
+  }, []);
 
   return (
     <>
@@ -34,8 +19,14 @@ export default function RootLayout() {
           contentStyle: { backgroundColor: '#000' },
         }}
       >
-        <Stack.Screen name="(auth)" options={{ headerShown: false }} />
-        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+        <Stack.Screen name="(tabs)" />
+        <Stack.Screen 
+          name="route"
+          options={{
+            presentation: 'card',
+            animation: 'slide_from_right',
+          }}
+        />
       </Stack>
     </>
   );

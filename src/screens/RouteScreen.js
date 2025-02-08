@@ -7,51 +7,39 @@ import {
   Dimensions,
   Animated,
   Platform,
+  Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
-import Map from '../components/Map';
-import { useLocation } from '../hooks/useLocation';
-import { useGeofencing } from '../hooks/useGeofencing';
+import ActiveRouteMap from '../components/ActiveRouteMap';
 import { mockRoutes, mockHouses } from '../lib/mockData';
+import * as Notifications from 'expo-notifications';
 
 const { height } = Dimensions.get('window');
 
 const RouteScreen = ({ route, navigation }) => {
   const { routeId } = route.params;
   const [routeData, setRouteData] = useState(null);
-  const [houses, setHouses] = useState([]);
   const [selectedHouse, setSelectedHouse] = useState(null);
   const [isNavigating, setIsNavigating] = useState(false);
   
-  const { location } = useLocation();
-  const { nearbyHouses } = useGeofencing(location, houses);
-
   const slideAnim = useState(new Animated.Value(height))[0];
 
   useEffect(() => {
+    setupNotifications();
     fetchRouteData();
-    fetchHouses();
   }, [routeId]);
 
-  useEffect(() => {
-    if (nearbyHouses.length > 0) {
-      const house = nearbyHouses[0];
-      if (house.status === 'pending') {
-        setSelectedHouse(house);
-        showHouseCard();
-      }
+  const setupNotifications = async () => {
+    const { status } = await Notifications.requestPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission Denied', 'Notifications are required for route alerts');
     }
-  }, [nearbyHouses]);
+  };
 
   const fetchRouteData = () => {
     const data = mockRoutes.find(r => r.id === routeId);
     setRouteData(data);
-  };
-
-  const fetchHouses = () => {
-    const data = mockHouses.filter(h => h.route_id === routeId);
-    setHouses(data);
   };
 
   const showHouseCard = () => {
@@ -69,24 +57,51 @@ const RouteScreen = ({ route, navigation }) => {
     setSelectedHouse(null);
   };
 
-  const handleHouseStatus = async (status) => {
-    if (!selectedHouse) return;
+  const handleHouseStatusChange = async (houseId, status) => {
+    if (status === 'approaching') {
+      // Show notification when approaching a house
+      await Notifications.scheduleNotificationAsync({
+        content: {
+          title: 'Approaching House',
+          body: 'You are near the next house on your route',
+          data: { houseId },
+        },
+        trigger: null, // Show immediately
+      });
+    } else {
+      // Update house status in UI
+      const house = mockHouses.find(h => h.id === houseId);
+      if (house) {
+        setSelectedHouse({ ...house, status });
+        showHouseCard();
+      }
 
-    // Update local state
-    const updatedHouses = houses.map(h => 
-      h.id === selectedHouse.id ? { ...h, status } : h
-    );
-    setHouses(updatedHouses);
-    hideHouseCard();
-
-    // Check if route is complete
-    const isComplete = updatedHouses.every(h => h.status !== 'pending');
-    if (isComplete) {
-      navigation.navigate('RouteComplete', { routeId });
+      // Check if route is complete
+      const remainingHouses = mockHouses.filter(h => 
+        h.route_id === routeId && h.status === 'pending'
+      );
+      
+      if (remainingHouses.length === 0) {
+        Alert.alert(
+          'Route Complete',
+          'All houses have been processed. Would you like to finish the route?',
+          [
+            {
+              text: 'Continue',
+              style: 'cancel',
+            },
+            {
+              text: 'Finish Route',
+              onPress: () => navigation.navigate('RouteComplete', { routeId }),
+            },
+          ]
+        );
+      }
     }
   };
 
   const getProgressPercentage = () => {
+    const houses = mockHouses.filter(h => h.route_id === routeId);
     if (!houses.length) return 0;
     const completed = houses.filter(h => h.status !== 'pending').length;
     return (completed / houses.length) * 100;
@@ -94,13 +109,9 @@ const RouteScreen = ({ route, navigation }) => {
 
   return (
     <View style={styles.container}>
-      <Map
-        houses={houses}
-        onHousePress={house => {
-          setSelectedHouse(house);
-          showHouseCard();
-        }}
-        showStreetView={isNavigating}
+      <ActiveRouteMap
+        route={routeData}
+        onHouseStatusChange={handleHouseStatusChange}
       />
 
       {/* Top Navigation Bar */}
@@ -132,22 +143,6 @@ const RouteScreen = ({ route, navigation }) => {
             color="#fff" 
           />
         </TouchableOpacity>
-
-        <TouchableOpacity 
-          style={styles.controlButton}
-          onPress={() => {
-            if (location) {
-              mapRef.current?.animateToRegion({
-                latitude: location.coords.latitude,
-                longitude: location.coords.longitude,
-                latitudeDelta: 0.005,
-                longitudeDelta: 0.005,
-              });
-            }
-          }}
-        >
-          <Ionicons name="locate" size={24} color="#fff" />
-        </TouchableOpacity>
       </View>
 
       {/* House Card */}
@@ -178,8 +173,7 @@ const RouteScreen = ({ route, navigation }) => {
             <View style={styles.actionButtons}>
               <TouchableOpacity 
                 style={[styles.actionButton, styles.collectButton]}
-                onPress={() => handleHouseStatus('collect')}
-                disabled={selectedHouse.status !== 'pending'}
+                onPress={() => handleHouseStatusChange(selectedHouse.id, 'collect')}
               >
                 <Ionicons name="checkmark-circle" size={24} color="#fff" />
                 <Text style={styles.actionButtonText}>Collect</Text>
@@ -187,8 +181,7 @@ const RouteScreen = ({ route, navigation }) => {
 
               <TouchableOpacity 
                 style={[styles.actionButton, styles.skipButton]}
-                onPress={() => handleHouseStatus('skip')}
-                disabled={selectedHouse.status !== 'pending'}
+                onPress={() => handleHouseStatusChange(selectedHouse.id, 'skip')}
               >
                 <Ionicons name="close-circle" size={24} color="#fff" />
                 <Text style={styles.actionButtonText}>Skip</Text>

@@ -2,7 +2,7 @@ import { View } from 'react-native';
 import { useRouter } from 'expo-router';
 import AnalyticsScreen from '../../src/screens/AnalyticsScreen';
 
-export default function Explore() {
+export default function Analytics() {
   const router = useRouter();
   
   return (
@@ -16,4 +16,4 @@ export default function Explore() {
       />
     </View>
   );
-}
+} 

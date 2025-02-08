@@ -11,15 +11,12 @@ export default function Login() {
         navigation={{
           navigate: (screen: string) => {
             if (screen === 'signup') {
-              router.push('/signup' as any);
+              router.push('/(auth)/signup');
             } else if (screen === 'forgot-password') {
-              router.push('/forgot-password' as any);
+              router.push('/(auth)/forgot-password');
             }
           },
-          replace: (screen: string) => {
-            // When logging in, redirect to the tabs layout
-            router.replace('/(tabs)' as any);
-          }
+          replace: (screen: string) => router.replace('/(tabs)')
         }} 
       />
     </View>

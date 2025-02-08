@@ -36,7 +36,10 @@ const QuickAction = ({ icon, title, color, onPress }) => (
 const RouteCard = ({ route, isActive, navigation }) => (
   <TouchableOpacity 
     style={[styles.routeCard, isActive && styles.activeRouteCard]}
-    onPress={() => navigation.navigate('Route', { routeId: route.id })}
+    onPress={() => {
+      console.log('Navigating to route:', route.id);
+      navigation.navigate('route', { id: route.id });
+    }}
   >
     <View style={styles.routeInfo}>
       <Text style={styles.routeName}>{route.name}</Text>

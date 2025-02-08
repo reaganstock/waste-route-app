@@ -10,10 +10,14 @@ export default function Index() {
       <HomeScreen 
         navigation={{
           navigate: (screen: string, params?: any) => {
-            if (screen === 'Route') {
-              router.push(`/route/${params.routeId}`);
-            } else if (screen === 'Settings') {
+            if (screen === 'route') {
+              router.push(`/route/${params.id}`);
+            } else if (screen === 'settings') {
               router.push('/settings');
+            } else if (screen === 'route-create') {
+              router.push('/route-create');
+            } else if (screen === 'map') {
+              router.push('/map');
             } else {
               router.push(screen.toLowerCase());
             }
