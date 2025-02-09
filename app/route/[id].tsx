@@ -1,9 +1,10 @@
-import { View } from 'react-native';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams } from 'expo-router';
 import RouteScreen from '../../src/screens/RouteScreen';
 
 export default function Route() {
   const { id } = useLocalSearchParams();
+  return <RouteScreen routeId={id as string} />;
+} 
   const router = useRouter();
   
   return (

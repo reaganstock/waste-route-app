@@ -13,8 +13,13 @@ import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system';
+import * as WebBrowser from 'expo-web-browser';
 import Map from '../components/Map';
 import { mockTeamMembers } from '../lib/mockData';
+
+// Google OAuth2 credentials - you'll need to replace these with your own
+const GOOGLE_CLIENT_ID = 'YOUR_GOOGLE_CLIENT_ID';
+const GOOGLE_REDIRECT_URI = 'YOUR_REDIRECT_URI';
 
 const parseCSV = (content) => {
   const lines = content.split('\n');
@@ -49,6 +54,19 @@ const parseAddressList = (text) => {
   }));
 };
 
+const parseGoogleSheetData = (values) => {
+  // Skip header row and filter out empty rows
+  return values.slice(1)
+    .filter(row => row.length > 0)
+    .map(row => ({
+      address: row[0] || '',
+      lat: row[1] || '',
+      lng: row[2] || '',
+      notes: row[3] || ''
+    }))
+    .filter(house => house.address && house.lat && house.lng);
+};
+
 const RouteCreateScreen = ({ navigation }) => {
   const [name, setName] = useState('');
   const [date, setDate] = useState(new Date());
@@ -58,6 +76,7 @@ const RouteCreateScreen = ({ navigation }) => {
   const [uploading, setUploading] = useState(false);
   const [houses, setHouses] = useState([]);
   const [addressInput, setAddressInput] = useState('');
+  const [isLoadingGoogleSheet, setIsLoadingGoogleSheet] = useState(false);
 
   useEffect(() => {
     // Filter only drivers from mock team members
@@ -92,6 +111,68 @@ const RouteCreateScreen = ({ navigation }) => {
       Alert.alert('Error', 'Failed to upload CSV file');
     } finally {
       setUploading(false);
+    }
+  };
+
+  const handleGoogleSheetImport = async () => {
+    try {
+      setIsLoadingGoogleSheet(true);
+      
+      // Construct Google OAuth2 URL
+      const scope = encodeURIComponent('https://www.googleapis.com/auth/spreadsheets.readonly');
+      const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${GOOGLE_CLIENT_ID}&redirect_uri=${GOOGLE_REDIRECT_URI}&response_type=token&scope=${scope}`;
+      
+      // Open web browser for authentication
+      const result = await WebBrowser.openAuthSessionAsync(authUrl, GOOGLE_REDIRECT_URI);
+      
+      if (result.type === 'success') {
+        // Extract access token from URL
+        const accessToken = result.url.match(/access_token=([^&]*)/)[1];
+        
+        // Show sheet picker (you'll need to implement this UI)
+        const sheetId = await new Promise((resolve) => {
+          Alert.prompt(
+            'Enter Sheet ID',
+            'Please enter the Google Sheet ID',
+            [
+              {
+                text: 'Cancel',
+                onPress: () => resolve(null),
+                style: 'cancel',
+              },
+              {
+                text: 'OK',
+                onPress: (sheetId) => resolve(sheetId),
+              },
+            ],
+            'plain-text'
+          );
+        });
+
+        if (!sheetId) return;
+
+        // Fetch sheet data
+        const response = await fetch(
+          `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/A:D`,
+          {
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+            },
+          }
+        );
+
+        const data = await response.json();
+        
+        if (data.values) {
+          const parsedHouses = parseGoogleSheetData(data.values);
+          setHouses(prevHouses => [...prevHouses, ...parsedHouses]);
+        }
+      }
+    } catch (error) {
+      Alert.alert('Error', 'Failed to import from Google Sheets');
+      console.error(error);
+    } finally {
+      setIsLoadingGoogleSheet(false);
     }
   };
 
@@ -224,20 +305,36 @@ const RouteCreateScreen = ({ navigation }) => {
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>Houses</Text>
-            <TouchableOpacity 
-              style={styles.uploadButton}
-              onPress={handleUploadCSV}
-              disabled={uploading}
-            >
-              {uploading ? (
-                <ActivityIndicator color="#3B82F6" />
-              ) : (
-                <>
-                  <Ionicons name="cloud-upload-outline" size={20} color="#3B82F6" />
-                  <Text style={styles.uploadButtonText}>Upload CSV</Text>
-                </>
-              )}
-            </TouchableOpacity>
+            <View style={styles.uploadButtons}>
+              <TouchableOpacity 
+                style={styles.uploadButton}
+                onPress={handleGoogleSheetImport}
+                disabled={isLoadingGoogleSheet}
+              >
+                {isLoadingGoogleSheet ? (
+                  <ActivityIndicator color="#3B82F6" />
+                ) : (
+                  <>
+                    <Ionicons name="logo-google" size={20} color="#3B82F6" />
+                    <Text style={styles.uploadButtonText}>Import Sheet</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={styles.uploadButton}
+                onPress={handleUploadCSV}
+                disabled={uploading}
+              >
+                {uploading ? (
+                  <ActivityIndicator color="#3B82F6" />
+                ) : (
+                  <>
+                    <Ionicons name="cloud-upload-outline" size={20} color="#3B82F6" />
+                    <Text style={styles.uploadButtonText}>Upload CSV</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
           </View>
 
           <View style={styles.addressInputContainer}>
@@ -433,6 +530,10 @@ const styles = StyleSheet.create({
   houseNotes: {
     color: '#6B7280',
     fontSize: 14,
+  },
+  uploadButtons: {
+    flexDirection: 'row',
+    gap: 12,
   },
   uploadButton: {
     flexDirection: 'row',

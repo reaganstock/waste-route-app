@@ -1,13 +1,15 @@
 import { View } from 'react-native';
 import { useRouter } from 'expo-router';
-import AnalyticsScreen from '../../src/screens/AnalyticsScreen';
+import ForgotPasswordScreen from '../../src/screens/ForgotPasswordScreen';
 
-export default function Analytics() {
+export default function ForgotPassword() {
   const router = useRouter();
   
   return (
     <View style={{ flex: 1 }}>
-      <AnalyticsScreen />
+      <ForgotPasswordScreen />
     </View>
   );
 } 
+ 
+ 

@@ -7,6 +7,10 @@ export default function Team() {
   
   return (
     <View style={{ flex: 1 }}>
+      <TeamScreen />
+    </View>
+  );
+} 
       <TeamScreen 
         navigation={{
           navigate: (screen: string, params?: any) => {

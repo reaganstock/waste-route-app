@@ -7,39 +7,114 @@ import {
   Switch,
   Alert,
   ScrollView,
+  Animated,
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { BlurView } from 'expo-blur';
+import { useRouter } from 'expo-router';
+import { StatusBar } from 'expo-status-bar';
 
 // Mock profile data
 const mockProfile = {
   full_name: 'John Doe',
   role: 'Driver',
+  email: 'john.doe@example.com',
 };
 
-// SettingItem Component
-const SettingItem = ({ icon, title, description, value, onValueChange }) => (
-  <View style={styles.settingItem}>
-    <View style={styles.settingInfo}>
-      <View style={styles.settingIcon}>
-        <Ionicons name={icon} size={24} color="#3B82F6" />
-      </View>
-      <View style={styles.settingText}>
-        <Text style={styles.settingTitle}>{title}</Text>
-        <Text style={styles.settingDescription}>{description}</Text>
-      </View>
-    </View>
-    <Switch
-      value={value}
-      onValueChange={onValueChange}
-      trackColor={{ false: '#374151', true: '#3B82F6' }}
-      thumbColor={value ? '#fff' : '#9CA3AF'}
-    />
-  </View>
-);
+// SettingItem Component with animation
+const SettingItem = ({ icon, title, description, value, onValueChange }) => {
+  const scaleValue = new Animated.Value(1);
 
-const SettingsScreen = ({ navigation }) => {
+  const handlePressIn = () => {
+    Animated.spring(scaleValue, {
+      toValue: 0.95,
+      useNativeDriver: true,
+    }).start();
+  };
+
+  const handlePressOut = () => {
+    Animated.spring(scaleValue, {
+      toValue: 1,
+      useNativeDriver: true,
+    }).start();
+  };
+
+  return (
+    <Animated.View
+      style={[
+        styles.settingItem,
+        { transform: [{ scale: scaleValue }] }
+      ]}
+    >
+      <View style={styles.settingInfo}>
+        <View style={[styles.settingIcon, { backgroundColor: `rgba(59,130,246,${value ? 0.2 : 0.1})` }]}>
+          <Ionicons name={icon} size={24} color={value ? '#3B82F6' : '#6B7280'} />
+        </View>
+        <View style={styles.settingText}>
+          <Text style={styles.settingTitle}>{title}</Text>
+          <Text style={styles.settingDescription}>{description}</Text>
+        </View>
+      </View>
+      <Switch
+        value={value}
+        onValueChange={onValueChange}
+        trackColor={{ false: '#374151', true: '#3B82F6' }}
+        thumbColor={value ? '#fff' : '#9CA3AF'}
+        ios_backgroundColor="#374151"
+        onTouchStart={handlePressIn}
+        onTouchEnd={handlePressOut}
+      />
+    </Animated.View>
+  );
+};
+
+// Support Item Component with animation
+const SupportItem = ({ icon, title, onPress }) => {
+  const scaleValue = new Animated.Value(1);
+
+  const handlePressIn = () => {
+    Animated.spring(scaleValue, {
+      toValue: 0.95,
+      useNativeDriver: true,
+    }).start();
+  };
+
+  const handlePressOut = () => {
+    Animated.spring(scaleValue, {
+      toValue: 1,
+      useNativeDriver: true,
+    }).start();
+  };
+
+  return (
+    <TouchableOpacity
+      onPress={onPress}
+      onPressIn={handlePressIn}
+      onPressOut={handlePressOut}
+      activeOpacity={0.7}
+    >
+      <Animated.View
+        style={[
+          styles.supportItem,
+          { transform: [{ scale: scaleValue }] }
+        ]}
+      >
+        <View style={styles.supportItemLeft}>
+          <View style={styles.supportIcon}>
+            <Ionicons name={icon} size={24} color="#3B82F6" />
+          </View>
+          <Text style={styles.supportItemText}>{title}</Text>
+        </View>
+        <Ionicons name="chevron-forward" size={20} color="#6B7280" />
+      </Animated.View>
+    </TouchableOpacity>
+  );
+};
+
+const SettingsScreen = () => {
+  const router = useRouter();
   const [profile] = useState(mockProfile);
   const [settings, setSettings] = useState({
     notifications: true,
@@ -86,7 +161,7 @@ const SettingsScreen = ({ navigation }) => {
         },
         {
           text: 'Logout',
-          onPress: () => navigation.replace('index'),
+          onPress: () => router.replace('/(auth)'),
           style: 'destructive',
         },
       ]
@@ -95,20 +170,30 @@ const SettingsScreen = ({ navigation }) => {
 
   return (
     <View style={styles.container}>
+      <StatusBar style="light" />
       <BlurView intensity={80} style={styles.header}>
         <TouchableOpacity 
+          onPress={() => router.back()} 
           style={styles.backButton}
-          onPress={() => navigation.goBack()}
         >
           <Ionicons name="arrow-back" size={24} color="#fff" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Settings</Text>
+        <Text style={styles.title}>Settings</Text>
+        <View style={styles.placeholder} />
       </BlurView>
 
-      <ScrollView style={styles.content}>
+      <ScrollView 
+        style={styles.content}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.scrollContent}
+      >
         {/* Profile Section */}
         <View style={styles.section}>
-          <View style={styles.profileCard}>
+          <TouchableOpacity 
+            style={styles.profileCard}
+            onPress={() => router.push('/profile-details')}
+            activeOpacity={0.7}
+          >
             <View style={styles.profileAvatar}>
               <Text style={styles.profileInitials}>
                 {profile?.full_name?.split(' ').map(n => n[0]).join('')}
@@ -117,14 +202,12 @@ const SettingsScreen = ({ navigation }) => {
             <View style={styles.profileInfo}>
               <Text style={styles.profileName}>{profile?.full_name}</Text>
               <Text style={styles.profileRole}>{profile?.role}</Text>
+              <Text style={styles.profileEmail}>{profile?.email}</Text>
             </View>
-            <TouchableOpacity 
-              style={styles.editButton}
-              onPress={() => navigation.navigate('EditProfile')}
-            >
-              <Ionicons name="pencil" size={20} color="#3B82F6" />
-            </TouchableOpacity>
-          </View>
+            <View style={styles.editButton}>
+              <Ionicons name="chevron-forward" size={24} color="#6B7280" />
+            </View>
+          </TouchableOpacity>
         </View>
 
         {/* App Settings */}
@@ -168,44 +251,30 @@ const SettingsScreen = ({ navigation }) => {
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Support</Text>
 
-          <TouchableOpacity 
-            style={styles.supportItem}
-            onPress={() => navigation.navigate('Help')}
-          >
-            <View style={styles.supportItemLeft}>
-              <Ionicons name="help-circle-outline" size={24} color="#3B82F6" />
-              <Text style={styles.supportItemText}>Help & FAQ</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={20} color="#6B7280" />
-          </TouchableOpacity>
+          <SupportItem
+            icon="help-circle-outline"
+            title="Help & FAQ"
+            onPress={() => router.push('/help')}
+          />
 
-          <TouchableOpacity 
-            style={styles.supportItem}
-            onPress={() => navigation.navigate('ContactSupport')}
-          >
-            <View style={styles.supportItemLeft}>
-              <Ionicons name="mail-outline" size={24} color="#3B82F6" />
-              <Text style={styles.supportItemText}>Contact Support</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={20} color="#6B7280" />
-          </TouchableOpacity>
+          <SupportItem
+            icon="mail-outline"
+            title="Contact Support"
+            onPress={() => router.push('/help')}
+          />
 
-          <TouchableOpacity 
-            style={styles.supportItem}
-            onPress={() => navigation.navigate('PrivacyPolicy')}
-          >
-            <View style={styles.supportItemLeft}>
-              <Ionicons name="shield-checkmark-outline" size={24} color="#3B82F6" />
-              <Text style={styles.supportItemText}>Privacy Policy</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={20} color="#6B7280" />
-          </TouchableOpacity>
+          <SupportItem
+            icon="shield-checkmark-outline"
+            title="Privacy Policy"
+            onPress={() => router.push('/privacy-policy')}
+          />
         </View>
 
         {/* Logout Button */}
         <TouchableOpacity 
           style={styles.logoutButton}
           onPress={handleLogout}
+          activeOpacity={0.7}
         >
           <Ionicons name="log-out-outline" size={24} color="#EF4444" />
           <Text style={styles.logoutText}>Log Out</Text>
@@ -226,29 +295,32 @@ const styles = StyleSheet.create({
   },
   header: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    paddingTop: 60,
-    paddingBottom: 20,
-    paddingHorizontal: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.1)',
+    padding: 20,
+    paddingTop: Platform.OS === 'ios' ? 60 : 20,
+    backgroundColor: 'rgba(17, 24, 39, 0.8)',
   },
   backButton: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 16,
+    alignItems: 'center',
   },
-  headerTitle: {
-    fontSize: 24,
-    fontWeight: 'bold',
+  title: {
+    fontSize: 20,
+    fontWeight: '600',
     color: '#fff',
+  },
+  placeholder: {
+    width: 40,
   },
   content: {
     flex: 1,
+  },
+  scrollContent: {
+    paddingBottom: 40,
   },
   section: {
     padding: 20,
@@ -256,44 +328,66 @@ const styles = StyleSheet.create({
     borderBottomColor: 'rgba(255,255,255,0.1)',
   },
   sectionTitle: {
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: '600',
     color: '#fff',
-    marginBottom: 16,
+    marginBottom: 20,
+    letterSpacing: 0.5,
   },
   profileCard: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#1F2937',
-    borderRadius: 16,
-    padding: 16,
+    borderRadius: 20,
+    padding: 20,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.3,
+    shadowRadius: 4.65,
+    elevation: 8,
   },
   profileAvatar: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
+    width: 70,
+    height: 70,
+    borderRadius: 35,
     backgroundColor: '#3B82F6',
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 16,
+    shadowColor: '#3B82F6',
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.3,
+    shadowRadius: 4.65,
+    elevation: 8,
   },
   profileInitials: {
     color: '#fff',
-    fontSize: 24,
+    fontSize: 28,
     fontWeight: '600',
   },
   profileInfo: {
     flex: 1,
   },
   profileName: {
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: '600',
     color: '#fff',
     marginBottom: 4,
   },
   profileRole: {
-    fontSize: 14,
+    fontSize: 16,
     color: '#6B7280',
+    marginBottom: 4,
+  },
+  profileEmail: {
+    fontSize: 14,
+    color: '#9CA3AF',
   },
   editButton: {
     width: 40,
@@ -308,8 +402,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.1)',
+    paddingHorizontal: 20,
+    backgroundColor: '#1F2937',
+    borderRadius: 16,
+    marginBottom: 12,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
   },
   settingInfo: {
     flexDirection: 'row',
@@ -317,56 +421,84 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   settingIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(59,130,246,0.1)',
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 12,
+    marginRight: 16,
   },
   settingText: {
     flex: 1,
   },
   settingTitle: {
     fontSize: 16,
+    fontWeight: '600',
     color: '#fff',
     marginBottom: 4,
   },
   settingDescription: {
     fontSize: 14,
     color: '#6B7280',
+    lineHeight: 20,
   },
   supportItem: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.1)',
+    paddingHorizontal: 20,
+    backgroundColor: '#1F2937',
+    borderRadius: 16,
+    marginBottom: 12,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
   },
   supportItemLeft: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: 16,
+  },
+  supportIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: 'rgba(59,130,246,0.1)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   supportItemText: {
     fontSize: 16,
+    fontWeight: '500',
     color: '#fff',
   },
   logoutButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
+    gap: 12,
     marginTop: 20,
     marginHorizontal: 20,
     padding: 16,
     backgroundColor: 'rgba(239,68,68,0.1)',
-    borderRadius: 12,
+    borderRadius: 16,
+    shadowColor: '#EF4444',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
   },
   logoutText: {
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: '600',
     color: '#EF4444',
   },

@@ -11,6 +11,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useRouter } from 'expo-router';
 import { mockRoutes } from '../lib/mockData';
 
 const { width } = Dimensions.get('window');
@@ -33,13 +34,10 @@ const QuickAction = ({ icon, title, color, onPress }) => (
 );
 
 // RouteCard Component
-const RouteCard = ({ route, isActive, navigation }) => (
+const RouteCard = ({ route, isActive, onPress }) => (
   <TouchableOpacity 
     style={[styles.routeCard, isActive && styles.activeRouteCard]}
-    onPress={() => {
-      console.log('Navigating to route:', route.id);
-      navigation.navigate('route', { id: route.id });
-    }}
+    onPress={onPress}
   >
     <View style={styles.routeInfo}>
       <Text style={styles.routeName}>{route.name}</Text>
@@ -50,13 +48,13 @@ const RouteCard = ({ route, isActive, navigation }) => (
     <View style={styles.routeStats}>
       <View style={styles.routeStat}>
         <Ionicons name="home" size={16} color="#9CA3AF" />
-        <Text style={styles.routeStatText}>{route.houses.count} houses</Text>
+        <Text style={styles.routeStatText}>{route.houses.length} houses</Text>
       </View>
       <View style={styles.routeProgress}>
         <View 
           style={[
             styles.progressBar, 
-            { width: `${(route.houses.count > 0 ? route.completed_houses / route.houses.count : 0) * 100}%` }
+            { width: `${(route.houses.length > 0 ? route.completed_houses / route.houses.length : 0) * 100}%` }
           ]} 
         />
       </View>
@@ -64,7 +62,8 @@ const RouteCard = ({ route, isActive, navigation }) => (
   </TouchableOpacity>
 );
 
-const HomeScreen = ({ navigation }) => {
+const HomeScreen = () => {
+  const router = useRouter();
   const [activeRoute, setActiveRoute] = useState(null);
   const [upcomingRoutes, setUpcomingRoutes] = useState([]);
   const [refreshing, setRefreshing] = useState(false);
@@ -105,7 +104,7 @@ const HomeScreen = ({ navigation }) => {
           <Text style={styles.greeting}>Welcome back</Text>
           <TouchableOpacity 
             style={styles.settingsButton}
-            onPress={() => navigation.navigate('settings')}
+            onPress={() => router.push('/settings')}
           >
             <Ionicons name="settings-outline" size={24} color="#fff" />
           </TouchableOpacity>
@@ -153,25 +152,25 @@ const HomeScreen = ({ navigation }) => {
               icon="add-circle"
               title="Create Route"
               color="#3B82F6"
-              onPress={() => navigation.navigate('route-create')}
+              onPress={() => router.push('/route-create')}
             />
             <QuickAction
               icon="map"
               title="View Map"
               color="#10B981"
-              onPress={() => navigation.navigate('map')}
+              onPress={() => router.push('/map')}
             />
             <QuickAction
               icon="notifications"
               title="Updates"
               color="#F59E0B"
-              onPress={() => navigation.navigate('Updates')}
+              onPress={() => router.push('/updates')}
             />
             <QuickAction
               icon="help-circle"
               title="Support"
               color="#EF4444"
-              onPress={() => navigation.navigate('Support')}
+              onPress={() => router.push('/support')}
             />
           </View>
         </View>
@@ -180,7 +179,11 @@ const HomeScreen = ({ navigation }) => {
         {activeRoute && (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Active Route</Text>
-            <RouteCard route={activeRoute} isActive navigation={navigation} />
+            <RouteCard 
+              route={activeRoute} 
+              isActive 
+              onPress={() => router.push(`/route/${activeRoute.id}`)}
+            />
           </View>
         )}
 
@@ -189,12 +192,16 @@ const HomeScreen = ({ navigation }) => {
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
               <Text style={styles.sectionTitle}>Upcoming Routes</Text>
-              <TouchableOpacity onPress={() => navigation.navigate('Routes')}>
+              <TouchableOpacity onPress={() => router.push('/completed-routes')}>
                 <Text style={styles.seeAllText}>See All</Text>
               </TouchableOpacity>
             </View>
             {upcomingRoutes.map(route => (
-              <RouteCard key={route.id} route={route} navigation={navigation} />
+              <RouteCard 
+                key={route.id} 
+                route={route} 
+                onPress={() => router.push(`/route/${route.id}`)}
+              />
             ))}
           </View>
         )}

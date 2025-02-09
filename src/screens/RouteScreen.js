@@ -3,203 +3,446 @@ import {
   View,
   Text,
   StyleSheet,
+  ScrollView,
   TouchableOpacity,
-  Dimensions,
-  Animated,
-  Platform,
   Alert,
+  Platform,
+  Switch,
+  TextInput,
+  Linking,
+  Modal,
+  Pressable,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { BlurView } from 'expo-blur';
-import ActiveRouteMap from '../components/ActiveRouteMap';
-import { mockRoutes, mockHouses } from '../lib/mockData';
+import { useRouter } from 'expo-router';
+import * as Location from 'expo-location';
 import * as Notifications from 'expo-notifications';
+import { BlurView } from 'expo-blur';
+import { mockRoutes } from '../lib/mockData';
+import { LinearGradient } from 'expo-linear-gradient';
 
-const { height } = Dimensions.get('window');
+// Configure notifications
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: true,
+    shouldSetBadge: false,
+  }),
+});
 
-const RouteScreen = ({ route, navigation }) => {
-  const { routeId } = route.params;
-  const [routeData, setRouteData] = useState(null);
+const GEOFENCE_RADIUS = 200; // meters
+
+const getStatusColor = (status) => {
+  switch (status) {
+    case 'skip':
+      return '#EF4444'; // Red for skip
+    case 'new':
+      return '#10B981'; // Green for new customer
+    case 'collect':
+      return '#3B82F6'; // Blue for regular collection
+    default:
+      return '#6B7280'; // Gray for unknown
+  }
+};
+
+const AddressModal = ({ visible, house, onClose, onSaveNote, onNavigate }) => (
+  <Modal
+    visible={visible}
+    transparent={true}
+    animationType="slide"
+    onRequestClose={onClose}
+  >
+    <View style={styles.modalOverlay}>
+      <BlurView intensity={90} style={styles.modalContent}>
+        <View style={styles.modalHeader}>
+          <Text style={styles.modalTitle}>Address Details</Text>
+          <TouchableOpacity onPress={onClose} style={styles.modalClose}>
+            <Ionicons name="close" size={24} color="#fff" />
+          </TouchableOpacity>
+        </View>
+
+        <Text style={styles.modalAddress}>{house?.address}</Text>
+        
+        <View style={[styles.modalStatusBadge, { backgroundColor: getStatusColor(house?.status) + '20' }]}>
+          <Text style={[styles.modalStatusText, { color: getStatusColor(house?.status) }]}>
+            {house?.status === 'new' ? 'New Customer' : house?.status === 'skip' ? 'Skip' : 'Collect'}
+          </Text>
+        </View>
+
+        <Text style={styles.modalLabel}>Notes</Text>
+        <TextInput
+          style={styles.modalInput}
+          multiline
+          placeholder="Add notes here..."
+          placeholderTextColor="#6B7280"
+          defaultValue={house?.notes}
+          onEndEditing={(e) => onSaveNote(e.nativeEvent.text)}
+        />
+
+        <TouchableOpacity 
+          style={styles.navigateButton}
+          onPress={onNavigate}
+        >
+          <Ionicons name="navigate" size={20} color="#fff" />
+          <Text style={styles.navigateText}>Navigate to Address</Text>
+        </TouchableOpacity>
+      </BlurView>
+    </View>
+  </Modal>
+);
+
+const HouseItem = ({ house, onToggle, isSelected, onPress }) => (
+  <Pressable 
+    style={[styles.houseItem, isSelected && styles.houseItemSelected]} 
+    onPress={onPress}
+  >
+    <View style={styles.houseInfo}>
+      <Text style={styles.houseAddress}>{house.address}</Text>
+      {house.notes && (
+        <Text style={styles.houseNotes}>{house.notes}</Text>
+      )}
+      <View style={[styles.statusBadge, { backgroundColor: getStatusColor(house.status) + '20' }]}>
+        <Text style={[styles.statusText, { color: getStatusColor(house.status) }]}>
+          {house.status === 'new' ? 'New Customer' : house.status === 'skip' ? 'Skip' : 'Collect'}
+        </Text>
+      </View>
+    </View>
+    <TouchableOpacity 
+      style={[styles.checkbox, isSelected && styles.checkboxSelected]}
+      onPress={() => onToggle(house.id)}
+    >
+      {isSelected && <Ionicons name="checkmark" size={20} color="#fff" />}
+    </TouchableOpacity>
+  </Pressable>
+);
+
+const NotificationBanner = ({ message, onDismiss }) => (
+  <BlurView intensity={80} style={styles.notificationBanner}>
+    <View style={styles.notificationContent}>
+      <Ionicons name="notifications" size={20} color="#10B981" />
+      <Text style={styles.notificationText}>{message}</Text>
+    </View>
+    <TouchableOpacity onPress={onDismiss}>
+      <Ionicons name="close" size={20} color="#6B7280" />
+    </TouchableOpacity>
+  </BlurView>
+);
+
+const RouteScreen = ({ routeId }) => {
+  const router = useRouter();
+  const [route, setRoute] = useState(null);
+  const [selectedHouses, setSelectedHouses] = useState(new Set());
+  const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [selectedHouse, setSelectedHouse] = useState(null);
-  const [isNavigating, setIsNavigating] = useState(false);
-  
-  const slideAnim = useState(new Animated.Value(height))[0];
+  const [modalVisible, setModalVisible] = useState(false);
+  const [notifications, setNotifications] = useState([]);
+  const [showNotifications, setShowNotifications] = useState(true);
 
   useEffect(() => {
-    setupNotifications();
-    fetchRouteData();
+    const routeData = mockRoutes.find(r => r.id === routeId);
+    if (routeData) {
+      setRoute(routeData);
+    }
+    setupLocationAndNotifications();
   }, [routeId]);
 
-  const setupNotifications = async () => {
-    const { status } = await Notifications.requestPermissionsAsync();
-    if (status !== 'granted') {
-      Alert.alert('Permission Denied', 'Notifications are required for route alerts');
-    }
-  };
+  const setupLocationAndNotifications = async () => {
+    try {
+      const { status: locationStatus } = await Location.requestForegroundPermissionsAsync();
+      if (locationStatus !== 'granted') {
+        Alert.alert('Permission Denied', 'Location permission is required for address notifications.');
+        return;
+      }
 
-  const fetchRouteData = () => {
-    const data = mockRoutes.find(r => r.id === routeId);
-    setRouteData(data);
-  };
+      const { status: notificationStatus } = await Notifications.requestPermissionsAsync();
+      if (notificationStatus !== 'granted') {
+        Alert.alert('Permission Denied', 'Notification permission is required for address alerts.');
+        return;
+      }
 
-  const showHouseCard = () => {
-    Animated.spring(slideAnim, {
-      toValue: 0,
-      useNativeDriver: true,
-    }).start();
-  };
-
-  const hideHouseCard = () => {
-    Animated.spring(slideAnim, {
-      toValue: height,
-      useNativeDriver: true,
-    }).start();
-    setSelectedHouse(null);
-  };
-
-  const handleHouseStatusChange = async (houseId, status) => {
-    if (status === 'approaching') {
-      // Show notification when approaching a house
-      await Notifications.scheduleNotificationAsync({
-        content: {
-          title: 'Approaching House',
-          body: 'You are near the next house on your route',
-          data: { houseId },
+      // Start location updates
+      Location.watchPositionAsync(
+        {
+          accuracy: Location.Accuracy.High,
+          distanceInterval: 10,
         },
-        trigger: null, // Show immediately
-      });
-    } else {
-      // Update house status in UI
-      const house = mockHouses.find(h => h.id === houseId);
-      if (house) {
-        setSelectedHouse({ ...house, status });
-        showHouseCard();
-      }
-
-      // Check if route is complete
-      const remainingHouses = mockHouses.filter(h => 
-        h.route_id === routeId && h.status === 'pending'
+        (location) => {
+          if (notificationsEnabled) {
+            checkGeofences(location.coords);
+          }
+        }
       );
-      
-      if (remainingHouses.length === 0) {
-        Alert.alert(
-          'Route Complete',
-          'All houses have been processed. Would you like to finish the route?',
-          [
-            {
-              text: 'Continue',
-              style: 'cancel',
-            },
-            {
-              text: 'Finish Route',
-              onPress: () => navigation.navigate('RouteComplete', { routeId }),
-            },
-          ]
-        );
-      }
+    } catch (error) {
+      console.error('Error setting up location:', error);
     }
   };
 
-  const getProgressPercentage = () => {
-    const houses = mockHouses.filter(h => h.route_id === routeId);
-    if (!houses.length) return 0;
-    const completed = houses.filter(h => h.status !== 'pending').length;
-    return (completed / houses.length) * 100;
+  const showNotification = (message) => {
+    // Add to on-screen notifications
+    setNotifications(prev => [...prev, { id: Date.now(), message }]);
+
+    // Schedule phone notification
+    Notifications.scheduleNotificationAsync({
+      content: {
+        title: 'WasteRoute Update',
+        body: message,
+        sound: true,
+      },
+      trigger: null, // Show immediately
+    });
+
+    // Auto-dismiss after 5 seconds
+    setTimeout(() => {
+      setNotifications(prev => prev.filter(n => n.id !== Date.now()));
+    }, 5000);
   };
+
+  const dismissNotification = (id) => {
+    setNotifications(prev => prev.filter(n => n.id !== id));
+  };
+
+  const checkGeofences = (currentLocation) => {
+    if (!route?.houses) return;
+
+    route.houses.forEach(house => {
+      const distance = calculateDistance(
+        currentLocation.latitude,
+        currentLocation.longitude,
+        parseFloat(house.lat),
+        parseFloat(house.lng)
+      );
+
+      if (distance <= GEOFENCE_RADIUS && !selectedHouses.has(house.id)) {
+        const isSkip = house.status === 'skip';
+        const isNew = house.status === 'new';
+        const message = `${isSkip ? '⚠️ Skip House' : isNew ? '🆕 New Customer' : '🏠 Collection'}: ${house.address}`;
+        
+        // Show in-app notification
+        showNotification(message);
+        
+        // Show system notification
+        Notifications.scheduleNotificationAsync({
+          content: {
+            title: isSkip ? '⚠️ Skip House Nearby' : isNew ? '🆕 New Customer Nearby' : '🏠 Collection Nearby',
+            body: `${house.address}\n${isSkip ? 'This house should be skipped' : isNew ? 'New customer for collection' : 'Regular collection'}`,
+            data: { houseId: house.id },
+          },
+          trigger: null,
+        });
+      }
+    });
+  };
+
+  const calculateDistance = (lat1, lon1, lat2, lon2) => {
+    const R = 6371e3; // Earth's radius in meters
+    const φ1 = lat1 * Math.PI/180;
+    const φ2 = lat2 * Math.PI/180;
+    const Δφ = (lat2-lat1) * Math.PI/180;
+    const Δλ = (lon2-lon1) * Math.PI/180;
+
+    const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
+              Math.cos(φ1) * Math.cos(φ2) *
+              Math.sin(Δλ/2) * Math.sin(Δλ/2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+
+    return R * c;
+  };
+
+  const toggleHouse = (houseId) => {
+    const newSelected = new Set(selectedHouses);
+    if (newSelected.has(houseId)) {
+      newSelected.delete(houseId);
+    } else {
+      newSelected.add(houseId);
+    }
+    setSelectedHouses(newSelected);
+  };
+
+  const toggleAll = () => {
+    if (selectedHouses.size === route.houses.length) {
+      setSelectedHouses(new Set());
+    } else {
+      setSelectedHouses(new Set(route.houses.map(h => h.id)));
+    }
+  };
+
+  const handleAddressPress = (house) => {
+    setSelectedHouse(house);
+    setModalVisible(true);
+  };
+
+  const handleSaveNote = (note) => {
+    setRoute(prev => ({
+      ...prev,
+      houses: prev.houses.map(h => 
+        h.id === selectedHouse.id 
+          ? { ...h, notes: note }
+          : h
+      )
+    }));
+  };
+
+  const handleNavigate = () => {
+    const { lat, lng } = selectedHouse;
+    const url = Platform.select({
+      ios: `maps:${lat},${lng}`,
+      android: `geo:${lat},${lng}`,
+    });
+    Linking.openURL(url);
+  };
+
+  const handleEndRoute = () => {
+    const stats = {
+      total: route.houses.length,
+      completed: selectedHouses.size,
+      skipped: route.houses.filter(h => h.status === 'skip').length,
+      newCustomers: route.houses.filter(h => h.status === 'new').length,
+      startTime: new Date(route.date),
+      endTime: new Date(),
+    };
+
+    if (selectedHouses.size < route.houses.length) {
+      Alert.alert(
+        'Incomplete Route',
+        'Not all houses have been checked. Are you sure you want to end the route?',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { 
+            text: 'End Route', 
+            style: 'destructive',
+            onPress: () => router.push({
+              pathname: '/route-complete',
+              params: { summary: JSON.stringify(stats) }
+            })
+          }
+        ]
+      );
+    } else {
+      router.push({
+        pathname: '/route-complete',
+        params: { summary: JSON.stringify(stats) }
+      });
+    }
+  };
+
+  if (!route) {
+    return (
+      <View style={styles.container}>
+        <Text style={styles.loadingText}>Loading route...</Text>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
-      <ActiveRouteMap
-        route={routeData}
-        onHouseStatusChange={handleHouseStatusChange}
+      <LinearGradient
+        colors={['#1a1a1a', '#000000']}
+        style={StyleSheet.absoluteFill}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
       />
-
-      {/* Top Navigation Bar */}
-      <BlurView intensity={80} style={styles.navbar}>
+      
+      <BlurView intensity={80} style={styles.header}>
         <TouchableOpacity 
-          style={styles.navButton}
-          onPress={() => navigation.goBack()}
+          onPress={() => router.back()}
+          style={styles.backButton}
         >
           <Ionicons name="arrow-back" size={24} color="#fff" />
         </TouchableOpacity>
-        <Text style={styles.routeTitle}>{routeData?.name || 'Route'}</Text>
-        <TouchableOpacity 
-          style={styles.navButton}
-          onPress={() => navigation.navigate('RouteDetails', { routeId })}
-        >
-          <Ionicons name="menu" size={24} color="#fff" />
-        </TouchableOpacity>
+        <View style={styles.headerContent}>
+          <Text style={styles.headerTitle}>Route Details</Text>
+          <Text style={styles.headerSubtitle}>{route?.name}</Text>
+        </View>
+        <View style={styles.headerActions}>
+          <TouchableOpacity 
+            style={styles.notificationToggle}
+            onPress={() => setShowNotifications(!showNotifications)}
+          >
+            <Ionicons 
+              name={showNotifications ? "notifications" : "notifications-off"} 
+              size={24} 
+              color={showNotifications ? "#10B981" : "#6B7280"} 
+            />
+            <Text style={[
+              styles.notificationText,
+              !showNotifications && styles.notificationTextOff
+            ]}>
+              Notifications
+            </Text>
+          </TouchableOpacity>
+        </View>
       </BlurView>
 
-      {/* Navigation Controls */}
-      <View style={styles.controls}>
+      {showNotifications && notifications.length > 0 && (
+        <View style={styles.notificationsContainer}>
+          {notifications.map(notification => (
+            <NotificationBanner
+              key={notification.id}
+              message={notification.message}
+              onDismiss={() => dismissNotification(notification.id)}
+            />
+          ))}
+        </View>
+      )}
+
+      <View style={styles.toolbar}>
+        <View style={styles.progressContainer}>
+          <View style={styles.progressBar}>
+            <View 
+              style={[
+                styles.progressFill,
+                { width: `${(selectedHouses.size / route.houses.length) * 100}%` }
+              ]} 
+            />
+          </View>
+          <Text style={styles.progress}>
+            {selectedHouses.size}/{route.houses.length} completed
+          </Text>
+        </View>
+        
         <TouchableOpacity 
-          style={[styles.controlButton, isNavigating && styles.activeControl]}
-          onPress={() => setIsNavigating(!isNavigating)}
+          style={styles.checkAllButton}
+          onPress={toggleAll}
         >
-          <Ionicons 
-            name={isNavigating ? "navigate" : "navigate-outline"} 
-            size={24} 
-            color="#fff" 
-          />
+          <Ionicons name="checkbox" size={20} color="#fff" />
+          <Text style={styles.checkAllText}>
+            {selectedHouses.size === route.houses.length ? 'Uncheck All' : 'Check All'}
+          </Text>
         </TouchableOpacity>
       </View>
 
-      {/* House Card */}
-      <Animated.View 
-        style={[
-          styles.houseCard,
-          {
-            transform: [{ translateY: slideAnim }]
-          }
-        ]}
+      <ScrollView 
+        style={styles.content}
+        showsVerticalScrollIndicator={false}
       >
-        {selectedHouse && (
-          <BlurView intensity={80} style={styles.houseCardContent}>
-            <View style={styles.houseHeader}>
-              <Text style={styles.houseAddress}>{selectedHouse.address}</Text>
-              <TouchableOpacity 
-                style={styles.closeButton}
-                onPress={hideHouseCard}
-              >
-                <Ionicons name="close" size={24} color="#fff" />
-              </TouchableOpacity>
-            </View>
+        {route.houses.map(house => (
+          <HouseItem
+            key={house.id}
+            house={house}
+            onToggle={toggleHouse}
+            isSelected={selectedHouses.has(house.id)}
+            onPress={() => handleAddressPress(house)}
+          />
+        ))}
+      </ScrollView>
 
-            {selectedHouse.notes && (
-              <Text style={styles.houseNotes}>{selectedHouse.notes}</Text>
-            )}
-
-            <View style={styles.actionButtons}>
-              <TouchableOpacity 
-                style={[styles.actionButton, styles.collectButton]}
-                onPress={() => handleHouseStatusChange(selectedHouse.id, 'collect')}
-              >
-                <Ionicons name="checkmark-circle" size={24} color="#fff" />
-                <Text style={styles.actionButtonText}>Collect</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity 
-                style={[styles.actionButton, styles.skipButton]}
-                onPress={() => handleHouseStatusChange(selectedHouse.id, 'skip')}
-              >
-                <Ionicons name="close-circle" size={24} color="#fff" />
-                <Text style={styles.actionButtonText}>Skip</Text>
-              </TouchableOpacity>
-            </View>
-          </BlurView>
-        )}
-      </Animated.View>
-
-      {/* Progress Bar */}
-      <View style={styles.progressBar}>
-        <View 
-          style={[
-            styles.progressFill,
-            { width: `${getProgressPercentage()}%` }
-          ]} 
-        />
+      <View style={styles.footer}>
+        <TouchableOpacity 
+          style={styles.endRouteButton}
+          onPress={handleEndRoute}
+        >
+          <Ionicons name="flag" size={20} color="#fff" />
+          <Text style={styles.endRouteText}>End Route</Text>
+        </TouchableOpacity>
       </View>
+
+      <AddressModal
+        visible={modalVisible}
+        house={selectedHouse}
+        onClose={() => setModalVisible(false)}
+        onSaveNote={handleSaveNote}
+        onNavigate={handleNavigate}
+      />
     </View>
   );
 };
@@ -207,97 +450,236 @@ const RouteScreen = ({ route, navigation }) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#000',
+    backgroundColor: 'transparent',
   },
-  navbar: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
+  header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     padding: 20,
     paddingTop: Platform.OS === 'ios' ? 60 : 20,
+    backgroundColor: 'rgba(26, 26, 26, 0.8)',
   },
-  navButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
+  headerContent: {
+    flex: 1,
+    marginHorizontal: 16,
   },
-  routeTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#fff',
-  },
-  controls: {
-    position: 'absolute',
-    top: 120,
-    right: 20,
-    gap: 12,
-  },
-  controlButton: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: 'rgba(0,0,0,0.75)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.2)',
-  },
-  activeControl: {
-    backgroundColor: '#3B82F6',
-    borderColor: '#3B82F6',
-  },
-  houseCard: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    overflow: 'hidden',
-  },
-  houseCardContent: {
-    padding: 20,
-    paddingBottom: Platform.OS === 'ios' ? 40 : 20,
-  },
-  houseHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  houseAddress: {
+  headerTitle: {
     fontSize: 20,
     fontWeight: '600',
     color: '#fff',
-    flex: 1,
   },
-  closeButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+  headerSubtitle: {
+    fontSize: 14,
+    color: '#9CA3AF',
+    marginTop: 4,
+  },
+  backButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.1)',
+  },
+  notificationToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(16, 185, 129, 0.1)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    gap: 6,
+  },
+  notificationText: {
+    color: '#10B981',
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  notificationTextOff: {
+    color: '#6B7280',
+  },
+  toolbar: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 16,
+    backgroundColor: 'rgba(26, 26, 26, 0.8)',
+  },
+  progressContainer: {
+    flex: 1,
+    marginRight: 16,
+  },
+  progressBar: {
+    height: 6,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    borderRadius: 3,
+    overflow: 'hidden',
+  },
+  progressFill: {
+    height: '100%',
+    backgroundColor: '#10B981',
+  },
+  progress: {
+    color: '#9CA3AF',
+    fontSize: 12,
+    marginTop: 4,
+  },
+  checkAllButton: {
+    backgroundColor: '#10B981',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  checkAllText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  content: {
+    flex: 1,
+    padding: 16,
+  },
+  houseItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(26, 26, 26, 0.8)',
+    padding: 16,
+    borderRadius: 16,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+  },
+  houseItemSelected: {
+    borderColor: '#10B981',
+    backgroundColor: 'rgba(16, 185, 129, 0.1)',
+  },
+  checkbox: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    borderWidth: 2,
+    borderColor: '#10B981',
     marginLeft: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  checkboxSelected: {
+    backgroundColor: '#10B981',
+  },
+  houseInfo: {
+    flex: 1,
+  },
+  houseAddress: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 4,
   },
   houseNotes: {
-    fontSize: 16,
-    color: 'rgba(255,255,255,0.8)',
-    marginBottom: 16,
+    color: '#9CA3AF',
+    fontSize: 14,
+    marginBottom: 8,
   },
-  actionButtons: {
+  statusBadge: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  statusText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  footer: {
+    padding: 16,
+    backgroundColor: 'rgba(31, 41, 55, 0.8)',
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.1)',
+  },
+  endRouteButton: {
+    backgroundColor: '#10B981',
+    padding: 16,
+    borderRadius: 12,
+    alignItems: 'center',
     flexDirection: 'row',
-    gap: 12,
+    justifyContent: 'center',
+    gap: 8,
   },
-  actionButton: {
+  endRouteText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  loadingText: {
+    color: '#fff',
+    fontSize: 16,
+    textAlign: 'center',
+    marginTop: 20,
+  },
+  modalOverlay: {
     flex: 1,
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(0,0,0,0.5)',
+  },
+  modalContent: {
+    backgroundColor: 'rgba(31, 41, 55, 0.98)',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    padding: 20,
+    minHeight: '50%',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: '600',
+    color: '#fff',
+  },
+  modalClose: {
+    padding: 4,
+  },
+  modalAddress: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: '#fff',
+    marginBottom: 12,
+  },
+  modalStatusBadge: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 12,
+    marginBottom: 24,
+  },
+  modalStatusText: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  modalLabel: {
+    color: '#9CA3AF',
+    fontSize: 14,
+    marginBottom: 8,
+  },
+  modalInput: {
+    backgroundColor: 'rgba(55, 65, 81, 0.8)',
+    borderRadius: 12,
+    padding: 16,
+    color: '#fff',
+    fontSize: 16,
+    minHeight: 100,
+    textAlignVertical: 'top',
+    marginBottom: 20,
+  },
+  navigateButton: {
+    backgroundColor: '#3B82F6',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -305,28 +687,40 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     gap: 8,
   },
-  collectButton: {
-    backgroundColor: '#10B981',
-  },
-  skipButton: {
-    backgroundColor: '#EF4444',
-  },
-  actionButtonText: {
+  navigateText: {
     color: '#fff',
     fontSize: 16,
     fontWeight: '600',
   },
-  progressBar: {
+  notificationsContainer: {
     position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    height: 4,
-    backgroundColor: 'rgba(255,255,255,0.2)',
+    top: Platform.OS === 'ios' ? 120 : 80,
+    left: 20,
+    right: 20,
+    zIndex: 100,
   },
-  progressFill: {
-    height: '100%',
-    backgroundColor: '#3B82F6',
+  notificationBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(26, 26, 26, 0.95)',
+    padding: 12,
+    borderRadius: 12,
+    marginBottom: 8,
+  },
+  notificationContent: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  notificationText: {
+    color: '#fff',
+    fontSize: 14,
+    flex: 1,
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
 });
 

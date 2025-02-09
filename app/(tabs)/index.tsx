@@ -1,4 +1,4 @@
-import { View } from 'react-native';
+import { View, Text, StyleSheet } from 'react-native';
 import { useRouter } from 'expo-router';
 import HomeScreen from '../../src/screens/HomeScreen';
 
@@ -27,3 +27,16 @@ export default function Index() {
     </View>
   );
 }
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#000',
+  },
+  text: {
+    color: '#fff',
+    fontSize: 20,
+  },
+});
+
