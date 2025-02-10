@@ -13,11 +13,14 @@ export default function RootLayout() {
         }}
       >
         <Stack.Screen name="(tabs)" />
+        <Stack.Screen name="(auth)" />
+        <Stack.Screen name="route" />
+        <Stack.Screen name="settings" />
         <Stack.Screen name="support" />
         <Stack.Screen name="updates" />
         <Stack.Screen name="profile-details" />
-        <Stack.Screen name="(auth)" />
-        <Stack.Screen name="route" />
+        <Stack.Screen name="route-create" />
+        <Stack.Screen name="map" />
       </Stack>
     </>
   );

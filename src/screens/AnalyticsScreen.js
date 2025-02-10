@@ -1,269 +1,333 @@
-import React, { useState } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  TouchableOpacity,
-  Platform,
-  Dimensions,
-} from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Dimensions, Alert, Platform } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { BlurView } from 'expo-blur';
+import { mockRoutes, mockTeamMembers } from '../lib/mockData';
 import { LinearGradient } from 'expo-linear-gradient';
-import { mockTeamMembers, mockRoutes } from '../lib/mockData';
+import { useRouter } from 'expo-router';
+import DateTimePicker from '@react-native-community/datetimepicker';
+import { BlurView } from 'expo-blur';
 
-const MetricCard = ({ title, value, icon, trend, trendValue }) => (
-  <View style={styles.metricCard}>
+const { width } = Dimensions.get('window');
+
+// Helper function for avatar colors
+const getAvatarColor = (role) => {
+  switch (role?.toLowerCase()) {
+    case 'admin':
+      return '#3B82F6';
+    case 'driver':
+      return '#10B981';
+    case 'manager':
+      return '#8B5CF6';
+    default:
+      return '#6B7280';
+  }
+};
+
+const MetricCard = ({ icon, title, value, color, showInfo, infoText, trend }) => (
+  <TouchableOpacity 
+    style={[styles.metricCard, { borderLeftColor: color }]}
+    onPress={showInfo ? () => Alert.alert(title, infoText) : null}
+    activeOpacity={showInfo ? 0.7 : 1}
+  >
     <LinearGradient
-      colors={['rgba(59,130,246,0.1)', 'rgba(59,130,246,0.05)']}
+      colors={[`${color}20`, `${color}10`]}
       style={styles.metricGradient}
     >
-      <View style={styles.metricHeader}>
-        <View style={styles.metricIcon}>
-          <Ionicons name={icon} size={22} color="#3B82F6" />
-        </View>
+      <View style={[styles.metricIcon, { backgroundColor: `${color}30` }]}>
+        <Ionicons name={icon} size={24} color={color} />
+      </View>
+      <View style={styles.metricContent}>
+        <Text style={styles.metricTitle}>{title}</Text>
+        <Text style={styles.metricValue}>{value}</Text>
         {trend && (
-          <View style={[
-            styles.trendContainer,
-            { backgroundColor: trend === 'up' ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.1)' }
-          ]}>
+          <View style={[styles.trendBadge, { backgroundColor: trend > 0 ? '#10B98120' : '#EF444420' }]}>
             <Ionicons 
-              name={trend === 'up' ? 'arrow-up' : 'arrow-down'} 
+              name={trend > 0 ? 'trending-up' : 'trending-down'} 
               size={14} 
-              color={trend === 'up' ? '#10B981' : '#EF4444'} 
+              color={trend > 0 ? '#10B981' : '#EF4444'} 
             />
-            <Text style={[
-              styles.trendText,
-              { color: trend === 'up' ? '#10B981' : '#EF4444' }
-            ]}>
-              {trendValue}%
+            <Text style={[styles.trendText, { color: trend > 0 ? '#10B981' : '#EF4444' }]}>
+              {Math.abs(trend)}%
             </Text>
           </View>
         )}
       </View>
-      <Text style={styles.metricValue}>{value}</Text>
-      <Text style={styles.metricTitle}>{title}</Text>
     </LinearGradient>
-  </View>
+  </TouchableOpacity>
 );
 
-const PerformanceCard = ({ title, data }) => (
-  <View style={styles.performanceCard}>
-    <Text style={styles.performanceTitle}>{title}</Text>
-    {data.map((item, index) => (
-      <View key={index} style={styles.performanceItem}>
-        <View style={styles.performanceInfo}>
-          <View style={styles.performanceNameContainer}>
-            <View style={[styles.rankBadge, { backgroundColor: index < 3 ? '#3B82F6' : '#6B7280' }]}>
-              <Text style={styles.rankText}>#{index + 1}</Text>
-            </View>
-            <Text style={styles.performanceName}>{item.name}</Text>
+const PerformerCard = ({ member, position }) => {
+  const router = useRouter();
+  const routesCompleted = member.completed_routes || 0;
+  const efficiency = Math.round((routesCompleted / (routesCompleted + 2)) * 100);
+
+  const getPositionColor = (pos) => {
+    switch (pos) {
+      case 1: return ['#FFD700', '#FFF7CC']; // Gold
+      case 2: return ['#C0C0C0', '#F5F5F5']; // Silver
+      case 3: return ['#CD7F32', '#FFE5CC']; // Bronze
+      default: return ['#3B82F6', '#EBF5FF']; // Blue
+    }
+  };
+
+  const [primaryColor, secondaryColor] = getPositionColor(position);
+
+  return (
+    <TouchableOpacity 
+      style={styles.performerCard}
+      onPress={() => router.push(`/member/${member.id}`)}
+      activeOpacity={0.7}
+    >
+      <LinearGradient
+        colors={[`${primaryColor}20`, `${primaryColor}10`]}
+        style={styles.performerGradient}
+      >
+        <View style={styles.performerInfo}>
+          <View style={[
+            styles.positionBadge,
+            { backgroundColor: primaryColor }
+          ]}>
+            <Text style={[
+              styles.positionText,
+              { color: position <= 3 ? '#000' : '#fff' }
+            ]}>#{position}</Text>
           </View>
-          <Text style={styles.performanceMetric}>{item.metric}</Text>
+          <View style={[styles.avatar, { backgroundColor: getAvatarColor(member.role) }]}>
+            <Text style={styles.avatarText}>
+              {member.full_name.split(' ').map(n => n[0]).join('')}
+            </Text>
+          </View>
+          <View style={styles.nameContainer}>
+            <Text style={styles.performerName}>{member.full_name}</Text>
+            <View style={[styles.roleBadge, { backgroundColor: `${getAvatarColor(member.role)}20` }]}>
+              <Text style={[styles.roleText, { color: getAvatarColor(member.role) }]}>{member.role}</Text>
+            </View>
+          </View>
         </View>
-        <View style={styles.progressBarContainer}>
-          <View style={[styles.performanceBar, { width: `${item.percentage}%` }]} />
-          <Text style={styles.percentageText}>{item.percentage}%</Text>
+        <View style={styles.statsContainer}>
+          <View style={[styles.statBadge, { backgroundColor: `${primaryColor}20` }]}>
+            <Ionicons name="checkmark-circle" size={16} color={primaryColor} />
+            <Text style={[styles.statValue, { color: primaryColor }]}>{routesCompleted}</Text>
+            <Text style={[styles.statLabel, { color: primaryColor }]}>Routes</Text>
+          </View>
+          <View style={[styles.statBadge, { backgroundColor: `${primaryColor}20` }]}>
+            <Ionicons name="flash" size={16} color={primaryColor} />
+            <Text style={[styles.statValue, { color: primaryColor }]}>{efficiency}%</Text>
+            <Text style={[styles.statLabel, { color: primaryColor }]}>Efficiency</Text>
+          </View>
         </View>
-      </View>
-    ))}
-  </View>
-);
+      </LinearGradient>
+    </TouchableOpacity>
+  );
+};
+
+const RouteCard = ({ route }) => {
+  const router = useRouter();
+  const efficiency = Math.round((route.completed_houses / route.houses.length) * 100);
+  const date = new Date(route.date);
+
+  return (
+    <TouchableOpacity 
+      style={styles.routeCard}
+      onPress={() => router.push(`/route/${route.id}/details`)}
+      activeOpacity={0.7}
+    >
+      <LinearGradient
+        colors={['rgba(59, 130, 246, 0.1)', 'rgba(59, 130, 246, 0.05)']}
+        style={styles.routeGradient}
+      >
+        <View style={styles.routeHeader}>
+          <Text style={styles.routeName}>{route.name}</Text>
+          <View style={[styles.efficiencyBadge, { 
+            backgroundColor: efficiency >= 90 ? '#10B98120' : 
+                           efficiency >= 70 ? '#F59E0B20' : 
+                           '#EF444420'
+          }]}>
+            <Text style={[styles.efficiencyText, {
+              color: efficiency >= 90 ? '#10B981' : 
+                     efficiency >= 70 ? '#F59E0B' : 
+                     '#EF4444'
+            }]}>{efficiency}% Efficient</Text>
+          </View>
+        </View>
+        <Text style={styles.routeDate}>
+          {date.toLocaleDateString()} • {date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+        </Text>
+        <View style={styles.routeStats}>
+          <View style={styles.routeStat}>
+            <Ionicons name="home" size={16} color="#3B82F6" />
+            <Text style={styles.routeStatText}>
+              {route.completed_houses}/{route.houses.length} Houses
+            </Text>
+          </View>
+        </View>
+      </LinearGradient>
+    </TouchableOpacity>
+  );
+};
 
 const AnalyticsScreen = () => {
-  const [selectedPeriod, setSelectedPeriod] = useState('week');
-  const [selectedTab, setSelectedTab] = useState('analytics');
+  const [startDate, setStartDate] = useState(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000));
+  const [endDate, setEndDate] = useState(new Date());
+  const [showStartPicker, setShowStartPicker] = useState(false);
+  const [showEndPicker, setShowEndPicker] = useState(false);
+  const [analytics, setAnalytics] = useState({
+    totalRoutes: 0,
+    completionRate: 0,
+    efficiency: 0,
+    specialHouses: 0,
+    topPerformers: []
+  });
+  const [recentRoutes, setRecentRoutes] = useState([]);
 
-  const periods = [
-    { id: 'week', label: 'This Week' },
-    { id: 'month', label: 'This Month' },
-    { id: 'year', label: 'This Year' },
-  ];
+  const router = useRouter();
 
-  // Get completed routes with driver info
-  const completedRoutes = mockRoutes
-    .filter(route => route.status === 'completed')
-    .map(route => {
-      const driver = mockTeamMembers.find(member => member.id === route.driver_id);
-      return {
-        ...route,
-        driver_name: driver ? driver.full_name : 'Unknown Driver',
-      };
-    })
-    .sort((a, b) => new Date(b.completion_date) - new Date(a.completion_date));
+  useEffect(() => {
+    calculateAnalytics();
+  }, [startDate, endDate]);
 
-  // Group routes by driver
-  const routesByDriver = completedRoutes.reduce((acc, route) => {
-    if (!acc[route.driver_name]) {
-      acc[route.driver_name] = [];
-    }
-    acc[route.driver_name].push(route);
-    return acc;
-  }, {});
+  useEffect(() => {
+    // Filter completed routes and sort by date
+    const completed = mockRoutes
+      .filter(route => route.status === 'completed')
+      .sort((a, b) => new Date(b.date) - new Date(a.date))
+      .slice(0, 3); // Get only the 3 most recent
+    setRecentRoutes(completed);
+  }, []);
 
-  // Calculate key metrics
-  const totalRoutes = mockRoutes.length;
-  const completedRoutesCount = mockRoutes.filter(r => r.status === 'completed').length;
-  const completionRate = Math.round((completedRoutesCount / totalRoutes) * 100);
-  
-  // Calculate efficiency
-  const totalBins = mockRoutes.reduce((acc, route) => acc + route.houses.length, 0);
-  const completedBins = mockRoutes.reduce((acc, route) => acc + (route.completed_houses || 0), 0);
-  const efficiency = Math.round((completedBins / totalBins) * 100);
+  const calculateAnalytics = () => {
+    // Mock analytics calculation
+    const sortedMembers = [...mockTeamMembers].sort((a, b) => 
+      (b.completed_routes || 0) - (a.completed_routes || 0)
+    );
 
-  // Top performing drivers
-  const topDrivers = [
-    { name: 'John Doe', metric: '45 routes', percentage: 90 },
-    { name: 'Jane Smith', metric: '32 routes', percentage: 75 },
-    { name: 'Bob Wilson', metric: '28 routes', percentage: 65 },
-  ];
+    setAnalytics({
+      totalRoutes: 156,
+      completionRate: 92,
+      efficiency: 88,
+      specialHouses: 45,
+      topPerformers: sortedMembers.slice(0, 3)
+    });
+  };
 
   return (
     <View style={styles.container}>
-      <LinearGradient
-        colors={['#1a1a1a', '#000000']}
-        style={StyleSheet.absoluteFill}
-      />
-      
       <BlurView intensity={80} style={styles.header}>
-        <View style={styles.tabSelector}>
-          <TouchableOpacity
-            style={[styles.tab, selectedTab === 'analytics' && styles.tabActive]}
-            onPress={() => setSelectedTab('analytics')}
+        <Text style={styles.headerTitle}>Analytics</Text>
+      </BlurView>
+
+      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+        <View style={styles.dateSelector}>
+          <TouchableOpacity 
+            style={styles.dateButton} 
+            onPress={() => setShowStartPicker(true)}
           >
-            <Text style={[styles.tabText, selectedTab === 'analytics' && styles.tabTextActive]}>
-              Analytics
+            <Ionicons name="calendar-outline" size={20} color="#3B82F6" />
+            <Text style={styles.dateText}>
+              {startDate.toLocaleDateString()}
             </Text>
           </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.tab, selectedTab === 'completed' && styles.tabActive]}
-            onPress={() => setSelectedTab('completed')}
+          <Text style={styles.dateText}>to</Text>
+          <TouchableOpacity 
+            style={styles.dateButton} 
+            onPress={() => setShowEndPicker(true)}
           >
-            <Text style={[styles.tabText, selectedTab === 'completed' && styles.tabTextActive]}>
-              Completed Routes
+            <Ionicons name="calendar-outline" size={20} color="#3B82F6" />
+            <Text style={styles.dateText}>
+              {endDate.toLocaleDateString()}
             </Text>
           </TouchableOpacity>
         </View>
-      </BlurView>
 
-      {selectedTab === 'analytics' ? (
-        <>
-          <View style={styles.periodSelector}>
-            {periods.map(period => (
-              <TouchableOpacity
-                key={period.id}
-                style={[
-                  styles.periodButton,
-                  selectedPeriod === period.id && styles.periodButtonActive
-                ]}
-                onPress={() => setSelectedPeriod(period.id)}
-              >
-                <Text style={[
-                  styles.periodButtonText,
-                  selectedPeriod === period.id && styles.periodButtonTextActive
-                ]}>
-                  {period.label}
-                </Text>
-              </TouchableOpacity>
+        {showStartPicker && (
+          <DateTimePicker
+            value={startDate}
+            mode="date"
+            display="default"
+            onChange={(event, selectedDate) => {
+              setShowStartPicker(false);
+              if (selectedDate) setStartDate(selectedDate);
+            }}
+          />
+        )}
+
+        {showEndPicker && (
+          <DateTimePicker
+            value={endDate}
+            mode="date"
+            display="default"
+            onChange={(event, selectedDate) => {
+              setShowEndPicker(false);
+              if (selectedDate) setEndDate(selectedDate);
+            }}
+          />
+        )}
+
+        <View style={styles.metricsGrid}>
+          <MetricCard
+            icon="checkmark-circle"
+            title="Routes Completed"
+            value={analytics.totalRoutes}
+            color="#3B82F6"
+            trend={12}
+          />
+          <MetricCard
+            icon="trending-up"
+            title="Completion Rate"
+            value={`${analytics.completionRate}%`}
+            color="#10B981"
+            trend={5}
+          />
+          <MetricCard
+            icon="flash"
+            title="Efficiency"
+            value={`${analytics.efficiency}%`}
+            color="#F59E0B"
+            trend={-3}
+          />
+          <MetricCard
+            icon="alert-circle"
+            title="Special Houses"
+            value={analytics.specialHouses}
+            color="#8B5CF6"
+            showInfo
+            infoText="Houses marked as Skip, New Customer, or with Special Instructions"
+          />
+        </View>
+
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Key Performers</Text>
+          <View style={styles.performersContainer}>
+            {analytics.topPerformers.map((member, index) => (
+              <PerformerCard
+                key={member.id}
+                member={member}
+                position={index + 1}
+              />
             ))}
           </View>
+        </View>
 
-          <ScrollView 
-            style={styles.content}
-            showsVerticalScrollIndicator={false}
-          >
-            <View style={styles.metricsGrid}>
-              <MetricCard
-                title="Completed Routes"
-                value={completedRoutesCount}
-                icon="checkmark-circle"
-                trend="up"
-                trendValue="12"
-              />
-              <MetricCard
-                title="Completion Rate"
-                value={`${completionRate}%`}
-                icon="trending-up"
-                trend="up"
-                trendValue="8"
-              />
-              <MetricCard
-                title="Total Bins"
-                value={totalBins}
-                icon="trash"
-                trend="up"
-                trendValue="5"
-              />
-              <MetricCard
-                title="Efficiency"
-                value={`${efficiency}%`}
-                icon="speedometer"
-                trend="up"
-                trendValue="10"
-              />
-            </View>
-
-            <PerformanceCard
-              title="Top Performing Drivers"
-              data={topDrivers}
-            />
-
-            <View style={styles.insightsSection}>
-              <Text style={styles.sectionTitle}>Key Insights</Text>
-              
-              <View style={styles.insightCard}>
-                <Ionicons name="trending-up" size={20} color="#10B981" />
-                <Text style={styles.insightText}>
-                  Route completion rate has increased by 15% this {selectedPeriod}
-                </Text>
-              </View>
-
-              <View style={styles.insightCard}>
-                <Ionicons name="people" size={20} color="#3B82F6" />
-                <Text style={styles.insightText}>
-                  Driver efficiency has improved with 95% on-time completion
-                </Text>
-              </View>
-            </View>
-          </ScrollView>
-        </>
-      ) : (
-        <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-          {Object.entries(routesByDriver).map(([driverName, routes]) => (
-            <View key={driverName} style={styles.driverSection}>
-              <View style={styles.driverHeader}>
-                <Ionicons name="person" size={20} color="#3B82F6" />
-                <Text style={styles.driverName}>{driverName}</Text>
-                <View style={styles.routeCount}>
-                  <Text style={styles.routeCountText}>{routes.length} routes</Text>
-                </View>
-              </View>
-
-              {routes.map((route) => (
-                <TouchableOpacity key={route.id} style={styles.routeCard}>
-                  <View style={styles.routeInfo}>
-                    <Text style={styles.routeName}>{route.name}</Text>
-                    <Text style={styles.routeDate}>
-                      {new Date(route.completion_date).toLocaleDateString()}
-                    </Text>
-                  </View>
-                  <View style={styles.routeStats}>
-                    <View style={styles.statItem}>
-                      <Ionicons name="trash-outline" size={16} color="#9CA3AF" />
-                      <Text style={styles.statText}>{route.completed_houses} bins</Text>
-                    </View>
-                    <View style={styles.statItem}>
-                      <Ionicons name="time-outline" size={16} color="#9CA3AF" />
-                      <Text style={styles.statText}>{route.duration} mins</Text>
-                    </View>
-                  </View>
-                </TouchableOpacity>
-              ))}
-            </View>
-          ))}
-        </ScrollView>
-      )}
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Recent Routes</Text>
+            <TouchableOpacity 
+              style={styles.viewAllButton}
+              onPress={() => router.push('/route/completed')}
+            >
+              <Text style={styles.viewAllText}>View All</Text>
+              <Ionicons name="arrow-forward" size={16} color="#3B82F6" />
+            </TouchableOpacity>
+          </View>
+          
+          <View style={styles.routesContainer}>
+            {recentRoutes.map(route => (
+              <RouteCard key={route.id} route={route} />
+            ))}
+          </View>
+        </View>
+      </ScrollView>
     </View>
   );
 };
@@ -274,275 +338,243 @@ const styles = StyleSheet.create({
     backgroundColor: '#000',
   },
   header: {
+    padding: 20,
     paddingTop: Platform.OS === 'ios' ? 60 : 20,
-    paddingBottom: 16,
-    paddingHorizontal: 20,
     backgroundColor: 'rgba(17, 24, 39, 0.8)',
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.1)',
   },
-  title: {
+  headerTitle: {
     fontSize: 28,
-    fontWeight: '600',
-    color: '#fff',
-  },
-  periodSelector: {
-    flexDirection: 'row',
-    padding: 16,
-    gap: 8,
-    backgroundColor: 'rgba(17, 24, 39, 0.5)',
-  },
-  periodButton: {
-    flex: 1,
-    backgroundColor: 'rgba(31, 41, 55, 0.5)',
-    borderRadius: 12,
-    padding: 12,
-    alignItems: 'center',
-  },
-  periodButtonActive: {
-    backgroundColor: '#3B82F6',
-  },
-  periodButtonText: {
-    color: '#9CA3AF',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  periodButtonTextActive: {
+    fontWeight: '700',
     color: '#fff',
   },
   content: {
     flex: 1,
-    padding: 16,
+  },
+  dateSelector: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+    padding: 20,
+  },
+  dateButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: 'rgba(59,130,246,0.1)',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+  },
+  dateText: {
+    color: '#3B82F6',
+    fontSize: 14,
+    fontWeight: '500',
   },
   metricsGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 12,
-    marginBottom: 24,
+    padding: 20,
+    gap: 16,
   },
   metricCard: {
-    width: '48%',
     borderRadius: 16,
     overflow: 'hidden',
+    borderLeftWidth: 4,
   },
   metricGradient: {
     padding: 16,
-  },
-  metricHeader: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 16,
+    gap: 16,
   },
   metricIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    backgroundColor: 'rgba(59,130,246,0.15)',
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  trendContainer: {
+  metricContent: {
+    flex: 1,
+  },
+  metricTitle: {
+    color: '#9CA3AF',
+    fontSize: 14,
+    marginBottom: 4,
+  },
+  metricValue: {
+    color: '#fff',
+    fontSize: 24,
+    fontWeight: '700',
+  },
+  trendBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 12,
+    alignSelf: 'flex-start',
+    marginTop: 8,
   },
   trendText: {
     fontSize: 12,
     fontWeight: '600',
   },
-  metricValue: {
+  section: {
+    padding: 20,
+  },
+  sectionTitle: {
+    fontSize: 20,
+    fontWeight: '600',
     color: '#fff',
-    fontSize: 28,
-    fontWeight: '700',
-    marginBottom: 4,
+    marginBottom: 16,
   },
-  metricTitle: {
-    color: '#9CA3AF',
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  performanceCard: {
+  performersContainer: {
     backgroundColor: 'rgba(31, 41, 55, 0.5)',
     borderRadius: 16,
-    padding: 20,
-    marginBottom: 24,
+    overflow: 'hidden',
   },
-  performanceTitle: {
-    color: '#fff',
-    fontSize: 18,
-    fontWeight: '600',
-    marginBottom: 20,
+  performerCard: {
+    borderRadius: 16,
+    overflow: 'hidden',
+    marginBottom: 16,
   },
-  performanceItem: {
-    marginBottom: 20,
+  performerGradient: {
+    padding: 16,
   },
-  performanceInfo: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  performanceNameContainer: {
+  performerInfo: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
+    marginBottom: 12,
   },
-  rankBadge: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+  positionBadge: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  rankText: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  performanceName: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '500',
-  },
-  performanceMetric: {
-    color: '#9CA3AF',
+  positionText: {
     fontSize: 14,
-    fontWeight: '500',
+    fontWeight: '700',
   },
-  progressBarContainer: {
-    flexDirection: 'row',
+  avatar: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    justifyContent: 'center',
     alignItems: 'center',
-    gap: 8,
   },
-  performanceBar: {
-    flex: 1,
-    height: 6,
-    backgroundColor: '#3B82F6',
-    borderRadius: 3,
-  },
-  percentageText: {
-    color: '#9CA3AF',
-    fontSize: 12,
-    fontWeight: '500',
-    width: 40,
-    textAlign: 'right',
-  },
-  insightsSection: {
-    backgroundColor: 'rgba(31, 41, 55, 0.5)',
-    borderRadius: 16,
-    padding: 20,
-    marginBottom: 24,
-  },
-  sectionTitle: {
+  avatarText: {
     color: '#fff',
     fontSize: 18,
     fontWeight: '600',
-    marginBottom: 16,
   },
-  insightCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 16,
-    backgroundColor: 'rgba(59,130,246,0.1)',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 12,
-  },
-  insightText: {
+  nameContainer: {
     flex: 1,
-    color: '#fff',
-    fontSize: 14,
-    lineHeight: 20,
-    fontWeight: '500',
+    gap: 4,
   },
-  tabSelector: {
-    flexDirection: 'row',
-    backgroundColor: 'rgba(31, 41, 55, 0.5)',
-    borderRadius: 25,
-    padding: 4,
-  },
-  tab: {
-    flex: 1,
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    borderRadius: 20,
-    alignItems: 'center',
-  },
-  tabActive: {
-    backgroundColor: '#3B82F6',
-  },
-  tabText: {
-    color: '#9CA3AF',
-    fontSize: 15,
-    fontWeight: '600',
-  },
-  tabTextActive: {
-    color: '#fff',
-  },
-  driverSection: {
-    marginBottom: 24,
-  },
-  driverHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 12,
-    paddingHorizontal: 4,
-  },
-  driverName: {
+  performerName: {
     color: '#fff',
     fontSize: 16,
     fontWeight: '600',
-    marginLeft: 8,
-    flex: 1,
   },
-  routeCount: {
-    backgroundColor: 'rgba(59, 130, 246, 0.1)',
+  roleBadge: {
+    alignSelf: 'flex-start',
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 12,
   },
-  routeCountText: {
-    color: '#3B82F6',
+  roleText: {
+    fontSize: 12,
+    fontWeight: '500',
+    textTransform: 'capitalize',
+  },
+  statsContainer: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  statBadge: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 12,
+  },
+  statValue: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  statLabel: {
     fontSize: 12,
     fontWeight: '500',
   },
-  routeCard: {
-    backgroundColor: '#1F2937',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 8,
-  },
-  routeInfo: {
+  sectionHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: 16,
+  },
+  viewAllButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  viewAllText: {
+    color: '#3B82F6',
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  routesContainer: {
+    gap: 12,
+  },
+  routeCard: {
+    borderRadius: 16,
+    overflow: 'hidden',
+  },
+  routeGradient: {
+    padding: 16,
+  },
+  routeHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
   },
   routeName: {
     color: '#fff',
-    fontSize: 15,
-    fontWeight: '500',
+    fontSize: 16,
+    fontWeight: '600',
   },
   routeDate: {
     color: '#9CA3AF',
-    fontSize: 13,
+    fontSize: 12,
+    marginBottom: 12,
+  },
+  efficiencyBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  efficiencyText: {
+    fontSize: 12,
+    fontWeight: '500',
   },
   routeStats: {
     flexDirection: 'row',
     gap: 16,
   },
-  statItem: {
+  routeStat: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
   },
-  statText: {
+  routeStatText: {
     color: '#9CA3AF',
-    fontSize: 13,
+    fontSize: 14,
   },
 });
 

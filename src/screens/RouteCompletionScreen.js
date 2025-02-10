@@ -7,6 +7,7 @@ import {
   TouchableOpacity,
   Platform,
   Share,
+  Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -14,24 +15,42 @@ import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 
 const MetricCard = ({ icon, title, value, subtitle, borderColor }) => (
-  <View style={[styles.metricCard, { borderLeftColor: borderColor }]}>
-    <View style={[styles.metricIcon, { backgroundColor: `${borderColor}20` }]}>
-      <Ionicons name={icon} size={20} color={borderColor} />
+  <View style={[styles.metricCard, borderColor && { borderColor }]}>
+    <View style={styles.metricIcon}>
+      <Ionicons name={icon} size={24} color="#fff" />
     </View>
-    <Text style={styles.metricValue}>{value}</Text>
-    <Text style={styles.metricTitle}>{title}</Text>
-    {subtitle && <Text style={styles.metricSubtitle}>{subtitle}</Text>}
+    <View style={styles.metricContent}>
+      {typeof title === 'string' ? (
+        <Text style={styles.metricTitle}>{title}</Text>
+      ) : (
+        title
+      )}
+      <Text style={styles.metricValue}>{value}</Text>
+      {subtitle && <Text style={styles.metricSubtitle}>{subtitle}</Text>}
+    </View>
   </View>
 );
 
 const RouteCompletionScreen = () => {
   const router = useRouter();
   const params = useLocalSearchParams();
-  const summary = JSON.parse(params.summary);
+  
+  // Default data in case params.summary is undefined
+  const defaultSummary = {
+    total: 0,
+    completed: 0,
+    houses: [],
+    completed_houses: 0,
+    startTime: new Date().toISOString(),
+    endTime: new Date().toISOString(),
+  };
+
+  // Safely parse summary with fallback to default
+  const summary = params.summary ? JSON.parse(params.summary) : defaultSummary;
 
   const duration = Math.round((new Date(summary.endTime) - new Date(summary.startTime)) / (1000 * 60));
-  const efficiency = Math.round((summary.completed / summary.total) * 100);
-  const binsPerHour = duration === 0 ? "180" : Math.round((summary.completed / (duration / 60)) * 10) / 10;
+  const efficiency = Math.round((summary.completed / (summary.total || 1)) * 100);
+  const binsPerHour = duration === 0 ? 0 : Math.round((summary.completed / (duration / 60)) * 10) / 10;
 
   const handleShare = async () => {
     try {
@@ -70,20 +89,15 @@ const RouteCompletionScreen = () => {
       
       <BlurView intensity={80} style={styles.header}>
         <TouchableOpacity 
-          onPress={() => router.back()}
+          onPress={() => router.push('/')} 
           style={styles.backButton}
         >
           <Ionicons name="close" size={24} color="#fff" />
         </TouchableOpacity>
-        <View style={styles.headerContent}>
-          <Text style={styles.headerTitle}>Route Complete</Text>
-          <Text style={styles.headerSubtitle}>
-            {new Date(summary.endTime).toLocaleTimeString()}
-          </Text>
-        </View>
+        <Text style={styles.headerTitle}>Route Complete</Text>
         <TouchableOpacity 
+          onPress={handleShare} 
           style={styles.shareButton}
-          onPress={handleShare}
         >
           <Ionicons name="share-outline" size={24} color="#10B981" />
         </TouchableOpacity>
@@ -114,63 +128,63 @@ const RouteCompletionScreen = () => {
           <Text style={styles.sectionTitle}>Collection Summary</Text>
           <View style={styles.metricsGrid}>
             <MetricCard
-              icon="trash"
-              title="Total Bins"
+              icon="home"
+              title="Total Houses"
               value={summary.total}
               borderColor="#3B82F6"
             />
             <MetricCard
               icon="checkmark-circle"
-              title="Collected"
+              title="Houses Collected"
               value={summary.completed}
-              subtitle={`${efficiency}% complete`}
               borderColor="#10B981"
             />
-            <View style={styles.performanceSection}>
-              <Text style={styles.performanceTitle}>Performance</Text>
-              <View style={styles.performanceRow}>
-                <View style={styles.skippedContainer}>
-                  <Text style={styles.skippedText}>1</Text>
-                  <Text style={styles.skippedLabel}>Skipped</Text>
+            <MetricCard
+              icon="time-outline"
+              title="Duration"
+              value={`${duration} min`}
+              borderColor="#F59E0B"
+            />
+            <MetricCard
+              icon="alert-circle"
+              title={
+                <View style={styles.titleWithInfo}>
+                  <Text style={styles.metricTitle}>Special Houses</Text>
+                  <TouchableOpacity 
+                    style={styles.infoButton}
+                    onPress={() => Alert.alert(
+                      'Special Houses',
+                      'Includes houses marked as:\n• Skip\n• New Customer\n• Special Instructions'
+                    )}
+                  >
+                    <Ionicons name="information-circle" size={16} color="#9CA3AF" />
+                  </TouchableOpacity>
                 </View>
-                <View style={styles.durationContainer}>
-                  <Text style={styles.durationValue}>{duration} min</Text>
-                  <Text style={styles.durationLabel}>Duration</Text>
-                </View>
-              </View>
-              <View style={styles.efficiencyContainer}>
-                <Text style={styles.efficiencyTitle}>Efficiency %   </Text>
-                <Text style={styles.efficiencyValue}>{efficiency}%</Text>
-              </View>
-              <View style={styles.efficiencyBar}>
-                <View 
-                  style={[
-                    styles.efficiencyFill,
-                    { width: `${efficiency}%` }
-                  ]} 
-                />
-              </View>
-            </View>
-            <View style={[styles.metricCard, { borderLeftColor: '#F59E0B' }]}>
-              <View style={[styles.metricIcon, { backgroundColor: '#F59E0B20' }]}>
-                <Ionicons name="star" size={20} color="#F59E0B" />
-              </View>
-              <Text style={styles.metricValue}>1</Text>
-              <View style={styles.binsPerHourContainer}>
-                <Ionicons name="game-controller" size={16} color="#10B981" />
-                <Text style={styles.binsPerHourValue}>{binsPerHour}</Text>
-              </View>
-              <Text style={styles.binsPerHourLabel}>Bins/Hour</Text>
-            </View>
+              }
+              value={summary.special_houses || 0}
+              borderColor="#8B5CF6"
+            />
+            <MetricCard
+              icon="trending-up"
+              title="Efficiency"
+              value={`${efficiency}%`}
+              borderColor="#8B5CF6"
+            />
+            <MetricCard
+              icon="speedometer"
+              title="Bins/Hr"
+              value={binsPerHour}
+              borderColor="#EC4899"
+            />
           </View>
         </View>
 
         <TouchableOpacity 
           style={styles.newRouteButton}
-          onPress={() => router.push('/')}
+          onPress={() => router.push('/route-create')}
         >
           <Ionicons name="add-circle" size={20} color="#fff" />
-          <Text style={styles.newRouteText}>Start New Route</Text>
+          <Text style={styles.newRouteText}>Create New Route</Text>
         </TouchableOpacity>
       </ScrollView>
     </View>
@@ -281,15 +295,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 12,
   },
+  metricContent: {
+    flex: 1,
+  },
+  metricTitle: {
+    color: '#9CA3AF',
+    fontSize: 13,
+  },
   metricValue: {
     color: '#fff',
     fontSize: 20,
     fontWeight: '600',
     marginBottom: 4,
-  },
-  metricTitle: {
-    color: '#9CA3AF',
-    fontSize: 13,
   },
   metricSubtitle: {
     color: '#6B7280',
@@ -400,8 +417,17 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
   },
+  titleWithInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  infoButton: {
+    padding: 2,
+  },
 });
 
 export default RouteCompletionScreen; 
+ 
  
  

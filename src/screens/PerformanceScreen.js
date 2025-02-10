@@ -125,11 +125,18 @@ const PerformanceScreen = ({ memberId }) => {
             trendValue="5"
           />
           <MetricCard
-            title="On-Time Rate"
-            value="95%"
+            title="Hours Driven"
+            value={member.hours_driven || 0}
             icon="time-outline"
-            trend="down"
-            trendValue="3"
+            trend="up"
+            trendValue="8"
+          />
+          <MetricCard
+            title="Efficiency"
+            value="92%"
+            icon="trending-up-outline"
+            trend="up"
+            trendValue="5"
           />
           <MetricCard
             title="Houses Serviced"
@@ -395,5 +402,6 @@ const styles = StyleSheet.create({
 });
 
 export default PerformanceScreen; 
+ 
  
  

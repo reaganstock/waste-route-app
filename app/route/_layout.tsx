@@ -7,8 +7,14 @@ export default function RouteLayout() {
         headerShown: false,
         animation: 'slide_from_right',
       }}
-    />
+    >
+      <Stack.Screen name="[id]" />
+      <Stack.Screen name="complete" />
+      <Stack.Screen name="details" />
+      <Stack.Screen name="completed" />
+    </Stack>
   );
 } 
+ 
  
  

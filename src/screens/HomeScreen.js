@@ -7,12 +7,13 @@ import {
   ScrollView,
   RefreshControl,
   Dimensions,
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useRouter } from 'expo-router';
 import { mockRoutes } from '../lib/mockData';
+import { useRouter } from 'expo-router';
 
 const { width } = Dimensions.get('window');
 
@@ -34,10 +35,13 @@ const QuickAction = ({ icon, title, color, onPress }) => (
 );
 
 // RouteCard Component
-const RouteCard = ({ route, isActive, onPress }) => (
+const RouteCard = ({ route, isActive, router }) => (
   <TouchableOpacity 
     style={[styles.routeCard, isActive && styles.activeRouteCard]}
-    onPress={onPress}
+    onPress={() => {
+      console.log('Navigating to route:', route.id);
+      router.push(`/route/${route.id}`);
+    }}
   >
     <View style={styles.routeInfo}>
       <Text style={styles.routeName}>{route.name}</Text>
@@ -48,13 +52,13 @@ const RouteCard = ({ route, isActive, onPress }) => (
     <View style={styles.routeStats}>
       <View style={styles.routeStat}>
         <Ionicons name="home" size={16} color="#9CA3AF" />
-        <Text style={styles.routeStatText}>{route.houses.length} houses</Text>
+        <Text style={styles.routeStatText}>{route.houses.count} houses</Text>
       </View>
       <View style={styles.routeProgress}>
         <View 
           style={[
             styles.progressBar, 
-            { width: `${(route.houses.length > 0 ? route.completed_houses / route.houses.length : 0) * 100}%` }
+            { width: `${(route.houses.count > 0 ? route.completed_houses / route.houses.count : 0) * 100}%` }
           ]} 
         />
       </View>
@@ -99,16 +103,20 @@ const HomeScreen = () => {
 
   return (
     <View style={styles.container}>
+      <LinearGradient
+        colors={['#1a1a1a', '#000000']}
+        style={StyleSheet.absoluteFill}
+      />
+      
       <BlurView intensity={80} style={styles.header}>
-        <View style={styles.headerContent}>
-          <Text style={styles.greeting}>Welcome back</Text>
-          <TouchableOpacity 
-            style={styles.settingsButton}
-            onPress={() => router.push('/settings')}
-          >
-            <Ionicons name="settings-outline" size={24} color="#fff" />
-          </TouchableOpacity>
-        </View>
+        <Text style={styles.title}>Home</Text>
+        <TouchableOpacity 
+          style={styles.settingsButton}
+          onPress={() => router.push('/settings')}
+          activeOpacity={0.7}
+        >
+          <Ionicons name="settings-outline" size={24} color="#fff" />
+        </TouchableOpacity>
       </BlurView>
 
       <ScrollView
@@ -179,11 +187,7 @@ const HomeScreen = () => {
         {activeRoute && (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Active Route</Text>
-            <RouteCard 
-              route={activeRoute} 
-              isActive 
-              onPress={() => router.push(`/route/${activeRoute.id}`)}
-            />
+            <RouteCard route={activeRoute} isActive router={router} />
           </View>
         )}
 
@@ -192,16 +196,12 @@ const HomeScreen = () => {
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
               <Text style={styles.sectionTitle}>Upcoming Routes</Text>
-              <TouchableOpacity onPress={() => router.push('/completed-routes')}>
+              <TouchableOpacity onPress={() => router.push('/routes')}>
                 <Text style={styles.seeAllText}>See All</Text>
               </TouchableOpacity>
             </View>
             {upcomingRoutes.map(route => (
-              <RouteCard 
-                key={route.id} 
-                route={route} 
-                onPress={() => router.push(`/route/${route.id}`)}
-              />
+              <RouteCard key={route.id} route={route} router={router} />
             ))}
           </View>
         )}
@@ -216,18 +216,14 @@ const styles = StyleSheet.create({
     backgroundColor: '#000',
   },
   header: {
-    paddingTop: 60,
-    paddingBottom: 20,
-    paddingHorizontal: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.1)',
-  },
-  headerContent: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    padding: 20,
+    paddingTop: Platform.OS === 'ios' ? 60 : 20,
+    backgroundColor: 'rgba(17, 24, 39, 0.8)',
   },
-  greeting: {
+  title: {
     fontSize: 28,
     fontWeight: 'bold',
     color: '#fff',
@@ -368,7 +364,11 @@ const styles = StyleSheet.create({
     borderRadius: 2,
   },
   settingsButton: {
-    padding: 8,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 });
 

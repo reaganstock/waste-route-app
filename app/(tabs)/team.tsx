@@ -11,19 +11,3 @@ export default function Team() {
     </View>
   );
 } 
-      <TeamScreen 
-        navigation={{
-          navigate: (screen: string, params?: any) => {
-            if (screen === 'MemberDetail') {
-              router.push(`/member/${params.memberId}`);
-            } else if (screen === 'AddMember') {
-              router.push('/member/new');
-            } else {
-              router.push(screen.toLowerCase());
-            }
-          }
-        }} 
-      />
-    </View>
-  );
-} 

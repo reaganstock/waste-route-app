@@ -80,19 +80,19 @@ const TeamMemberDetailsScreen = ({ memberId }) => {
 
         <View style={styles.statsGrid}>
           <StatCard 
+            label="Houses Serviced"
+            value={member.houses_serviced || 0}
+            icon="home-outline"
+          />
+          <StatCard 
+            label="Hours Driven"
+            value={member.hours_driven || 0}
+            icon="time-outline"
+          />
+          <StatCard 
             label="Routes Completed"
             value={member.completed_routes}
             icon="checkmark-circle-outline"
-          />
-          <StatCard 
-            label="Rating"
-            value={member.rating}
-            icon="star-outline"
-          />
-          <StatCard 
-            label="Hours Active"
-            value="32.5"
-            icon="time-outline"
           />
         </View>
 
@@ -355,5 +355,6 @@ const styles = StyleSheet.create({
 });
 
 export default TeamMemberDetailsScreen; 
+ 
  
  

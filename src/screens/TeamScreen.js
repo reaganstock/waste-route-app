@@ -89,9 +89,9 @@ const TeamScreen = () => {
               </View>
               <View style={styles.statDivider} />
               <View style={styles.statItem}>
-                <Ionicons name="star-outline" size={16} color="#3B82F6" />
-                <Text style={styles.statValue}>{member.rating}</Text>
-                <Text style={styles.statLabel}>Rating</Text>
+                <Ionicons name="time-outline" size={16} color="#3B82F6" />
+                <Text style={styles.statValue}>{member.hours_driven || 0}</Text>
+                <Text style={styles.statLabel}>Hours</Text>
               </View>
             </View>
           </View>

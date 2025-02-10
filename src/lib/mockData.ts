@@ -2,16 +2,15 @@ export const mockRoutes = [
   {
     id: '1',
     name: 'Monday Route',
-    date: new Date().toISOString(),
-    status: 'in_progress',
-    driver_id: '1',
+    date: new Date(Date.now() - 86400000).toISOString(), // Yesterday
+    status: 'completed',
     houses: [
       {
         id: '1',
         address: '123 Main St',
         lat: '37.7749',
         lng: '-122.4194',
-        status: 'pending',
+        status: 'completed',
         notes: 'Front door collection'
       },
       {
@@ -19,7 +18,7 @@ export const mockRoutes = [
         address: '456 Market St',
         lat: '37.7920',
         lng: '-122.4100',
-        status: 'pending',
+        status: 'completed',
         notes: 'Back alley pickup'
       },
       {
@@ -27,26 +26,24 @@ export const mockRoutes = [
         address: '789 Mission St',
         lat: '37.7850',
         lng: '-122.4050',
-        status: 'pending',
+        status: 'skipped',
         notes: 'Gate code required'
       }
     ],
-    completed_houses: 0,
-    total_bins: 18
+    completed_houses: 2
   },
   {
     id: '2',
     name: 'Tuesday Route',
-    date: new Date(Date.now() + 86400000).toISOString(),
-    status: 'pending',
-    driver_id: '2',
+    date: new Date(Date.now() - 2 * 86400000).toISOString(), // 2 days ago
+    status: 'completed',
     houses: [
       {
         id: '4',
         address: '321 Hayes St',
         lat: '37.7770',
         lng: '-122.4220',
-        status: 'pending',
+        status: 'completed',
         notes: 'Side entrance'
       },
       {
@@ -54,82 +51,61 @@ export const mockRoutes = [
         address: '654 Folsom St',
         lat: '37.7850',
         lng: '-122.3990',
-        status: 'pending',
+        status: 'completed',
         notes: null
       }
     ],
-    completed_houses: 0,
-    total_bins: 25
+    completed_houses: 2
   },
   {
     id: '3',
     name: 'Wednesday Route',
-    date: new Date(Date.now() + 172800000).toISOString(),
-    status: 'pending',
+    date: new Date(Date.now() - 3 * 86400000).toISOString(), // 3 days ago
+    status: 'completed',
     houses: [
       {
         id: '6',
         address: '987 Howard St',
         lat: '37.7830',
         lng: '-122.4110',
-        status: 'pending',
-        notes: 'Commercial pickup'
+        status: 'completed',
+        notes: 'Ring doorbell twice'
+      },
+      {
+        id: '7',
+        address: '456 Valencia St',
+        lat: '37.7830',
+        lng: '-122.4210',
+        status: 'completed',
+        notes: null
+      },
+      {
+        id: '8',
+        address: '789 Guerrero St',
+        lat: '37.7590',
+        lng: '-122.4240',
+        status: 'completed',
+        notes: null
       }
     ],
-    completed_houses: 0,
-    total_bins: 20
+    completed_houses: 3
   },
   {
     id: '4',
-    name: 'Previous Monday Route',
-    date: new Date(Date.now() - 604800000).toISOString(),
-    status: 'completed',
-    driver_id: '1',
-    completion_date: new Date(Date.now() - 601200000).toISOString(),
-    duration: 185,
+    name: 'Thursday Route',
+    date: new Date().toISOString(), // Today
+    status: 'in_progress',
     houses: [
       {
-        id: '7',
-        address: '123 Main St',
-        lat: '37.7749',
-        lng: '-122.4194',
-        status: 'completed',
-        notes: 'Front door collection'
+        id: '9',
+        address: '123 Castro St',
+        lat: '37.7620',
+        lng: '-122.4350',
+        status: 'pending',
+        notes: null
       }
     ],
-    completed_houses: 15,
-    skipped_houses: 2,
-    total_bins: 18,
-    on_time_percentage: 98,
-    efficiency_score: 92,
-    manager_rating: 4.8,
-    manager_notes: 'Excellent work, very efficient route completion'
-  },
-  {
-    id: '5',
-    name: 'Previous Tuesday Route',
-    date: new Date(Date.now() - 691200000).toISOString(),
-    status: 'completed',
-    driver_id: '2',
-    completion_date: new Date(Date.now() - 687600000).toISOString(),
-    duration: 210,
-    houses: [
-      {
-        id: '8',
-        address: '321 Hayes St',
-        lat: '37.7770',
-        lng: '-122.4220',
-        status: 'completed',
-        notes: 'Side entrance'
-      }
-    ],
-    completed_houses: 22,
-    skipped_houses: 1,
-    total_bins: 25,
-    on_time_percentage: 95,
-    efficiency_score: 88,
-    manager_rating: 4.5,
-    manager_notes: 'Good performance, some delays but well handled'
+    completed_houses: 0
   }
 ];
 
@@ -195,13 +171,9 @@ export const mockTeamMembers = [
     role: 'driver',
     status: 'active',
     completed_routes: 45,
-    efficiency_score: 92,
-    on_time_percentage: 98,
-    total_bins_collected: 890,
-    manager_rating: 4.8,
-    manager_notes: 'Excellent performance, consistently efficient',
+    rating: 4.8,
     routes: [
-      { id: '1', status: 'completed', date: new Date().toISOString() }
+      { id: '1', status: 'in_progress', date: new Date().toISOString() }
     ]
   },
   {
@@ -210,24 +182,16 @@ export const mockTeamMembers = [
     role: 'driver',
     status: 'active',
     completed_routes: 32,
-    efficiency_score: 88,
-    on_time_percentage: 95,
-    total_bins_collected: 640,
-    manager_rating: 4.5,
-    manager_notes: 'Very reliable, good communication with team',
+    rating: 4.9,
     routes: []
   },
   {
     id: '3',
     full_name: 'Bob Wilson',
     role: 'manager',
-    status: 'active',
+    status: 'inactive',
     completed_routes: 12,
-    efficiency_score: 85,
-    on_time_percentage: 92,
-    total_bins_collected: 240,
-    admin_rating: 4.7,
-    admin_notes: 'Excellent team management and route optimization',
+    rating: 4.5,
     routes: []
   }
 ];
