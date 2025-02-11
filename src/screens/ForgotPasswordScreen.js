@@ -9,11 +9,13 @@ import {
   KeyboardAvoidingView,
   Platform,
   Animated,
+  ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useAuth } from '../contexts/AuthContext';
 
 const StepDot = ({ active, completed }) => (
   <View
@@ -117,124 +119,30 @@ const ActionButton = ({ title, onPress, disabled }) => {
 
 const ForgotPasswordScreen = () => {
   const router = useRouter();
+  const { resetPassword } = useAuth();
   const [email, setEmail] = useState('');
-  const [step, setStep] = useState(1);
-  const [verificationCode, setVerificationCode] = useState('');
-  const [newPassword, setNewPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  const handleSendCode = () => {
+  const handleResetPassword = async () => {
     if (!email.trim()) {
       Alert.alert('Error', 'Please enter your email address');
       return;
     }
 
-    Alert.alert(
-      'Code Sent',
-      'A verification code has been sent to your email address.',
-      [{ text: 'OK', onPress: () => setStep(2) }]
-    );
-  };
-
-  const handleVerifyCode = () => {
-    if (!verificationCode.trim()) {
-      Alert.alert('Error', 'Please enter the verification code');
-      return;
+    try {
+      setLoading(true);
+      await resetPassword(email);
+      Alert.alert(
+        'Check your email',
+        'We have sent you a password reset link. Please check your email to reset your password.',
+        [{ text: 'OK', onPress: () => router.push('/(auth)/sign-in') }]
+      );
+    } catch (error) {
+      Alert.alert('Error', error.message);
+    } finally {
+      setLoading(false);
     }
-    setStep(3);
   };
-
-  const handleResetPassword = () => {
-    if (!newPassword.trim() || !confirmPassword.trim()) {
-      Alert.alert('Error', 'Please fill in all fields');
-      return;
-    }
-
-    if (newPassword !== confirmPassword) {
-      Alert.alert('Error', 'Passwords do not match');
-      return;
-    }
-
-    Alert.alert(
-      'Success',
-      'Your password has been reset successfully.',
-      [{ text: 'OK', onPress: () => router.back() }]
-    );
-  };
-
-  const renderStep1 = () => (
-    <>
-      <Text style={styles.subtitle}>
-        Enter your email address and we'll send you a verification code.
-      </Text>
-      <InputField
-        icon="mail"
-        placeholder="Email Address"
-        value={email}
-        onChangeText={setEmail}
-        keyboardType="email-address"
-      />
-      <ActionButton
-        title="Send Code"
-        onPress={handleSendCode}
-        disabled={!email.trim()}
-      />
-    </>
-  );
-
-  const renderStep2 = () => (
-    <>
-      <Text style={styles.subtitle}>
-        Enter the verification code sent to your email.
-      </Text>
-      <InputField
-        icon="key"
-        placeholder="Verification Code"
-        value={verificationCode}
-        onChangeText={setVerificationCode}
-        keyboardType="number-pad"
-      />
-      <ActionButton
-        title="Verify Code"
-        onPress={handleVerifyCode}
-        disabled={!verificationCode.trim()}
-      />
-      <TouchableOpacity
-        style={styles.resendButton}
-        onPress={handleSendCode}
-        activeOpacity={0.7}
-      >
-        <Text style={styles.resendButtonText}>Resend Code</Text>
-      </TouchableOpacity>
-    </>
-  );
-
-  const renderStep3 = () => (
-    <>
-      <Text style={styles.subtitle}>
-        Create a new password for your account.
-      </Text>
-      <InputField
-        icon="lock-closed"
-        placeholder="New Password"
-        value={newPassword}
-        onChangeText={setNewPassword}
-        secureTextEntry
-      />
-      <InputField
-        icon="lock-closed"
-        placeholder="Confirm Password"
-        value={confirmPassword}
-        onChangeText={setConfirmPassword}
-        secureTextEntry
-      />
-      <ActionButton
-        title="Reset Password"
-        onPress={handleResetPassword}
-        disabled={!newPassword.trim() || !confirmPassword.trim()}
-      />
-    </>
-  );
 
   return (
     <KeyboardAvoidingView 
@@ -263,19 +171,32 @@ const ForgotPasswordScreen = () => {
       </View>
 
       <View style={styles.content}>
-        <View style={styles.stepsContainer}>
-          {[1, 2, 3].map((s) => (
-            <StepDot
-              key={s}
-              active={s === step}
-              completed={s < step}
-            />
-          ))}
-        </View>
+        <Text style={styles.subtitle}>
+          Enter your email address and we'll send you a password reset link.
+        </Text>
 
-        {step === 1 && renderStep1()}
-        {step === 2 && renderStep2()}
-        {step === 3 && renderStep3()}
+        <InputField
+          icon="mail"
+          placeholder="Email Address"
+          value={email}
+          onChangeText={setEmail}
+          keyboardType="email-address"
+        />
+
+        <ActionButton
+          title={loading ? "Sending..." : "Send Reset Link"}
+          onPress={handleResetPassword}
+          disabled={loading || !email.trim()}
+        />
+
+        <TouchableOpacity
+          style={styles.signInButton}
+          onPress={() => router.push('/(auth)/sign-in')}
+        >
+          <Text style={styles.signInText}>
+            Remember your password? <Text style={styles.signInTextBold}>Sign in</Text>
+          </Text>
+        </TouchableOpacity>
       </View>
     </KeyboardAvoidingView>
   );
@@ -399,9 +320,22 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '500',
   },
+  signInButton: {
+    alignItems: 'center',
+    marginTop: 16,
+  },
+  signInText: {
+    color: '#6B7280',
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  signInTextBold: {
+    fontWeight: 'bold',
+  },
 });
 
 export default ForgotPasswordScreen; 
+ 
  
  
  

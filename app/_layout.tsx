@@ -1,7 +1,29 @@
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import { AuthProvider } from '../src/contexts/AuthContext';
+import { useAuth } from '../src/contexts/AuthContext';
+import { useEffect } from 'react';
+import { useRouter, useSegments } from 'expo-router';
 
-export default function RootLayout() {
+function RootLayoutNav() {
+  const { user, loading } = useAuth();
+  const segments = useSegments();
+  const router = useRouter();
+
+  useEffect(() => {
+    if (loading) return;
+
+    const inAuthGroup = segments[0] === '(auth)';
+
+    if (!user && !inAuthGroup) {
+      // Redirect to the sign-in page.
+      router.replace('/(auth)/sign-in');
+    } else if (user && inAuthGroup) {
+      // Redirect away from the sign-in page.
+      router.replace('/(tabs)');
+    }
+  }, [user, loading, segments]);
+
   return (
     <>
       <StatusBar style="light" />
@@ -23,5 +45,13 @@ export default function RootLayout() {
         <Stack.Screen name="map" />
       </Stack>
     </>
+  );
+}
+
+export default function RootLayout() {
+  return (
+    <AuthProvider>
+      <RootLayoutNav />
+    </AuthProvider>
   );
 }

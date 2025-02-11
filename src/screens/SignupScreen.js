@@ -13,9 +13,12 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { mockAuth } from '../lib/mockData';
+import { useRouter } from 'expo-router';
+import { useAuth } from '../contexts/AuthContext';
 
-export default function SignupScreen({ navigation }) {
+export default function SignupScreen() {
+  const router = useRouter();
+  const { signUp } = useAuth();
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
     fullName: '',
@@ -44,25 +47,17 @@ export default function SignupScreen({ navigation }) {
     setLoading(true);
 
     try {
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      const existingUser = mockAuth.users.find(u => u.email === formData.email);
-      if (existingUser) {
-        throw new Error('Email already registered');
-      }
-
-      const newUser = {
-        id: Date.now().toString(),
-        email: formData.email,
-        password: formData.password,
-        name: formData.fullName,
-        role: formData.role,
-      };
-
-      mockAuth.users.push(newUser);
-      
-      // Use the correct navigation path
-      navigation.replace('/(tabs)');
-      
+      await signUp(
+        formData.email,
+        formData.password,
+        formData.fullName,
+        formData.role
+      );
+      Alert.alert(
+        'Success',
+        'Please check your email for verification instructions.',
+        [{ text: 'OK', onPress: () => router.push('/(auth)/sign-in') }]
+      );
     } catch (error) {
       Alert.alert('Error', error.message);
     } finally {
@@ -78,7 +73,7 @@ export default function SignupScreen({ navigation }) {
       <View style={styles.header}>
         <TouchableOpacity 
           style={styles.backButton}
-          onPress={() => navigation.goBack()}
+          onPress={() => router.back()}
         >
           <Ionicons name="arrow-back" size={24} color="#fff" />
         </TouchableOpacity>
@@ -204,7 +199,7 @@ export default function SignupScreen({ navigation }) {
 
         <TouchableOpacity 
           style={styles.loginButton}
-          onPress={() => navigation.navigate('index')}
+          onPress={() => router.push('/(auth)/sign-in')}
         >
           <Text style={styles.loginText}>
             Already have an account? <Text style={styles.loginTextBold}>Log in</Text>

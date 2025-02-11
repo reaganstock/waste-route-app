@@ -15,6 +15,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { BlurView } from 'expo-blur';
 import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import { useAuth } from '../contexts/AuthContext';
 
 // Mock profile data
 const mockProfile = {
@@ -115,6 +116,7 @@ const SupportItem = ({ icon, title, onPress }) => {
 
 const SettingsScreen = () => {
   const router = useRouter();
+  const { signOut } = useAuth();
   const [profile] = useState(mockProfile);
   const [settings, setSettings] = useState({
     notifications: true,
@@ -150,19 +152,22 @@ const SettingsScreen = () => {
     }
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
     Alert.alert(
-      'Logout',
-      'Are you sure you want to logout?',
+      'Confirm Logout',
+      'Are you sure you want to log out?',
       [
-        {
-          text: 'Cancel',
-          style: 'cancel',
-        },
+        { text: 'Cancel', style: 'cancel' },
         {
           text: 'Logout',
-          onPress: () => router.replace('/(auth)'),
           style: 'destructive',
+          onPress: async () => {
+            try {
+              await signOut();
+            } catch (error) {
+              Alert.alert('Error', error.message);
+            }
+          },
         },
       ]
     );

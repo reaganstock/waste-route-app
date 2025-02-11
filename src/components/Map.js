@@ -9,10 +9,10 @@ const ASPECT_RATIO = width / height;
 const LATITUDE_DELTA = 0.0922;
 const LONGITUDE_DELTA = LATITUDE_DELTA * ASPECT_RATIO;
 
-// Default to San Francisco coordinates
+// Default to Wylie, TX coordinates
 const DEFAULT_REGION = {
-  latitude: 37.7749,
-  longitude: -122.4194,
+  latitude: 33.0151,
+  longitude: -96.5388,
   latitudeDelta: LATITUDE_DELTA,
   longitudeDelta: LONGITUDE_DELTA,
 };
@@ -21,28 +21,37 @@ const Map = ({ houses = [], onHousePress, showStreetView = false }) => {
   const mapRef = useRef(null);
   const { location } = useLocation();
   const [mapType, setMapType] = useState('standard');
-  const [region, setRegion] = useState(DEFAULT_REGION);
 
   useEffect(() => {
-    if (location?.coords) {
+    if (houses.length > 0) {
+      // Calculate the center point of all houses
+      const lats = houses.map(h => parseFloat(h.lat));
+      const lngs = houses.map(h => parseFloat(h.lng));
+      const centerLat = lats.reduce((a, b) => a + b, 0) / lats.length;
+      const centerLng = lngs.reduce((a, b) => a + b, 0) / lngs.length;
+
+      // Calculate the bounds to fit all markers
+      const maxLat = Math.max(...lats);
+      const minLat = Math.min(...lats);
+      const maxLng = Math.max(...lngs);
+      const minLng = Math.min(...lngs);
+
+      const newRegion = {
+        latitude: centerLat,
+        longitude: centerLng,
+        latitudeDelta: Math.max((maxLat - minLat) * 1.5, LATITUDE_DELTA),
+        longitudeDelta: Math.max((maxLng - minLng) * 1.5, LONGITUDE_DELTA),
+      };
+
+      mapRef.current?.animateToRegion(newRegion, 1000);
+    } else if (location?.coords) {
       const newRegion = {
         latitude: location.coords.latitude,
         longitude: location.coords.longitude,
         latitudeDelta: LATITUDE_DELTA,
         longitudeDelta: LONGITUDE_DELTA,
       };
-      setRegion(newRegion);
       mapRef.current?.animateToRegion(newRegion, 1000);
-    } else if (houses.length > 0) {
-      // If no location, center on the first house
-      const firstHouse = houses[0];
-      const newRegion = {
-        latitude: parseFloat(firstHouse.lat),
-        longitude: parseFloat(firstHouse.lng),
-        latitudeDelta: LATITUDE_DELTA,
-        longitudeDelta: LONGITUDE_DELTA,
-      };
-      setRegion(newRegion);
     }
   }, [location, houses]);
 
@@ -51,11 +60,15 @@ const Map = ({ houses = [], onHousePress, showStreetView = false }) => {
   };
 
   const getMarkerColor = (status) => {
-    switch (status) {
+    switch (status?.toLowerCase()) {
       case 'skip':
+      case 'skipped':
         return '#EF4444'; // Red
       case 'collect':
+      case 'completed':
         return '#10B981'; // Green
+      case 'new customer':
+        return '#3B82F6'; // Blue
       default:
         return '#6B7280'; // Gray
     }
@@ -69,20 +82,25 @@ const Map = ({ houses = [], onHousePress, showStreetView = false }) => {
         mapType={mapType}
         showsUserLocation
         showsMyLocationButton
-        initialRegion={region}
-        region={region}
+        initialRegion={DEFAULT_REGION}
       >
-        {houses?.map((house) => (
-          <Marker
-            key={house.id}
-            coordinate={{
-              latitude: parseFloat(house.lat),
-              longitude: parseFloat(house.lng)
-            }}
-            pinColor={getMarkerColor(house.status)}
-            onPress={() => onHousePress(house)}
-          />
-        ))}
+        {houses?.map((house) => {
+          const lat = parseFloat(house.lat);
+          const lng = parseFloat(house.lng);
+          if (isNaN(lat) || isNaN(lng)) return null;
+          
+          return (
+            <Marker
+              key={house.id || `${house.lat}-${house.lng}`}
+              coordinate={{
+                latitude: lat,
+                longitude: lng
+              }}
+              pinColor={getMarkerColor(house.status)}
+              onPress={() => onHousePress?.(house)}
+            />
+          );
+        })}
       </MapView>
 
       {/* Map Controls */}

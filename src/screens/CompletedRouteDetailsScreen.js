@@ -149,7 +149,7 @@ const CompletedRouteDetailsScreen = ({ routeId }) => {
             value={specialHouses}
             color="#8B5CF6"
             showInfo
-            infoText="Houses with special notes or new customers that required additional attention"
+            infoText="Houses with notifications to skip, special notes, or new customers that required additional attention"
           />
         </View>
 

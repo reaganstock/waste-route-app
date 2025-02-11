@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -8,12 +8,15 @@ import {
   RefreshControl,
   Dimensions,
   Platform,
+  ActivityIndicator,
+  Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
-import { mockRoutes } from '../lib/mockData';
 import { useRouter } from 'expo-router';
+import { useRoutes } from '../hooks/useRoutes';
+import { supabase } from '../lib/supabase';
 
 const { width } = Dimensions.get('window');
 
@@ -35,71 +38,106 @@ const QuickAction = ({ icon, title, color, onPress }) => (
 );
 
 // RouteCard Component
-const RouteCard = ({ route, isActive, router }) => (
-  <TouchableOpacity 
-    style={[styles.routeCard, isActive && styles.activeRouteCard]}
-    onPress={() => {
-      console.log('Navigating to route:', route.id);
+const RouteCard = ({ route, isActive, router }) => {
+  const handleStartRoute = async () => {
+    try {
+      const { error } = await supabase
+        .from('routes')
+        .update({ status: 'in_progress' })
+        .eq('id', route.id);
+
+      if (error) throw error;
       router.push(`/route/${route.id}`);
-    }}
-  >
-    <View style={styles.routeInfo}>
-      <Text style={styles.routeName}>{route.name}</Text>
-      <Text style={styles.routeDate}>
-        {new Date(route.date).toLocaleDateString()}
-      </Text>
+    } catch (error) {
+      Alert.alert('Error', error.message);
+    }
+  };
+
+  return (
+    <View style={[styles.routeCard, isActive && styles.activeRouteCard]}>
+      <TouchableOpacity 
+        style={styles.routeContent}
+        onPress={() => router.push(`/route/${route.id}/edit`)}
+      >
+        <View style={styles.routeInfo}>
+          <Text style={styles.routeName}>{route.name}</Text>
+          <Text style={styles.routeDate}>
+            {new Date(route.date).toLocaleDateString()}
+          </Text>
+        </View>
+        <View style={styles.routeStats}>
+          <View style={styles.routeStat}>
+            <Ionicons name="home" size={16} color="#9CA3AF" />
+            <Text style={styles.routeStatText}>{route.total_houses} houses</Text>
+          </View>
+          <View style={styles.routeProgress}>
+            <View 
+              style={[
+                styles.progressBar, 
+                { width: `${(route.total_houses > 0 ? route.completed_houses / route.total_houses : 0) * 100}%` }
+              ]} 
+            />
+          </View>
+        </View>
+      </TouchableOpacity>
+      
+      {route.status === 'pending' && (
+        <TouchableOpacity 
+          style={styles.startButton}
+          onPress={handleStartRoute}
+        >
+          <Ionicons name="play" size={20} color="#10B981" />
+          <Text style={styles.startButtonText}>Start</Text>
+        </TouchableOpacity>
+      )}
     </View>
-    <View style={styles.routeStats}>
-      <View style={styles.routeStat}>
-        <Ionicons name="home" size={16} color="#9CA3AF" />
-        <Text style={styles.routeStatText}>{route.houses.count} houses</Text>
-      </View>
-      <View style={styles.routeProgress}>
-        <View 
-          style={[
-            styles.progressBar, 
-            { width: `${(route.houses.count > 0 ? route.completed_houses / route.houses.count : 0) * 100}%` }
-          ]} 
-        />
-      </View>
-    </View>
-  </TouchableOpacity>
-);
+  );
+};
 
 const HomeScreen = () => {
   const router = useRouter();
-  const [activeRoute, setActiveRoute] = useState(null);
-  const [upcomingRoutes, setUpcomingRoutes] = useState([]);
+  const { routes, loading, error, fetchRoutes } = useRoutes();
   const [refreshing, setRefreshing] = useState(false);
-  const [stats, setStats] = useState({
-    todayHouses: 0,
-    completedRoutes: 0,
-    efficiency: 85
-  });
 
-  useEffect(() => {
-    fetchData();
-  }, []);
+  const activeRoute = routes.find(r => r.status === 'in_progress');
+  const upcomingRoutes = routes
+    .filter(r => r.status === 'pending')
+    .sort((a, b) => new Date(a.date) - new Date(b.date))
+    .slice(0, 3);
+  const completedRoutes = routes.filter(r => r.status === 'completed');
 
-  const fetchData = () => {
-    // Mock data loading
-    const active = mockRoutes.find(r => r.status === 'in_progress');
-    const upcoming = mockRoutes.filter(r => r.status === 'pending');
-    
-    setActiveRoute(active);
-    setUpcomingRoutes(upcoming);
-    setStats({
-      todayHouses: 15,
-      completedRoutes: 45,
-      efficiency: 85
-    });
+  const stats = {
+    todayHouses: activeRoute?.completed_houses || 0,
+    completedRoutes: completedRoutes.length,
+    efficiency: completedRoutes.length > 0
+      ? Math.round(completedRoutes.reduce((acc, route) => acc + route.efficiency, 0) / completedRoutes.length)
+      : 0
   };
 
   const onRefresh = async () => {
     setRefreshing(true);
-    fetchData();
+    await fetchRoutes();
     setRefreshing(false);
   };
+
+  if (loading && !refreshing) {
+    return (
+      <View style={[styles.container, styles.centerContent]}>
+        <ActivityIndicator size="large" color="#3B82F6" />
+      </View>
+    );
+  }
+
+  if (error) {
+    return (
+      <View style={[styles.container, styles.centerContent]}>
+        <Text style={styles.errorText}>Error loading routes</Text>
+        <TouchableOpacity style={styles.retryButton} onPress={fetchRoutes}>
+          <Text style={styles.retryButtonText}>Retry</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -124,11 +162,12 @@ const HomeScreen = () => {
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
+        showsVerticalScrollIndicator={false}
       >
         {/* Stats Overview */}
         <View style={styles.statsGrid}>
           <View style={styles.statCard}>
-            <View style={styles.statIcon}>
+            <View style={[styles.statIcon, { backgroundColor: 'rgba(59,130,246,0.1)' }]}>
               <Ionicons name="home" size={24} color="#3B82F6" />
             </View>
             <Text style={styles.statValue}>{stats.todayHouses}</Text>
@@ -136,7 +175,7 @@ const HomeScreen = () => {
           </View>
 
           <View style={styles.statCard}>
-            <View style={styles.statIcon}>
+            <View style={[styles.statIcon, { backgroundColor: 'rgba(16,185,129,0.1)' }]}>
               <Ionicons name="checkmark-circle" size={24} color="#10B981" />
             </View>
             <Text style={styles.statValue}>{stats.completedRoutes}</Text>
@@ -144,7 +183,7 @@ const HomeScreen = () => {
           </View>
 
           <View style={styles.statCard}>
-            <View style={styles.statIcon}>
+            <View style={[styles.statIcon, { backgroundColor: 'rgba(245,158,11,0.1)' }]}>
               <Ionicons name="trending-up" size={24} color="#F59E0B" />
             </View>
             <Text style={styles.statValue}>{stats.efficiency}%</Text>
@@ -196,8 +235,12 @@ const HomeScreen = () => {
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
               <Text style={styles.sectionTitle}>Upcoming Routes</Text>
-              <TouchableOpacity onPress={() => router.push('/routes')}>
+              <TouchableOpacity 
+                onPress={() => router.push('/routes')}
+                style={styles.seeAllButton}
+              >
                 <Text style={styles.seeAllText}>See All</Text>
+                <Ionicons name="chevron-forward" size={16} color="#3B82F6" />
               </TouchableOpacity>
             </View>
             {upcomingRoutes.map(route => (
@@ -215,6 +258,26 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#000',
   },
+  centerContent: {
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  errorText: {
+    color: '#EF4444',
+    fontSize: 16,
+    marginBottom: 16,
+  },
+  retryButton: {
+    backgroundColor: '#3B82F6',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 8,
+  },
+  retryButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '500',
+  },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -227,6 +290,14 @@ const styles = StyleSheet.create({
     fontSize: 28,
     fontWeight: 'bold',
     color: '#fff',
+  },
+  settingsButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   content: {
     flex: 1,
@@ -247,43 +318,28 @@ const styles = StyleSheet.create({
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: 'rgba(59,130,246,0.1)',
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 12,
   },
   statValue: {
+    color: '#fff',
     fontSize: 24,
     fontWeight: 'bold',
-    color: '#fff',
     marginBottom: 4,
   },
   statLabel: {
+    color: '#6B7280',
     fontSize: 12,
-    color: '#9CA3AF',
-    textAlign: 'center',
-  },
-  section: {
-    padding: 20,
-  },
-  sectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  sectionTitle: {
-    fontSize: 20,
-    fontWeight: '600',
-    color: '#fff',
-    marginBottom: 16,
-  },
-  seeAllText: {
-    color: '#3B82F6',
-    fontSize: 16,
   },
   quickActions: {
     padding: 20,
+  },
+  sectionTitle: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: '600',
+    marginBottom: 16,
   },
   quickActionsGrid: {
     flexDirection: 'row',
@@ -297,51 +353,64 @@ const styles = StyleSheet.create({
   },
   quickActionGradient: {
     padding: 16,
-    height: 100,
-    justifyContent: 'space-between',
   },
   quickActionIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.2)',
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     justifyContent: 'center',
     alignItems: 'center',
+    marginBottom: 12,
   },
   quickActionTitle: {
     color: '#fff',
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: '500',
   },
-  routeCard: {
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 12,
+  section: {
+    padding: 20,
+    paddingTop: 0,
   },
-  activeRouteCard: {
-    borderWidth: 1,
-    borderColor: '#3B82F6',
-  },
-  routeInfo: {
+  sectionHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    marginBottom: 16,
+  },
+  seeAllButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  seeAllText: {
+    color: '#3B82F6',
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  routeCard: {
+    backgroundColor: '#1F2937',
+    borderRadius: 12,
+    marginBottom: 12,
+    overflow: 'hidden',
+  },
+  routeContent: {
+    padding: 16,
+  },
+  routeInfo: {
     marginBottom: 12,
   },
   routeName: {
-    fontSize: 18,
-    fontWeight: '600',
     color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 4,
   },
   routeDate: {
-    color: '#9CA3AF',
-    fontSize: 14,
+    color: '#6B7280',
+    fontSize: 12,
   },
   routeStats: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    gap: 8,
   },
   routeStat: {
     flexDirection: 'row',
@@ -353,9 +422,8 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
   routeProgress: {
-    width: 100,
     height: 4,
-    backgroundColor: 'rgba(59,130,246,0.2)',
+    backgroundColor: 'rgba(255,255,255,0.1)',
     borderRadius: 2,
   },
   progressBar: {
@@ -363,12 +431,22 @@ const styles = StyleSheet.create({
     backgroundColor: '#3B82F6',
     borderRadius: 2,
   },
-  settingsButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    justifyContent: 'center',
+  startButton: {
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(16, 185, 129, 0.1)',
+    padding: 8,
+    gap: 8,
+  },
+  startButtonText: {
+    color: '#10B981',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  activeRouteCard: {
+    borderColor: '#3B82F6',
+    borderWidth: 1,
   },
 });
 

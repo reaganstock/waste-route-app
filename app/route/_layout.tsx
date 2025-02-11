@@ -9,8 +9,8 @@ export default function RouteLayout() {
       }}
     >
       <Stack.Screen name="[id]" />
-      <Stack.Screen name="complete" />
-      <Stack.Screen name="details" />
+      <Stack.Screen name="[id]/complete" />
+      <Stack.Screen name="[id]/details" />
       <Stack.Screen name="completed" />
     </Stack>
   );

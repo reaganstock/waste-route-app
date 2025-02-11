@@ -12,9 +12,12 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { mockAuth } from '../lib/mockData';
+import { useRouter } from 'expo-router';
+import { useAuth } from '../contexts/AuthContext';
 
-const LoginScreen = ({ navigation }) => {
+const LoginScreen = () => {
+  const router = useRouter();
+  const { signIn } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -29,17 +32,7 @@ const LoginScreen = ({ navigation }) => {
 
     try {
       setLoading(true);
-      // Simulate API call delay
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      // Mock authentication
-      const user = mockAuth.users.find(u => u.email === email);
-      if (!user || user.password !== password) {
-        throw new Error('Invalid email or password');
-      }
-
-      // Navigate to main app
-      navigation.replace('(tabs)');
+      await signIn(email, password);
     } catch (error) {
       Alert.alert('Error', error.message);
     } finally {
@@ -93,7 +86,7 @@ const LoginScreen = ({ navigation }) => {
 
         <TouchableOpacity 
           style={styles.forgotPassword}
-          onPress={() => navigation.navigate('forgot-password')}
+          onPress={() => router.push('/(auth)/forgot-password')}
         >
           <Text style={styles.forgotPasswordText}>Forgot password?</Text>
         </TouchableOpacity>
@@ -117,7 +110,7 @@ const LoginScreen = ({ navigation }) => {
 
         <TouchableOpacity 
           style={styles.signupButton}
-          onPress={() => navigation.navigate('signup')}
+          onPress={() => router.push('/(auth)/signup')}
         >
           <Text style={styles.signupText}>
             Don't have an account? <Text style={styles.signupTextBold}>Sign up</Text>

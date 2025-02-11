@@ -8,6 +8,7 @@ import {
   ScrollView,
   Alert,
   ActivityIndicator,
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
@@ -16,10 +17,23 @@ import * as FileSystem from 'expo-file-system';
 import * as WebBrowser from 'expo-web-browser';
 import Map from '../components/Map';
 import { mockTeamMembers } from '../lib/mockData';
+import { supabase } from '../lib/supabase';
+import { useRouter } from 'expo-router';
+import Papa from 'papaparse';
+import { v4 as uuidv4 } from 'uuid';
 
 // Google OAuth2 credentials - you'll need to replace these with your own
 const GOOGLE_CLIENT_ID = 'YOUR_GOOGLE_CLIENT_ID';
 const GOOGLE_REDIRECT_URI = 'YOUR_REDIRECT_URI';
+
+// Simple coordinate mapping for Wylie, TX and surrounding areas
+const CITY_COORDINATES = {
+  'wylie': { lat: 33.0151, lng: -96.5388 },
+  'murphy': { lat: 33.0185, lng: -96.6131 },
+  'sachse': { lat: 32.9787, lng: -96.5986 },
+  'plano': { lat: 33.0198, lng: -96.6989 },
+  'dallas': { lat: 32.7767, lng: -96.7970 },
+};
 
 const parseCSV = (content) => {
   const lines = content.split('\n');
@@ -38,20 +52,55 @@ const parseCSV = (content) => {
     .filter(house => house.address && house.lat && house.lng);
 };
 
+const geocodeAddress = async (address) => {
+  try {
+    // Parse the address to get city
+    const parts = address.split(',').map(part => part.trim().toLowerCase());
+    const city = parts[1]; // Assuming format: "street, city, state, zip"
+    
+    // Get base coordinates for the city, default to Wylie if city not found
+    const baseCoords = CITY_COORDINATES[city] || CITY_COORDINATES['wylie'];
+    
+    // Add small random offset to spread out pins within the city
+    // This creates a more realistic distribution of addresses
+    const latOffset = (Math.random() - 0.5) * 0.02; // About 1-2 miles
+    const lngOffset = (Math.random() - 0.5) * 0.02;
+    
+    return {
+      lat: (baseCoords.lat + latOffset).toString(),
+      lng: (baseCoords.lng + lngOffset).toString(),
+    };
+  } catch (error) {
+    console.error('Geocoding error:', error);
+    // Default to Wylie center coordinates if parsing fails
+    return {
+      lat: '33.0151',
+      lng: '-96.5388',
+    };
+  }
+};
+
 const parseAddressList = (text) => {
   // Split by newlines and filter empty lines
   const addresses = text.split('\n')
     .map(line => line.trim())
     .filter(line => line);
 
-  // For demo purposes, generate random coordinates near San Francisco
-  return addresses.map(address => ({
-    address,
-    // Generate coordinates within San Francisco area
-    lat: (37.7749 + (Math.random() - 0.5) * 0.1).toString(),
-    lng: (-122.4194 + (Math.random() - 0.5) * 0.1).toString(),
-    notes: ''
-  }));
+  return addresses.map(address => {
+    const parts = address.split(',');
+    if (parts.length < 4) return null;
+
+    const [street, city, state, zip, status = 'collect', notes = ''] = parts.map(p => p.trim());
+    const fullAddress = `${street}, ${city}, ${state} ${zip}`;
+
+    return {
+      address: fullAddress,
+      status: status.toLowerCase(),
+      notes: notes,
+      lat: null,
+      lng: null
+    };
+  }).filter(Boolean);
 };
 
 const parseGoogleSheetData = (values) => {
@@ -67,14 +116,14 @@ const parseGoogleSheetData = (values) => {
     .filter(house => house.address && house.lat && house.lng);
 };
 
-const RouteCreateScreen = ({ navigation }) => {
-  const [name, setName] = useState('');
-  const [date, setDate] = useState(new Date());
+const RouteCreateScreen = ({ isEditing = false, existingRoute = null, navigation }) => {
+  const [name, setName] = useState(existingRoute?.name || '');
+  const [date, setDate] = useState(existingRoute?.date ? new Date(existingRoute.date) : new Date());
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [drivers, setDrivers] = useState([]);
-  const [selectedDriver, setSelectedDriver] = useState(null);
+  const [selectedDriver, setSelectedDriver] = useState(existingRoute?.driver_id || null);
   const [uploading, setUploading] = useState(false);
-  const [houses, setHouses] = useState([]);
+  const [houses, setHouses] = useState(existingRoute?.houses || []);
   const [addressInput, setAddressInput] = useState('');
   const [isLoadingGoogleSheet, setIsLoadingGoogleSheet] = useState(false);
 
@@ -84,15 +133,43 @@ const RouteCreateScreen = ({ navigation }) => {
     setDrivers(mockDrivers);
   }, []);
 
-  const handleAddressPaste = () => {
+  const handleAddressPaste = async () => {
     if (!addressInput.trim()) {
       Alert.alert('Error', 'Please enter at least one address');
       return;
     }
 
-    const newHouses = parseAddressList(addressInput);
-    setHouses(prevHouses => [...prevHouses, ...newHouses]);
-    setAddressInput(''); // Clear input after adding
+    try {
+      setUploading(true);
+      const newHouses = parseAddressList(addressInput);
+      
+      // Geocode each address
+      const geocodedHouses = await Promise.all(
+        newHouses.map(async (house) => {
+          try {
+            const coords = await geocodeAddress(house.address);
+            return {
+              ...house,
+              lat: coords.lat,
+              lng: coords.lng,
+            };
+          } catch (error) {
+            Alert.alert('Error', `Failed to geocode address: ${house.address}`);
+            return null;
+          }
+        })
+      );
+
+      const validHouses = geocodedHouses.filter(Boolean);
+      if (validHouses.length > 0) {
+        setHouses(prevHouses => [...prevHouses, ...validHouses]);
+        setAddressInput(''); // Clear input after adding
+      }
+    } catch (error) {
+      Alert.alert('Error', 'Failed to process addresses');
+    } finally {
+      setUploading(false);
+    }
   };
 
   const handleUploadCSV = async () => {
@@ -187,26 +264,86 @@ const RouteCreateScreen = ({ navigation }) => {
     }
 
     try {
-      // Simulate API call delay
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      setUploading(true);
       
-      // In a real app, this would create the route in the database
-      const newRoute = {
-        id: Date.now().toString(),
-        name,
-        date,
-        driver_id: selectedDriver,
-        status: 'pending',
-        houses: houses.map(house => ({
-          ...house,
-          status: 'pending',
-        })),
-      };
+      if (isEditing && existingRoute) {
+        // Update existing route
+        const { error: routeError } = await supabase
+          .from('routes')
+          .update({
+            name,
+            date,
+            driver_id: selectedDriver,
+          })
+          .eq('id', existingRoute.id);
 
-      // Navigate to the route details screen
-      navigation.replace(`route/${newRoute.id}`);
+        if (routeError) throw routeError;
+
+        // Delete existing houses
+        const { error: deleteError } = await supabase
+          .from('houses')
+          .delete()
+          .eq('route_id', existingRoute.id);
+
+        if (deleteError) throw deleteError;
+
+        // Add new houses
+        const { error: housesError } = await supabase
+          .from('houses')
+          .insert(
+            houses.map(house => ({
+              route_id: existingRoute.id,
+              address: house.address,
+              lat: house.lat,
+              lng: house.lng,
+              status: house.status || 'pending',
+              notes: house.notes || '',
+            }))
+          );
+
+        if (housesError) throw housesError;
+
+        navigation.goBack();
+      } else {
+        // Create new route
+        const { data: route, error: routeError } = await supabase
+          .from('routes')
+          .insert([{
+            name,
+            date,
+            driver_id: selectedDriver,
+            status: 'pending',
+            total_houses: houses.length,
+            completed_houses: 0,
+            efficiency: 0,
+          }])
+          .select()
+          .single();
+
+        if (routeError) throw routeError;
+
+        // Add houses to the route
+        const { error: housesError } = await supabase
+          .from('houses')
+          .insert(
+            houses.map(house => ({
+              route_id: route.id,
+              address: house.address,
+              lat: house.lat,
+              lng: house.lng,
+              status: house.status || 'pending',
+              notes: house.notes || '',
+            }))
+          );
+
+        if (housesError) throw housesError;
+
+        navigation.replace(`/route/${route.id}`);
+      }
     } catch (error) {
       Alert.alert('Error', error.message);
+    } finally {
+      setUploading(false);
     }
   };
 
@@ -220,16 +357,24 @@ const RouteCreateScreen = ({ navigation }) => {
           <Ionicons name="arrow-back" size={24} color="#fff" />
           <Text style={styles.backButtonText}>Back</Text>
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Create Route</Text>
+        <Text style={styles.headerTitle}>
+          {isEditing ? 'Edit Route' : 'Create Route'}
+        </Text>
         <TouchableOpacity 
           style={[
             styles.createButton, 
             (!name || !selectedDriver || houses.length === 0) && styles.createButtonDisabled
           ]}
           onPress={handleCreate}
-          disabled={!name || !selectedDriver || houses.length === 0}
+          disabled={!name || !selectedDriver || houses.length === 0 || uploading}
         >
-          <Text style={styles.createButtonText}>Create</Text>
+          {uploading ? (
+            <ActivityIndicator color="#fff" size="small" />
+          ) : (
+            <Text style={styles.createButtonText}>
+              {isEditing ? 'Save' : 'Create'}
+            </Text>
+          )}
         </TouchableOpacity>
       </View>
 
@@ -367,17 +512,28 @@ const RouteCreateScreen = ({ navigation }) => {
           {houses.length > 0 && (
             <>
               <View style={styles.mapContainer}>
-                <Map houses={houses} />
+                <Map 
+                  houses={houses}
+                  onHousePress={(house) => {
+                    Alert.alert(
+                      house.address,
+                      house.notes || 'No additional notes',
+                      [{ text: 'OK' }]
+                    );
+                  }}
+                  style={styles.map}
+                />
               </View>
 
               <View style={styles.housesList}>
                 {houses.map((house, index) => (
-                  <View key={index} style={styles.houseItem}>
+                  <View key={`house-${index}`} style={styles.houseItem}>
                     <View style={styles.houseItemContent}>
                       <Text style={styles.houseAddress}>{house.address}</Text>
                       {house.notes && (
                         <Text style={styles.houseNotes}>{house.notes}</Text>
                       )}
+                      <Text style={styles.houseStatus}>Status: {house.status}</Text>
                     </View>
                     <TouchableOpacity
                       style={styles.removeButton}
@@ -395,6 +551,8 @@ const RouteCreateScreen = ({ navigation }) => {
     </View>
   );
 };
+
+export default RouteCreateScreen;
 
 const styles = StyleSheet.create({
   container: {
@@ -598,6 +756,11 @@ const styles = StyleSheet.create({
   removeButton: {
     padding: 8,
   },
-});
-
-export default RouteCreateScreen; 
+  houseStatus: {
+    color: '#6B7280',
+    fontSize: 14,
+  },
+  map: {
+    flex: 1,
+  },
+}); 
