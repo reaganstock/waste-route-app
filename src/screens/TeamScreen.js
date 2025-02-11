@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import {
   View,
   Text,
@@ -8,42 +8,71 @@ import {
   RefreshControl,
   Platform,
   ActivityIndicator,
+  Image,
+  Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import { useRouter } from 'expo-router';
-import { mockTeamMembers } from '../lib/mockData';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useAuth } from '../contexts/AuthContext';
+import { supabase } from '../lib/supabase';
 
 const TeamScreen = () => {
   const router = useRouter();
-  const [members, setMembers] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
+  const { user } = useAuth();
+  const [members, setMembers] = React.useState([]);
+  const [loading, setLoading] = React.useState(true);
 
-  const fetchTeamMembers = () => {
-    setMembers(mockTeamMembers);
-    setLoading(false);
+  const fetchTeamMembers = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select(`
+          id,
+          full_name,
+          email,
+          role,
+          status,
+          avatar_url,
+          hours_driven,
+          routes:routes(
+            id,
+            status,
+            completed_houses,
+            total_houses
+          )
+        `)
+        .order('role', { ascending: false }) // Show admins first
+        .order('full_name');
+
+      if (error) throw error;
+      setMembers(data || []);
+    } catch (error) {
+      console.error('Error fetching team members:', error);
+      Alert.alert('Error', 'Failed to load team members');
+    } finally {
+      setLoading(false);
+    }
   };
 
-  useEffect(() => {
+  React.useEffect(() => {
     fetchTeamMembers();
   }, []);
 
-  const onRefresh = () => {
-    setRefreshing(true);
+  const onRefresh = React.useCallback(() => {
+    setLoading(true);
     fetchTeamMembers();
-    setRefreshing(false);
-  };
+  }, []);
 
   const MemberCard = ({ member }) => {
     const activeRoute = member.routes?.find(r => r.status === 'in_progress');
-    const completedRoutes = member.completed_routes || 0;
+    const completedRoutes = member.routes?.filter(r => r.status === 'completed').length || 0;
     
     return (
       <TouchableOpacity 
         style={styles.memberCard}
-        onPress={() => router.push(`/member/${member.id}`)}
+        onPress={() => router.push(`/team/${member.id}`)}
         activeOpacity={0.7}
       >
         <LinearGradient
@@ -51,14 +80,21 @@ const TeamScreen = () => {
           style={styles.memberGradient}
         >
           <View style={styles.memberHeader}>
-            <View style={[
-              styles.avatarContainer,
-              { backgroundColor: getAvatarColor(member.role) }
-            ]}>
-              <Text style={styles.avatarText}>
-                {member.full_name?.split(' ').map(n => n[0]).join('')}
-              </Text>
-            </View>
+            {member.avatar_url ? (
+              <Image
+                source={{ uri: member.avatar_url }}
+                style={styles.avatarContainer}
+              />
+            ) : (
+              <View style={[
+                styles.avatarContainer,
+                { backgroundColor: getAvatarColor(member.role) }
+              ]}>
+                <Text style={styles.avatarText}>
+                  {member.full_name?.split(' ').map(n => n[0]).join('')}
+                </Text>
+              </View>
+            )}
             <View style={[
               styles.statusBadge,
               { backgroundColor: member.status === 'active' ? 'rgba(16,185,129,0.1)' : 'rgba(107,114,128,0.1)' }
@@ -78,21 +114,35 @@ const TeamScreen = () => {
 
           <View style={styles.memberInfo}>
             <View style={styles.memberDetails}>
-              <Text style={styles.memberName}>{member.full_name}</Text>
+              <Text style={styles.memberName}>
+                {member.full_name}
+                {member.id === user?.id && (
+                  <Text style={styles.currentUser}> (You)</Text>
+                )}
+              </Text>
               <Text style={styles.memberRole}>{member.role}</Text>
             </View>
             <View style={styles.memberStats}>
-              <View style={styles.statItem}>
-                <Ionicons name="checkmark-circle-outline" size={16} color="#3B82F6" />
-                <Text style={styles.statValue}>{completedRoutes}</Text>
-                <Text style={styles.statLabel}>Routes</Text>
-              </View>
-              <View style={styles.statDivider} />
-              <View style={styles.statItem}>
-                <Ionicons name="time-outline" size={16} color="#3B82F6" />
-                <Text style={styles.statValue}>{member.hours_driven || 0}</Text>
-                <Text style={styles.statLabel}>Hours</Text>
-              </View>
+              {member.role === 'driver' ? (
+                <>
+                  <View style={styles.statItem}>
+                    <Ionicons name="checkmark-circle-outline" size={16} color="#3B82F6" />
+                    <Text style={styles.statValue}>{completedRoutes}</Text>
+                    <Text style={styles.statLabel}>Routes</Text>
+                  </View>
+                  <View style={styles.statDivider} />
+                  <View style={styles.statItem}>
+                    <Ionicons name="time-outline" size={16} color="#3B82F6" />
+                    <Text style={styles.statValue}>{member.hours_driven || 0}</Text>
+                    <Text style={styles.statLabel}>Hours</Text>
+                  </View>
+                </>
+              ) : (
+                <View style={styles.statItem}>
+                  <Ionicons name="shield-outline" size={16} color="#3B82F6" />
+                  <Text style={styles.statLabel}>Administrator</Text>
+                </View>
+              )}
             </View>
           </View>
         </LinearGradient>
@@ -132,7 +182,7 @@ const TeamScreen = () => {
         <Text style={styles.title}>Team</Text>
         <TouchableOpacity 
           style={styles.addButton}
-          onPress={() => router.push('/add-team-member')}
+          onPress={() => router.push('/team/add')}
           activeOpacity={0.7}
         >
           <Ionicons name="add" size={24} color="#fff" />
@@ -144,7 +194,7 @@ const TeamScreen = () => {
         contentContainerStyle={styles.scrollContent}
         refreshControl={
           <RefreshControl 
-            refreshing={refreshing} 
+            refreshing={loading} 
             onRefresh={onRefresh}
             tintColor="#3B82F6"
           />
@@ -282,6 +332,26 @@ const styles = StyleSheet.create({
     height: 24,
     backgroundColor: 'rgba(255,255,255,0.1)',
     marginHorizontal: 12,
+  },
+  errorText: {
+    color: '#EF4444',
+    fontSize: 16,
+    marginBottom: 12,
+  },
+  retryButton: {
+    backgroundColor: '#3B82F6',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 8,
+  },
+  retryText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  currentUser: {
+    color: '#3B82F6',
+    fontSize: 14,
   },
 });
 

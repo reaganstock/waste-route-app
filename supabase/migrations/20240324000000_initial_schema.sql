@@ -1,6 +1,8 @@
 -- Drop existing policies
 drop policy if exists "Public profiles are viewable by authenticated users" on public.profiles;
 drop policy if exists "Users can update their own profile" on public.profiles;
+drop policy if exists "Admins can create profiles" on public.profiles;
+drop policy if exists "Admins can update any profile" on public.profiles;
 drop policy if exists "Routes are viewable by authenticated users" on public.routes;
 drop policy if exists "Routes are insertable by authenticated users" on public.routes;
 drop policy if exists "Routes are updatable by authenticated users" on public.routes;
@@ -16,9 +18,9 @@ drop trigger if exists handle_routes_updated_at on public.routes;
 drop trigger if exists handle_houses_updated_at on public.houses;
 drop trigger if exists calculate_route_efficiency on public.routes;
 
--- Drop existing functions
-drop function if exists public.handle_updated_at();
-drop function if exists public.calculate_route_efficiency();
+-- Drop existing functions with CASCADE
+drop function if exists public.handle_updated_at() CASCADE;
+drop function if exists public.calculate_route_efficiency() CASCADE;
 
 -- Drop existing types
 drop type if exists public.route_status cascade;
@@ -35,8 +37,8 @@ alter database postgres set timezone to 'UTC';
 -- Create custom types for status enums
 create type public.route_status as enum ('pending', 'in_progress', 'completed');
 create type public.house_status as enum ('pending', 'completed', 'skipped');
-create type public.user_role as enum ('driver', 'manager', 'admin');
-create type public.user_status as enum ('active', 'inactive');
+create type public.user_role as enum ('driver', 'admin');
+create type public.user_status as enum ('pending', 'active', 'inactive');
 
 -- Create tables
 create table if not exists public.profiles (
@@ -46,7 +48,7 @@ create table if not exists public.profiles (
     full_name text not null,
     email text not null unique,
     role user_role not null default 'driver',
-    status user_status not null default 'active',
+    status user_status not null default 'pending',
     phone text,
     preferred_region text,
     start_date date default now(),
@@ -95,7 +97,7 @@ alter table public.profiles enable row level security;
 alter table public.routes enable row level security;
 alter table public.houses enable row level security;
 
--- Create policies
+-- Create policies for profiles
 create policy "Profiles are viewable by authenticated users"
     on profiles for select
     using (auth.role() = 'authenticated');
@@ -104,6 +106,28 @@ create policy "Users can update their own profile"
     on profiles for update
     using (auth.uid() = id);
 
+create policy "Admins can create profiles"
+    on profiles for insert
+    with check (
+        exists (
+            select 1 from profiles
+            where id = auth.uid()
+            and role = 'admin'
+        )
+        or auth.uid() = id
+    );
+
+create policy "Admins can update any profile"
+    on profiles for update
+    using (
+        exists (
+            select 1 from profiles
+            where id = auth.uid()
+            and role = 'admin'
+        )
+    );
+
+-- Create policies for routes
 create policy "Routes are viewable by authenticated users"
     on routes for select
     using (auth.role() = 'authenticated');
@@ -120,6 +144,7 @@ create policy "Routes are deletable by authenticated users"
     on routes for delete
     using (auth.role() = 'authenticated');
 
+-- Create policies for houses
 create policy "Houses are viewable by authenticated users"
     on houses for select
     using (auth.role() = 'authenticated');
@@ -175,4 +200,4 @@ create trigger handle_houses_updated_at
 create trigger calculate_route_efficiency
     before insert or update of completed_houses, total_houses on public.routes
     for each row
-    execute function public.calculate_route_efficiency(); 
+    execute function public.calculate_route_efficiency();

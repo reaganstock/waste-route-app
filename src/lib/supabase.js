@@ -9,6 +9,7 @@ if (!supabaseUrl || !supabaseAnonKey) {
   throw new Error('Missing Supabase environment variables');
 }
 
+// Create the main client with anon key
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
     storage: AsyncStorage,
@@ -17,6 +18,29 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     detectSessionInUrl: false,
   },
 });
+
+// Create a function to get admin auth client
+export const getAdminAuthClient = async () => {
+  try {
+    const response = await fetch(`${supabaseUrl}/auth/v1/admin`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': process.env.EXPO_PUBLIC_SUPABASE_SERVICE_ROLE_KEY,
+        'Authorization': `Bearer ${process.env.EXPO_PUBLIC_SUPABASE_SERVICE_ROLE_KEY}`,
+      },
+    });
+    
+    if (!response.ok) {
+      throw new Error('Failed to get admin auth client');
+    }
+    
+    return response;
+  } catch (error) {
+    console.error('Admin auth client error:', error);
+    throw error;
+  }
+};
 
 // Helper functions for database operations
 export const addHouse = async (houseData) => {
@@ -85,4 +109,34 @@ export const addRouteHistory = async (historyData) => {
   
   if (error) throw error;
   return data;
+};
+
+// Function to create a new user using Supabase Management API
+export const createUserWithManagementAPI = async (email, password, userData) => {
+  try {
+    const response = await fetch(`${supabaseUrl}/auth/v1/admin/users`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': process.env.EXPO_PUBLIC_SUPABASE_SERVICE_ROLE_KEY,
+        'Authorization': `Bearer ${process.env.EXPO_PUBLIC_SUPABASE_SERVICE_ROLE_KEY}`,
+      },
+      body: JSON.stringify({
+        email,
+        password,
+        email_confirm: true,
+        user_metadata: userData,
+      }),
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.message || 'Failed to create user');
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error('Management API Error:', error);
+    throw error;
+  }
 }; 

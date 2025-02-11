@@ -7,10 +7,14 @@ import {
   TouchableOpacity,
   Platform,
   Dimensions,
+  ActivityIndicator,
+  Image,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
-import { mockTeamMembers } from '../lib/mockData';
+import { useRouter, useLocalSearchParams } from 'expo-router';
+import { supabase } from '../lib/supabase';
+import { LinearGradient } from 'expo-linear-gradient';
+import { BlurView } from 'expo-blur';
 
 const MetricCard = ({ title, value, icon, trend, trendValue }) => (
   <View style={styles.metricCard}>
@@ -18,36 +22,121 @@ const MetricCard = ({ title, value, icon, trend, trendValue }) => (
       <View style={styles.metricIcon}>
         <Ionicons name={icon} size={24} color="#3B82F6" />
       </View>
-      <View style={styles.trendContainer}>
-        <Ionicons 
-          name={trend === 'up' ? 'arrow-up' : 'arrow-down'} 
-          size={16} 
-          color={trend === 'up' ? '#10B981' : '#EF4444'} 
-        />
-        <Text style={[
-          styles.trendText,
-          { color: trend === 'up' ? '#10B981' : '#EF4444' }
-        ]}>
-          {trendValue}%
-        </Text>
-      </View>
+      {trend && trendValue && (
+        <View style={styles.trendContainer}>
+          <Ionicons 
+            name={trend === 'up' ? 'arrow-up' : 'arrow-down'} 
+            size={16} 
+            color={trend === 'up' ? '#10B981' : '#EF4444'} 
+          />
+          <Text style={[
+            styles.trendText,
+            { color: trend === 'up' ? '#10B981' : '#EF4444' }
+          ]}>
+            {trendValue}%
+          </Text>
+        </View>
+      )}
     </View>
     <Text style={styles.metricValue}>{value}</Text>
     <Text style={styles.metricTitle}>{title}</Text>
   </View>
 );
 
-const PerformanceScreen = ({ memberId }) => {
+const PerformanceScreen = () => {
   const router = useRouter();
+  const { id } = useLocalSearchParams();
   const [member, setMember] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [selectedPeriod, setSelectedPeriod] = useState('week');
+  const [metrics, setMetrics] = useState({
+    routesCompleted: 0,
+    housesServiced: 0,
+    efficiency: 0,
+    hoursDriven: 0,
+  });
+  const [recentRoutes, setRecentRoutes] = useState([]);
 
   useEffect(() => {
-    const memberData = mockTeamMembers.find(m => m.id === memberId);
-    if (memberData) {
+    fetchMemberData();
+  }, [id, selectedPeriod]);
+
+  const fetchMemberData = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      // Get date range based on selected period
+      const now = new Date();
+      let startDate = new Date();
+      switch (selectedPeriod) {
+        case 'week':
+          startDate.setDate(now.getDate() - 7);
+          break;
+        case 'month':
+          startDate.setMonth(now.getMonth() - 1);
+          break;
+        case 'year':
+          startDate.setFullYear(now.getFullYear() - 1);
+          break;
+      }
+
+      // Fetch member profile and routes
+      const { data: memberData, error: memberError } = await supabase
+        .from('profiles')
+        .select(`
+          *,
+          routes:routes(
+            id,
+            name,
+            date,
+            status,
+            completed_houses,
+            total_houses,
+            efficiency,
+            duration
+          )
+        `)
+        .eq('id', id)
+        .single();
+
+      if (memberError) throw memberError;
+
+      // Calculate metrics
+      const periodRoutes = memberData.routes?.filter(r => 
+        new Date(r.date) >= startDate && new Date(r.date) <= now
+      ) || [];
+
+      const completedRoutes = periodRoutes.filter(r => r.status === 'completed');
+      const totalHousesServiced = completedRoutes.reduce((sum, r) => sum + (r.completed_houses || 0), 0);
+      const avgEfficiency = completedRoutes.length > 0
+        ? completedRoutes.reduce((sum, r) => sum + (r.efficiency || 0), 0) / completedRoutes.length
+        : 0;
+      const totalHours = completedRoutes.reduce((sum, r) => sum + (r.duration || 0), 0);
+
       setMember(memberData);
+      setMetrics({
+        routesCompleted: completedRoutes.length,
+        housesServiced: totalHousesServiced,
+        efficiency: Math.round(avgEfficiency),
+        hoursDriven: Math.round(totalHours),
+      });
+
+      // Get recent routes
+      setRecentRoutes(
+        memberData.routes
+          ?.sort((a, b) => new Date(b.date) - new Date(a.date))
+          .slice(0, 5) || []
+      );
+
+    } catch (error) {
+      console.error('Error fetching performance data:', error);
+      setError(error.message);
+    } finally {
+      setLoading(false);
     }
-  }, [memberId]);
+  };
 
   const periods = [
     { id: 'week', label: 'Week' },
@@ -55,17 +144,38 @@ const PerformanceScreen = ({ memberId }) => {
     { id: 'year', label: 'Year' },
   ];
 
-  if (!member) {
+  if (loading) {
     return (
-      <View style={styles.container}>
-        <Text style={styles.errorText}>Member not found</Text>
+      <View style={[styles.container, styles.centerContent]}>
+        <ActivityIndicator size="large" color="#3B82F6" />
+      </View>
+    );
+  }
+
+  if (error || !member) {
+    return (
+      <View style={[styles.container, styles.centerContent]}>
+        <Text style={styles.errorText}>
+          {error || 'Member not found'}
+        </Text>
+        <TouchableOpacity 
+          style={styles.retryButton}
+          onPress={fetchMemberData}
+        >
+          <Text style={styles.retryButtonText}>Retry</Text>
+        </TouchableOpacity>
       </View>
     );
   }
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
+      <LinearGradient
+        colors={['#1a1a1a', '#000000']}
+        style={StyleSheet.absoluteFill}
+      />
+      
+      <BlurView intensity={80} style={styles.header}>
         <TouchableOpacity 
           onPress={() => router.back()}
           style={styles.backButton}
@@ -74,14 +184,21 @@ const PerformanceScreen = ({ memberId }) => {
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Performance</Text>
         <View style={styles.placeholder} />
-      </View>
+      </BlurView>
 
       <View style={styles.memberInfo}>
-        <View style={[styles.avatar, { backgroundColor: getAvatarColor(member.role) }]}>
-          <Text style={styles.avatarText}>
-            {member.full_name.split(' ').map(n => n[0]).join('')}
-          </Text>
-        </View>
+        {member.avatar_url ? (
+          <Image
+            source={{ uri: member.avatar_url }}
+            style={styles.avatar}
+          />
+        ) : (
+          <View style={[styles.avatar, { backgroundColor: getAvatarColor(member.role) }]}>
+            <Text style={styles.avatarText}>
+              {member.full_name?.split(' ').map(n => n[0]).join('')}
+            </Text>
+          </View>
+        )}
         <View style={styles.memberDetails}>
           <Text style={styles.memberName}>{member.full_name}</Text>
           <Text style={styles.memberRole}>{member.role}</Text>
@@ -112,57 +229,46 @@ const PerformanceScreen = ({ memberId }) => {
         <View style={styles.metricsGrid}>
           <MetricCard
             title="Routes Completed"
-            value="45"
+            value={metrics.routesCompleted}
             icon="checkmark-circle-outline"
-            trend="up"
-            trendValue="12"
-          />
-          <MetricCard
-            title="Average Rating"
-            value="4.8"
-            icon="star-outline"
-            trend="up"
-            trendValue="5"
-          />
-          <MetricCard
-            title="Hours Driven"
-            value={member.hours_driven || 0}
-            icon="time-outline"
-            trend="up"
-            trendValue="8"
-          />
-          <MetricCard
-            title="Efficiency"
-            value="92%"
-            icon="trending-up-outline"
-            trend="up"
-            trendValue="5"
           />
           <MetricCard
             title="Houses Serviced"
-            value="328"
+            value={metrics.housesServiced}
             icon="home-outline"
-            trend="up"
-            trendValue="8"
+          />
+          <MetricCard
+            title="Hours Driven"
+            value={metrics.hoursDriven}
+            icon="time-outline"
+          />
+          <MetricCard
+            title="Efficiency"
+            value={`${metrics.efficiency}%`}
+            icon="trending-up-outline"
           />
         </View>
 
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Recent Activity</Text>
           <View style={styles.timeline}>
-            {[1, 2, 3, 4, 5].map((_, index) => (
-              <View key={index} style={styles.timelineItem}>
+            {recentRoutes.map((route) => (
+              <TouchableOpacity 
+                key={route.id}
+                style={styles.timelineItem}
+                onPress={() => router.push(`/route/${route.id}`)}
+              >
                 <View style={styles.timelineDot} />
                 <View style={styles.timelineContent}>
-                  <Text style={styles.timelineTitle}>Completed Route #{index + 1}</Text>
+                  <Text style={styles.timelineTitle}>{route.name}</Text>
                   <Text style={styles.timelineDate}>
-                    {new Date(Date.now() - index * 86400000).toLocaleDateString()}
+                    {new Date(route.date).toLocaleDateString()}
                   </Text>
                   <Text style={styles.timelineMetrics}>
-                    15 houses • 4.9 rating • On time
+                    {route.completed_houses} of {route.total_houses} houses • {Math.round(route.efficiency)}% efficiency
                   </Text>
                 </View>
-              </View>
+              </TouchableOpacity>
             ))}
           </View>
         </View>
@@ -172,13 +278,13 @@ const PerformanceScreen = ({ memberId }) => {
           <View style={styles.insightCard}>
             <Ionicons name="trending-up" size={24} color="#10B981" />
             <Text style={styles.insightText}>
-              Performance has improved by 15% compared to last {selectedPeriod}
+              Completed {metrics.routesCompleted} routes in the past {selectedPeriod}
             </Text>
           </View>
           <View style={styles.insightCard}>
             <Ionicons name="star" size={24} color="#F59E0B" />
             <Text style={styles.insightText}>
-              Consistently maintains high customer satisfaction ratings
+              Average efficiency of {metrics.efficiency}% across all routes
             </Text>
           </View>
         </View>
@@ -398,6 +504,21 @@ const styles = StyleSheet.create({
     fontSize: 16,
     textAlign: 'center',
     marginTop: 20,
+  },
+  retryButton: {
+    backgroundColor: '#3B82F6',
+    padding: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  retryButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  centerContent: {
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 });
 

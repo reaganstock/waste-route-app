@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -6,10 +6,12 @@ import {
   ScrollView,
   TouchableOpacity,
   Platform,
+  Image,
+  ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
-import { mockTeamMembers } from '../lib/mockData';
+import { useRouter, useLocalSearchParams } from 'expo-router';
+import { supabase } from '../lib/supabase';
 
 const StatCard = ({ label, value, icon }) => (
   <View style={styles.statCard}>
@@ -21,14 +23,78 @@ const StatCard = ({ label, value, icon }) => (
   </View>
 );
 
-const TeamMemberDetailsScreen = ({ memberId }) => {
+const TeamMemberDetailsScreen = () => {
   const router = useRouter();
-  const member = mockTeamMembers.find(m => m.id === memberId);
+  const { id } = useLocalSearchParams();
+  const [member, setMember] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
-  if (!member) {
+  useEffect(() => {
+    fetchMemberDetails();
+  }, [id]);
+
+  const fetchMemberDetails = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      // Fetch member profile
+      const { data: memberData, error: memberError } = await supabase
+        .from('profiles')
+        .select(`
+          *,
+          routes:routes(
+            id,
+            name,
+            date,
+            status,
+            completed_houses,
+            total_houses
+          )
+        `)
+        .eq('id', id)
+        .single();
+
+      if (memberError) throw memberError;
+
+      // Calculate stats
+      const completedRoutes = memberData.routes?.filter(r => r.status === 'completed')?.length || 0;
+      const housesServiced = memberData.routes?.reduce((sum, route) => sum + (route.completed_houses || 0), 0) || 0;
+      
+      setMember({
+        ...memberData,
+        completed_routes: completedRoutes,
+        houses_serviced: housesServiced,
+      });
+    } catch (error) {
+      console.error('Error fetching member details:', error);
+      setError(error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (loading) {
     return (
-      <View style={styles.container}>
-        <Text style={styles.errorText}>Member not found</Text>
+      <View style={[styles.container, styles.centerContent]}>
+        <ActivityIndicator size="large" color="#3B82F6" />
+      </View>
+    );
+  }
+
+  if (error || !member) {
+    return (
+      <View style={[styles.container, styles.centerContent]}>
+        <Text style={styles.errorText}>
+          {error || 'Member not found'}
+        </Text>
+        <TouchableOpacity 
+          style={styles.retryButton}
+          onPress={fetchMemberDetails}
+        >
+          <Text style={styles.retryButtonText}>Retry</Text>
+        </TouchableOpacity>
       </View>
     );
   }
@@ -45,21 +111,31 @@ const TeamMemberDetailsScreen = ({ memberId }) => {
           <Ionicons name="arrow-back" size={24} color="#fff" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Team Member</Text>
-        <TouchableOpacity 
-          style={styles.editButton}
-          onPress={() => router.push(`/edit-team-member/${member.id}`)}
-        >
-          <Ionicons name="create-outline" size={24} color="#3B82F6" />
-        </TouchableOpacity>
+        {member.role === 'driver' && (
+          <TouchableOpacity 
+            style={styles.editButton}
+            onPress={() => router.push(`/team/edit/${member.id}`)}
+          >
+            <Ionicons name="create-outline" size={24} color="#3B82F6" />
+          </TouchableOpacity>
+        )}
+        {member.role !== 'driver' && <View style={styles.placeholder} />}
       </View>
 
       <ScrollView style={styles.content}>
         <View style={styles.profileSection}>
-          <View style={[styles.avatarLarge, { backgroundColor: getAvatarColor(member.role) }]}>
-            <Text style={styles.avatarTextLarge}>
-              {member.full_name.split(' ').map(n => n[0]).join('')}
-            </Text>
-          </View>
+          {member.avatar_url ? (
+            <Image
+              source={{ uri: member.avatar_url }}
+              style={styles.avatarLarge}
+            />
+          ) : (
+            <View style={[styles.avatarLarge, { backgroundColor: getAvatarColor(member.role) }]}>
+              <Text style={styles.avatarTextLarge}>
+                {member.full_name?.split(' ').map(n => n[0]).join('')}
+              </Text>
+            </View>
+          )}
           <Text style={styles.memberName}>{member.full_name}</Text>
           <View style={styles.roleContainer}>
             <Text style={styles.roleText}>{member.role}</Text>
@@ -91,7 +167,7 @@ const TeamMemberDetailsScreen = ({ memberId }) => {
           />
           <StatCard 
             label="Routes Completed"
-            value={member.completed_routes}
+            value={member.completed_routes || 0}
             icon="checkmark-circle-outline"
           />
         </View>
@@ -101,7 +177,7 @@ const TeamMemberDetailsScreen = ({ memberId }) => {
           {activeRoute ? (
             <View style={styles.routeCard}>
               <View style={styles.routeInfo}>
-                <Text style={styles.routeName}>Route #{activeRoute.id}</Text>
+                <Text style={styles.routeName}>{activeRoute.name}</Text>
                 <Text style={styles.routeDate}>
                   Started {new Date(activeRoute.date).toLocaleDateString()}
                 </Text>
@@ -122,7 +198,7 @@ const TeamMemberDetailsScreen = ({ memberId }) => {
           <Text style={styles.sectionTitle}>Actions</Text>
           <TouchableOpacity 
             style={styles.actionButton}
-            onPress={() => router.push(`/assign-route/${member.id}`)}
+            onPress={() => router.push(`/route/create?driver_id=${member.id}`)}
           >
             <Ionicons name="map-outline" size={24} color="#fff" />
             <Text style={styles.actionButtonText}>Assign New Route</Text>
@@ -351,6 +427,25 @@ const styles = StyleSheet.create({
     fontSize: 16,
     textAlign: 'center',
     marginTop: 20,
+  },
+  retryButton: {
+    backgroundColor: '#3B82F6',
+    padding: 12,
+    borderRadius: 8,
+    marginTop: 20,
+  },
+  retryButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  centerContent: {
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  placeholder: {
+    width: 40,
+    height: 40,
   },
 });
 

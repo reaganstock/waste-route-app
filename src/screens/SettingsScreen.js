@@ -9,6 +9,7 @@ import {
   ScrollView,
   Animated,
   Platform,
+  Image,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -16,6 +17,7 @@ import { BlurView } from 'expo-blur';
 import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useAuth } from '../contexts/AuthContext';
+import { supabase } from '../lib/supabase';
 
 // Mock profile data
 const mockProfile = {
@@ -116,8 +118,9 @@ const SupportItem = ({ icon, title, onPress }) => {
 
 const SettingsScreen = () => {
   const router = useRouter();
-  const { signOut } = useAuth();
-  const [profile] = useState(mockProfile);
+  const { signOut, user } = useAuth();
+  const [profile, setProfile] = useState(null);
+  const [loading, setLoading] = useState(true);
   const [settings, setSettings] = useState({
     notifications: true,
     darkMode: true,
@@ -128,7 +131,31 @@ const SettingsScreen = () => {
 
   useEffect(() => {
     loadSettings();
-  }, []);
+    if (user) {
+      fetchProfile();
+    }
+  }, [user]);
+
+  const fetchProfile = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', user.id)
+        .single();
+
+      if (error) {
+        console.error('Error fetching profile:', error);
+        return;
+      }
+
+      setProfile(data);
+    } catch (error) {
+      console.error('Error fetching profile:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const loadSettings = async () => {
     try {
@@ -199,15 +226,22 @@ const SettingsScreen = () => {
             onPress={() => router.push('/profile-details')}
             activeOpacity={0.7}
           >
-            <View style={styles.profileAvatar}>
-              <Text style={styles.profileInitials}>
-                {profile?.full_name?.split(' ').map(n => n[0]).join('')}
-              </Text>
-            </View>
+            {profile?.avatar_url ? (
+              <Image
+                source={{ uri: profile.avatar_url }}
+                style={styles.profileAvatar}
+              />
+            ) : (
+              <View style={styles.profileAvatar}>
+                <Text style={styles.profileInitials}>
+                  {profile?.full_name?.split(' ').map(n => n[0]).join('')}
+                </Text>
+              </View>
+            )}
             <View style={styles.profileInfo}>
-              <Text style={styles.profileName}>{profile?.full_name}</Text>
-              <Text style={styles.profileRole}>{profile?.role}</Text>
-              <Text style={styles.profileEmail}>{profile?.email}</Text>
+              <Text style={styles.profileName}>{profile?.full_name || 'Loading...'}</Text>
+              <Text style={styles.profileRole}>{profile?.role || ''}</Text>
+              <Text style={styles.profileEmail}>{profile?.email || ''}</Text>
             </View>
             <View style={styles.editButton}>
               <Ionicons name="chevron-forward" size={24} color="#6B7280" />

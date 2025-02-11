@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -15,6 +15,8 @@ import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
+import { useAuth } from '../contexts/AuthContext';
+import { supabase } from '../lib/supabase';
 
 const InputField = ({ label, value, onChangeText, editable, icon }) => (
   <View style={styles.fieldContainer}>
@@ -41,16 +43,51 @@ const InputField = ({ label, value, onChangeText, editable, icon }) => (
 
 const ProfileDetailsScreen = () => {
   const router = useRouter();
+  const { user } = useAuth();
   const [isEditing, setIsEditing] = useState(false);
-  const [profileImage, setProfileImage] = useState('https://via.placeholder.com/150');
+  const [loading, setLoading] = useState(true);
+  const [profileImage, setProfileImage] = useState(null);
   const [formData, setFormData] = useState({
-    fullName: 'John Doe',
-    email: 'john.doe@example.com',
-    phone: '+1 (555) 123-4567',
-    role: 'Driver',
-    preferredRegion: 'San Francisco Bay Area',
-    startDate: 'January 15, 2023',
+    fullName: '',
+    email: '',
+    phone: '',
+    role: '',
+    preferredRegion: '',
+    startDate: '',
   });
+
+  useEffect(() => {
+    fetchProfile();
+  }, []);
+
+  const fetchProfile = async () => {
+    try {
+      if (!user) return;
+
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', user.id)
+        .single();
+
+      if (error) throw error;
+
+      setFormData({
+        fullName: data.full_name || '',
+        email: data.email || '',
+        phone: data.phone || '',
+        role: data.role || '',
+        preferredRegion: data.preferred_region || '',
+        startDate: data.start_date ? new Date(data.start_date).toLocaleDateString() : '',
+      });
+      setProfileImage(data.avatar_url || 'https://via.placeholder.com/150');
+    } catch (error) {
+      console.error('Error fetching profile:', error);
+      Alert.alert('Error', 'Failed to load profile data');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleImagePick = async () => {
     const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -68,13 +105,69 @@ const ProfileDetailsScreen = () => {
     });
 
     if (!result.canceled) {
-      setProfileImage(result.assets[0].uri);
+      try {
+        setLoading(true);
+        const file = {
+          uri: result.assets[0].uri,
+          name: 'avatar.jpg',
+          type: 'image/jpeg',
+        };
+
+        // Upload image to Supabase Storage
+        const { data: uploadData, error: uploadError } = await supabase.storage
+          .from('avatars')
+          .upload(`${user.id}/avatar.jpg`, file, {
+            upsert: true,
+          });
+
+        if (uploadError) throw uploadError;
+
+        // Get public URL
+        const { data: { publicUrl } } = supabase.storage
+          .from('avatars')
+          .getPublicUrl(`${user.id}/avatar.jpg`);
+
+        // Update profile with new avatar URL
+        const { error: updateError } = await supabase
+          .from('profiles')
+          .update({ avatar_url: publicUrl })
+          .eq('id', user.id);
+
+        if (updateError) throw updateError;
+
+        setProfileImage(publicUrl);
+      } catch (error) {
+        console.error('Error uploading image:', error);
+        Alert.alert('Error', 'Failed to update profile picture');
+      } finally {
+        setLoading(false);
+      }
     }
   };
 
-  const handleSave = () => {
-    Alert.alert('Success', 'Profile updated successfully');
-    setIsEditing(false);
+  const handleSave = async () => {
+    try {
+      setLoading(true);
+
+      const { error } = await supabase
+        .from('profiles')
+        .update({
+          full_name: formData.fullName,
+          phone: formData.phone,
+          preferred_region: formData.preferredRegion,
+        })
+        .eq('id', user.id);
+
+      if (error) throw error;
+
+      Alert.alert('Success', 'Profile updated successfully');
+      setIsEditing(false);
+    } catch (error) {
+      console.error('Error updating profile:', error);
+      Alert.alert('Error', 'Failed to update profile');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (

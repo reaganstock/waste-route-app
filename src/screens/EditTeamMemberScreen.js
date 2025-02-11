@@ -6,222 +6,224 @@ import {
   TextInput,
   TouchableOpacity,
   ScrollView,
-  Platform,
   Alert,
-  Switch,
+  Platform,
+  ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
-import { mockTeamMembers } from '../lib/mockData';
+import { useRouter, useLocalSearchParams } from 'expo-router';
+import { LinearGradient } from 'expo-linear-gradient';
+import { BlurView } from 'expo-blur';
+import { supabase } from '../lib/supabase';
 
-const InputField = ({ label, value, onChangeText, placeholder, keyboardType = 'default' }) => (
+const InputField = ({ label, value, onChangeText, placeholder, keyboardType = 'default', icon, required = false }) => (
   <View style={styles.inputContainer}>
-    <Text style={styles.inputLabel}>{label}</Text>
-    <TextInput
-      style={styles.input}
-      value={value}
-      onChangeText={onChangeText}
-      placeholder={placeholder}
-      placeholderTextColor="#6B7280"
-      keyboardType={keyboardType}
-    />
+    <Text style={styles.inputLabel}>
+      {label}
+      {required && <Text style={styles.requiredStar}> *</Text>}
+    </Text>
+    <View style={styles.inputWrapper}>
+      <Ionicons name={icon} size={20} color="#6B7280" style={styles.inputIcon} />
+      <TextInput
+        style={styles.input}
+        value={value}
+        onChangeText={onChangeText}
+        placeholder={placeholder}
+        placeholderTextColor="#6B7280"
+        keyboardType={keyboardType}
+      />
+    </View>
   </View>
 );
 
-const EditTeamMemberScreen = ({ memberId }) => {
+const EditTeamMemberScreen = () => {
   const router = useRouter();
-  const [member, setMember] = useState(null);
+  const { id } = useLocalSearchParams();
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [formData, setFormData] = useState({
     fullName: '',
     email: '',
     phone: '',
-    role: '',
-    isActive: true,
+    status: 'active',
+    preferredRegion: '',
   });
 
   useEffect(() => {
-    const memberData = mockTeamMembers.find(m => m.id === memberId);
-    if (memberData) {
-      setMember(memberData);
+    fetchMemberDetails();
+  }, [id]);
+
+  const fetchMemberDetails = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', id)
+        .single();
+
+      if (error) throw error;
+
       setFormData({
-        fullName: memberData.full_name,
-        email: memberData.email || '',
-        phone: memberData.phone || '',
-        role: memberData.role,
-        isActive: memberData.status === 'active',
+        fullName: data.full_name || '',
+        email: data.email || '',
+        phone: data.phone || '',
+        status: data.status || 'active',
+        preferredRegion: data.preferred_region || '',
       });
+    } catch (error) {
+      console.error('Error fetching member details:', error);
+      Alert.alert('Error', 'Failed to load member details');
+    } finally {
+      setLoading(false);
     }
-  }, [memberId]);
+  };
 
-  const roles = [
-    { id: 'driver', label: 'Driver' },
-    { id: 'manager', label: 'Manager' },
-    { id: 'admin', label: 'Admin' },
-  ];
-
-  const handleSubmit = () => {
+  const handleSave = async () => {
     if (!formData.fullName || !formData.email) {
       Alert.alert('Error', 'Please fill in all required fields');
       return;
     }
 
-    // Here you would typically make an API call to update the team member
-    Alert.alert(
-      'Success',
-      'Team member updated successfully',
-      [
-        {
-          text: 'OK',
-          onPress: () => router.back(),
-        },
-      ]
-    );
+    try {
+      setSaving(true);
+
+      const { error } = await supabase
+        .from('profiles')
+        .update({
+          full_name: formData.fullName,
+          email: formData.email,
+          phone: formData.phone,
+          status: formData.status,
+          preferred_region: formData.preferredRegion,
+        })
+        .eq('id', id);
+
+      if (error) throw error;
+
+      Alert.alert('Success', 'Team member updated successfully');
+      router.back();
+    } catch (error) {
+      console.error('Error updating member:', error);
+      Alert.alert('Error', 'Failed to update team member');
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const handleDelete = () => {
-    Alert.alert(
-      'Delete Team Member',
-      'Are you sure you want to delete this team member? This action cannot be undone.',
-      [
-        {
-          text: 'Cancel',
-          style: 'cancel',
-        },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: () => {
-            // Here you would typically make an API call to delete the team member
-            Alert.alert('Success', 'Team member deleted successfully');
-            router.back();
-          },
-        },
-      ]
-    );
-  };
-
-  if (!member) {
+  if (loading) {
     return (
-      <View style={styles.container}>
-        <Text style={styles.errorText}>Member not found</Text>
+      <View style={[styles.container, styles.centerContent]}>
+        <ActivityIndicator size="large" color="#3B82F6" />
       </View>
     );
   }
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
+      <LinearGradient
+        colors={['#1a1a1a', '#000000']}
+        style={StyleSheet.absoluteFill}
+      />
+      
+      <BlurView intensity={80} style={styles.header}>
         <TouchableOpacity 
-          onPress={() => router.back()}
+          onPress={() => router.back()} 
           style={styles.backButton}
         >
           <Ionicons name="arrow-back" size={24} color="#fff" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Edit Team Member</Text>
         <TouchableOpacity 
-          style={styles.deleteButton}
-          onPress={handleDelete}
+          style={styles.saveButton}
+          onPress={handleSave}
+          disabled={saving}
         >
-          <Ionicons name="trash-outline" size={24} color="#EF4444" />
+          {saving ? (
+            <ActivityIndicator color="#fff" size="small" />
+          ) : (
+            <Text style={styles.saveButtonText}>Save</Text>
+          )}
         </TouchableOpacity>
-      </View>
+      </BlurView>
 
       <ScrollView style={styles.content}>
-        <View style={styles.avatarSection}>
-          <View style={[styles.avatar, { backgroundColor: getAvatarColor(formData.role) }]}>
-            <Text style={styles.avatarText}>
-              {formData.fullName.split(' ').map(n => n[0]).join('')}
-            </Text>
-          </View>
-          <TouchableOpacity style={styles.changePhotoButton}>
-            <Text style={styles.changePhotoText}>Change Photo</Text>
-          </TouchableOpacity>
-        </View>
-
-        <InputField
-          label="Full Name"
-          value={formData.fullName}
-          onChangeText={(text) => setFormData({ ...formData, fullName: text })}
-          placeholder="Enter full name"
-        />
-
-        <InputField
-          label="Email"
-          value={formData.email}
-          onChangeText={(text) => setFormData({ ...formData, email: text })}
-          placeholder="Enter email address"
-          keyboardType="email-address"
-        />
-
-        <InputField
-          label="Phone Number"
-          value={formData.phone}
-          onChangeText={(text) => setFormData({ ...formData, phone: text })}
-          placeholder="Enter phone number"
-          keyboardType="phone-pad"
-        />
-
-        <View style={styles.inputContainer}>
-          <Text style={styles.inputLabel}>Role</Text>
-          <View style={styles.roleButtons}>
-            {roles.map((role) => (
-              <TouchableOpacity
-                key={role.id}
-                style={[
-                  styles.roleButton,
-                  formData.role === role.id && styles.roleButtonActive
-                ]}
-                onPress={() => setFormData({ ...formData, role: role.id })}
-              >
-                <Text style={[
-                  styles.roleButtonText,
-                  formData.role === role.id && styles.roleButtonTextActive
-                ]}>
-                  {role.label}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
-
-        <View style={styles.switchContainer}>
-          <Text style={styles.switchLabel}>Active Status</Text>
-          <Switch
-            value={formData.isActive}
-            onValueChange={(value) => setFormData({ ...formData, isActive: value })}
-            trackColor={{ false: '#4B5563', true: '#3B82F6' }}
-            thumbColor="#fff"
+        <View style={styles.formContainer}>
+          <InputField
+            label="Full Name"
+            value={formData.fullName}
+            onChangeText={(text) => setFormData({ ...formData, fullName: text })}
+            placeholder="Enter full name"
+            icon="person-outline"
+            required
           />
-        </View>
 
-        <TouchableOpacity 
-          style={styles.submitButton}
-          onPress={handleSubmit}
-        >
-          <Text style={styles.submitButtonText}>Save Changes</Text>
-        </TouchableOpacity>
+          <InputField
+            label="Email"
+            value={formData.email}
+            onChangeText={(text) => setFormData({ ...formData, email: text })}
+            placeholder="Enter email address"
+            keyboardType="email-address"
+            icon="mail-outline"
+            required
+          />
+
+          <InputField
+            label="Phone Number"
+            value={formData.phone}
+            onChangeText={(text) => setFormData({ ...formData, phone: text })}
+            placeholder="Enter phone number"
+            keyboardType="phone-pad"
+            icon="call-outline"
+          />
+
+          <InputField
+            label="Preferred Region"
+            value={formData.preferredRegion}
+            onChangeText={(text) => setFormData({ ...formData, preferredRegion: text })}
+            placeholder="Enter preferred region"
+            icon="location-outline"
+          />
+
+          <View style={styles.statusSection}>
+            <Text style={styles.statusTitle}>Status</Text>
+            <View style={styles.statusButtons}>
+              {['active', 'inactive'].map((status) => (
+                <TouchableOpacity
+                  key={status}
+                  style={[
+                    styles.statusButton,
+                    formData.status === status && styles.statusButtonActive
+                  ]}
+                  onPress={() => setFormData({ ...formData, status: status })}
+                >
+                  <View style={[
+                    styles.statusDot,
+                    { backgroundColor: status === 'active' ? '#10B981' : '#6B7280' }
+                  ]} />
+                  <Text style={[
+                    styles.statusButtonText,
+                    formData.status === status && styles.statusButtonTextActive
+                  ]}>
+                    {status.charAt(0).toUpperCase() + status.slice(1)}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+        </View>
       </ScrollView>
     </View>
   );
 };
 
-const getAvatarColor = (role) => {
-  switch (role?.toLowerCase()) {
-    case 'admin':
-      return '#3B82F6';
-    case 'driver':
-      return '#10B981';
-    case 'manager':
-      return '#8B5CF6';
-    default:
-      return '#6B7280';
-  }
-};
-
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#1F2937',
+    backgroundColor: '#000',
+  },
+  centerContent: {
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   header: {
     flexDirection: 'row',
@@ -231,6 +233,11 @@ const styles = StyleSheet.create({
     paddingTop: Platform.OS === 'ios' ? 60 : 20,
     backgroundColor: 'rgba(17, 24, 39, 0.8)',
   },
+  headerTitle: {
+    fontSize: 20,
+    fontWeight: '600',
+    color: '#fff',
+  },
   backButton: {
     width: 40,
     height: 40,
@@ -238,46 +245,22 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: '600',
-    color: '#fff',
+  saveButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    backgroundColor: '#3B82F6',
+    borderRadius: 8,
   },
-  deleteButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
+  saveButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
   },
   content: {
     flex: 1,
+  },
+  formContainer: {
     padding: 20,
-  },
-  avatarSection: {
-    alignItems: 'center',
-    marginBottom: 24,
-  },
-  avatar: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  avatarText: {
-    color: '#fff',
-    fontSize: 36,
-    fontWeight: 'bold',
-  },
-  changePhotoButton: {
-    padding: 8,
-  },
-  changePhotoText: {
-    color: '#3B82F6',
-    fontSize: 14,
-    fontWeight: '500',
   },
   inputContainer: {
     marginBottom: 20,
@@ -288,66 +271,68 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     marginBottom: 8,
   },
-  input: {
-    backgroundColor: '#374151',
+  requiredStar: {
+    color: '#EF4444',
+  },
+  inputWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#1F2937',
     borderRadius: 12,
-    padding: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+  },
+  inputIcon: {
+    padding: 12,
+  },
+  input: {
+    flex: 1,
+    height: 50,
     color: '#fff',
     fontSize: 16,
+    paddingRight: 16,
   },
-  roleButtons: {
+  statusSection: {
+    marginTop: 20,
+  },
+  statusTitle: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '500',
+    marginBottom: 12,
+  },
+  statusButtons: {
     flexDirection: 'row',
     gap: 12,
   },
-  roleButton: {
+  statusButton: {
     flex: 1,
-    backgroundColor: '#374151',
-    borderRadius: 12,
-    padding: 16,
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#1F2937',
+    padding: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
   },
-  roleButtonActive: {
-    backgroundColor: '#3B82F6',
+  statusButtonActive: {
+    backgroundColor: 'rgba(59,130,246,0.1)',
+    borderColor: '#3B82F6',
   },
-  roleButtonText: {
+  statusDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  statusButtonText: {
     color: '#9CA3AF',
     fontSize: 16,
     fontWeight: '500',
   },
-  roleButtonTextActive: {
+  statusButtonTextActive: {
     color: '#fff',
-  },
-  switchContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    backgroundColor: '#374151',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 20,
-  },
-  switchLabel: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '500',
-  },
-  submitButton: {
-    backgroundColor: '#3B82F6',
-    borderRadius: 12,
-    padding: 16,
-    alignItems: 'center',
-    marginTop: 12,
-  },
-  submitButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  errorText: {
-    color: '#EF4444',
-    fontSize: 16,
-    textAlign: 'center',
-    marginTop: 20,
   },
 });
 

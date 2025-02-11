@@ -1,8 +1,27 @@
-import { Tabs } from 'expo-router';
+import { Tabs, Stack } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { View } from 'react-native';
+import { useAuth } from '../../src/contexts/AuthContext';
 
 export default function TabLayout() {
+  const { user } = useAuth();
+  const userRole = user?.user_metadata?.role || 'driver';
+  const isAdmin = userRole === 'admin';
+
+  // Drivers get a simple stack navigation
+  if (!isAdmin) {
+    return (
+      <Stack
+        screenOptions={{
+          headerShown: false,
+        }}
+      >
+        <Stack.Screen name="index" />
+      </Stack>
+    );
+  }
+
+  // Admins get the full tab navigation
   return (
     <Tabs
       screenOptions={{

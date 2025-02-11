@@ -49,33 +49,51 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const signUp = async (email: string, password: string, fullName: string, role: string) => {
-    const { error: signUpError, data } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        data: {
-          full_name: fullName,
-          role,
-        },
-      },
-    });
-
-    if (signUpError) throw signUpError;
-
-    // Create profile in public.profiles table
-    if (data.user) {
-      const { error: profileError } = await supabase
+    try {
+      // First check if there are any existing users
+      const { data: existingUsers, error: checkError } = await supabase
         .from('profiles')
-        .insert([
-          {
-            id: data.user.id,
-            full_name: fullName,
-            email,
-            role,
-          },
-        ]);
+        .select('id')
+        .limit(1);
 
-      if (profileError) throw profileError;
+      if (checkError) throw checkError;
+
+      // If no users exist, allow creating an admin account
+      // Otherwise, only allow creating driver accounts
+      const assignedRole = existingUsers?.length === 0 ? 'admin' : 'driver';
+
+      const { error: signUpError, data } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: {
+            full_name: fullName,
+            role: assignedRole,
+          },
+        },
+      });
+
+      if (signUpError) throw signUpError;
+
+      // Create profile in public.profiles table
+      if (data.user) {
+        const { error: profileError } = await supabase
+          .from('profiles')
+          .insert([
+            {
+              id: data.user.id,
+              full_name: fullName,
+              email,
+              role: assignedRole,
+              status: 'active'
+            },
+          ]);
+
+        if (profileError) throw profileError;
+      }
+    } catch (error) {
+      console.error('Signup error:', error);
+      throw error;
     }
   };
 

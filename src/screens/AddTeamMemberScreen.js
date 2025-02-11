@@ -8,15 +8,23 @@ import {
   ScrollView,
   Platform,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
+import { supabase } from '../lib/supabase';
+import { useTeamMembers } from '../hooks/useTeamMembers';
+import { supabaseAdmin } from '../lib/supabaseAdmin';
+import * as Clipboard from 'expo-clipboard';
 
-const InputField = ({ label, value, onChangeText, placeholder, keyboardType = 'default', secureTextEntry = false, icon }) => (
+const InputField = ({ label, value, onChangeText, placeholder, keyboardType = 'default', icon, required = false }) => (
   <View style={styles.inputContainer}>
-    <Text style={styles.inputLabel}>{label}</Text>
+    <Text style={styles.inputLabel}>
+      {label}
+      {required && <Text style={styles.requiredStar}> *</Text>}
+    </Text>
     <View style={styles.inputWrapper}>
       <Ionicons name={icon} size={20} color="#6B7280" style={styles.inputIcon} />
       <TextInput
@@ -26,7 +34,7 @@ const InputField = ({ label, value, onChangeText, placeholder, keyboardType = 'd
         placeholder={placeholder}
         placeholderTextColor="#6B7280"
         keyboardType={keyboardType}
-        secureTextEntry={secureTextEntry}
+        autoCapitalize={keyboardType === 'email-address' ? 'none' : 'words'}
       />
     </View>
   </View>
@@ -34,43 +42,116 @@ const InputField = ({ label, value, onChangeText, placeholder, keyboardType = 'd
 
 const AddTeamMemberScreen = () => {
   const router = useRouter();
+  const { createTeamMember, fetchTeamMembers } = useTeamMembers();
+  const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
     fullName: '',
     email: '',
     phone: '',
     role: 'driver',
-    password: '',
-    confirmPassword: '',
   });
 
   const roles = [
     { id: 'driver', label: 'Driver', icon: 'car-outline' },
-    { id: 'manager', label: 'Manager', icon: 'briefcase-outline' },
     { id: 'admin', label: 'Admin', icon: 'shield-outline' },
   ];
 
-  const handleSubmit = () => {
-    if (!formData.fullName || !formData.email || !formData.password || !formData.confirmPassword) {
+  const handleSubmit = async () => {
+    if (!formData.fullName || !formData.email) {
       Alert.alert('Error', 'Please fill in all required fields');
       return;
     }
 
-    if (formData.password !== formData.confirmPassword) {
-      Alert.alert('Error', 'Passwords do not match');
-      return;
-    }
+    try {
+      setLoading(true);
 
-    // Here you would typically make an API call to create the team member
-    Alert.alert(
-      'Success',
-      'Team member added successfully',
-      [
-        {
-          text: 'OK',
-          onPress: () => router.back(),
+      // First check if user already exists
+      const { data: existingUser, error: checkError } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('email', formData.email)
+        .maybeSingle();
+
+      if (checkError) {
+        console.error('Check Error:', checkError);
+        throw new Error('Failed to check existing user');
+      }
+
+      if (existingUser) {
+        Alert.alert('Error', 'A team member with this email already exists');
+        return;
+      }
+
+      // Create user with admin API
+      const initialPassword = Math.random().toString(36).slice(-12); // Store password to show later
+      const { data, error: signUpError } = await supabaseAdmin.auth.admin.createUser({
+        email: formData.email,
+        password: initialPassword,
+        email_confirm: true,
+        user_metadata: {
+          full_name: formData.fullName,
+          role: formData.role,
         },
-      ]
-    );
+      });
+
+      if (signUpError) {
+        throw new Error('Failed to create user account: ' + signUpError.message);
+      }
+
+      if (!data?.user) {
+        throw new Error('No user data returned');
+      }
+
+      // Create the profile using admin client
+      const { error: profileError } = await supabaseAdmin
+        .from('profiles')
+        .insert({
+          id: data.user.id,
+          full_name: formData.fullName,
+          email: formData.email,
+          phone: formData.phone || null,
+          role: formData.role,
+          status: 'active',
+          start_date: new Date()
+        });
+
+      if (profileError) {
+        console.error('Profile Error:', profileError);
+        // If profile creation fails, we should delete the user
+        await supabaseAdmin.auth.admin.deleteUser(data.user.id);
+        throw new Error('Failed to create team member profile: ' + profileError.message);
+      }
+
+      // Refresh the team members list
+      await fetchTeamMembers();
+
+      Alert.alert(
+        'Team Member Added',
+        `Team member has been created successfully.\n\nLogin Credentials:\nEmail: ${formData.email}\nPassword: ${initialPassword}\n\nPlease securely share these credentials with the team member.`,
+        [
+          {
+            text: 'Copy Password',
+            onPress: async () => {
+              await Clipboard.setString(initialPassword);
+              Alert.alert('Password Copied', 'The password has been copied to your clipboard.');
+              router.back();
+            },
+          },
+          {
+            text: 'Done',
+            onPress: () => router.back(),
+          },
+        ]
+      );
+    } catch (error) {
+      console.error('Error adding team member:', error);
+      Alert.alert(
+        'Error',
+        error.message || 'Failed to add team member. Please try again.'
+      );
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -99,6 +180,7 @@ const AddTeamMemberScreen = () => {
             onChangeText={(text) => setFormData({ ...formData, fullName: text })}
             placeholder="Enter full name"
             icon="person-outline"
+            required
           />
 
           <InputField
@@ -108,6 +190,7 @@ const AddTeamMemberScreen = () => {
             placeholder="Enter email address"
             keyboardType="email-address"
             icon="mail-outline"
+            required
           />
 
           <InputField
@@ -147,27 +230,10 @@ const AddTeamMemberScreen = () => {
             </View>
           </View>
 
-          <InputField
-            label="Password"
-            value={formData.password}
-            onChangeText={(text) => setFormData({ ...formData, password: text })}
-            placeholder="Enter password"
-            secureTextEntry
-            icon="lock-closed-outline"
-          />
-
-          <InputField
-            label="Confirm Password"
-            value={formData.confirmPassword}
-            onChangeText={(text) => setFormData({ ...formData, confirmPassword: text })}
-            placeholder="Confirm password"
-            secureTextEntry
-            icon="lock-closed-outline"
-          />
-
           <TouchableOpacity 
-            style={styles.submitButton}
+            style={[styles.submitButton, loading && styles.submitButtonDisabled]}
             onPress={handleSubmit}
+            disabled={loading}
           >
             <LinearGradient
               colors={['#3B82F6', '#2563EB']}
@@ -175,7 +241,11 @@ const AddTeamMemberScreen = () => {
               end={{ x: 1, y: 1 }}
               style={styles.submitButtonGradient}
             >
-              <Text style={styles.submitButtonText}>Add Team Member</Text>
+              {loading ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.submitButtonText}>Send Invitation</Text>
+              )}
             </LinearGradient>
           </TouchableOpacity>
         </View>
@@ -227,6 +297,9 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     marginBottom: 8,
   },
+  requiredStar: {
+    color: '#EF4444',
+  },
   inputWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -251,13 +324,15 @@ const styles = StyleSheet.create({
   },
   roleButton: {
     flex: 1,
-    backgroundColor: '#1F2937',
-    borderRadius: 12,
-    padding: 16,
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#1F2937',
+    padding: 16,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.1)',
-    gap: 8,
   },
   roleButtonActive: {
     backgroundColor: '#3B82F6',
@@ -265,19 +340,22 @@ const styles = StyleSheet.create({
   },
   roleButtonText: {
     color: '#9CA3AF',
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: '500',
   },
   roleButtonTextActive: {
     color: '#fff',
   },
   submitButton: {
-    borderRadius: 12,
-    overflow: 'hidden',
     marginTop: 20,
+    overflow: 'hidden',
+    borderRadius: 12,
+  },
+  submitButtonDisabled: {
+    opacity: 0.7,
   },
   submitButtonGradient: {
-    padding: 16,
+    paddingVertical: 16,
     alignItems: 'center',
   },
   submitButtonText: {

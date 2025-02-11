@@ -9,6 +9,7 @@ import {
   Alert,
   ActivityIndicator,
   Platform,
+  Image,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
@@ -21,6 +22,8 @@ import { supabase } from '../lib/supabase';
 import { useRouter } from 'expo-router';
 import Papa from 'papaparse';
 import { v4 as uuidv4 } from 'uuid';
+import { useAuth } from '../contexts/AuthContext';
+import { useLocalSearchParams } from 'expo-router';
 
 // Google OAuth2 credentials - you'll need to replace these with your own
 const GOOGLE_CLIENT_ID = 'YOUR_GOOGLE_CLIENT_ID';
@@ -116,22 +119,42 @@ const parseGoogleSheetData = (values) => {
     .filter(house => house.address && house.lat && house.lng);
 };
 
-const RouteCreateScreen = ({ isEditing = false, existingRoute = null, navigation }) => {
+const RouteCreateScreen = ({ isEditing = false, existingRoute = null }) => {
+  const router = useRouter();
+  const { user } = useAuth();
+  const { driver_id } = useLocalSearchParams();
   const [name, setName] = useState(existingRoute?.name || '');
   const [date, setDate] = useState(existingRoute?.date ? new Date(existingRoute.date) : new Date());
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [drivers, setDrivers] = useState([]);
-  const [selectedDriver, setSelectedDriver] = useState(existingRoute?.driver_id || null);
+  const [selectedDriver, setSelectedDriver] = useState(driver_id || existingRoute?.driver_id || user?.id);
   const [uploading, setUploading] = useState(false);
   const [houses, setHouses] = useState(existingRoute?.houses || []);
   const [addressInput, setAddressInput] = useState('');
   const [isLoadingGoogleSheet, setIsLoadingGoogleSheet] = useState(false);
+  const isAdmin = user?.user_metadata?.role === 'admin';
 
   useEffect(() => {
-    // Filter only drivers from mock team members
-    const mockDrivers = mockTeamMembers.filter(member => member.role === 'driver');
-    setDrivers(mockDrivers);
-  }, []);
+    if (isAdmin) {
+      fetchDrivers();
+    }
+  }, [isAdmin]);
+
+  const fetchDrivers = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('id, full_name, role, avatar_url')
+        .eq('role', 'driver')
+        .eq('status', 'active');
+
+      if (error) throw error;
+      setDrivers(data || []);
+    } catch (error) {
+      console.error('Error fetching drivers:', error);
+      Alert.alert('Error', 'Failed to load drivers');
+    }
+  };
 
   const handleAddressPaste = async () => {
     if (!addressInput.trim()) {
@@ -303,7 +326,7 @@ const RouteCreateScreen = ({ isEditing = false, existingRoute = null, navigation
 
         if (housesError) throw housesError;
 
-        navigation.goBack();
+        router.goBack();
       } else {
         // Create new route
         const { data: route, error: routeError } = await supabase
@@ -338,7 +361,7 @@ const RouteCreateScreen = ({ isEditing = false, existingRoute = null, navigation
 
         if (housesError) throw housesError;
 
-        navigation.replace(`/route/${route.id}`);
+        router.replace(`/route/${route.id}`);
       }
     } catch (error) {
       Alert.alert('Error', error.message);
@@ -351,7 +374,7 @@ const RouteCreateScreen = ({ isEditing = false, existingRoute = null, navigation
     <View style={styles.container}>
       <View style={styles.header}>
         <TouchableOpacity 
-          onPress={() => navigation.goBack()} 
+          onPress={() => router.goBack()} 
           style={styles.backButton}
         >
           <Ionicons name="arrow-back" size={24} color="#fff" />
@@ -418,32 +441,41 @@ const RouteCreateScreen = ({ isEditing = false, existingRoute = null, navigation
             />
           )}
 
-          <View style={styles.driverSection}>
-            <Text style={styles.sectionSubtitle}>Assign Driver</Text>
-            <ScrollView 
-              horizontal 
-              showsHorizontalScrollIndicator={false}
-              style={styles.driverList}
-            >
-              {drivers.map(driver => (
-                <TouchableOpacity
-                  key={driver.id}
-                  style={[
-                    styles.driverCard,
-                    selectedDriver === driver.id && styles.driverCardSelected
-                  ]}
-                  onPress={() => setSelectedDriver(driver.id)}
-                >
-                  <View style={styles.driverAvatar}>
-                    <Text style={styles.driverInitials}>
-                      {driver.full_name.split(' ').map(n => n[0]).join('')}
-                    </Text>
-                  </View>
-                  <Text style={styles.driverName}>{driver.full_name}</Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-          </View>
+          {isAdmin && (
+            <View style={styles.driverSection}>
+              <Text style={styles.sectionSubtitle}>Assign Driver</Text>
+              <ScrollView 
+                horizontal 
+                showsHorizontalScrollIndicator={false}
+                style={styles.driverList}
+              >
+                {drivers.map(driver => (
+                  <TouchableOpacity
+                    key={driver.id}
+                    style={[
+                      styles.driverCard,
+                      selectedDriver === driver.id && styles.driverCardSelected
+                    ]}
+                    onPress={() => setSelectedDriver(driver.id)}
+                  >
+                    {driver.avatar_url ? (
+                      <Image
+                        source={{ uri: driver.avatar_url }}
+                        style={styles.driverAvatar}
+                      />
+                    ) : (
+                      <View style={styles.driverAvatar}>
+                        <Text style={styles.driverInitials}>
+                          {driver.full_name.split(' ').map(n => n[0]).join('')}
+                        </Text>
+                      </View>
+                    )}
+                    <Text style={styles.driverName}>{driver.full_name}</Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+          )}
         </View>
 
         {/* Houses Section */}
