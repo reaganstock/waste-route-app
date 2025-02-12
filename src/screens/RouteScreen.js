@@ -12,14 +12,15 @@ import {
   Linking,
   Modal,
   Pressable,
+  ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import * as Location from 'expo-location';
 import * as Notifications from 'expo-notifications';
 import { BlurView } from 'expo-blur';
-import { mockRoutes } from '../lib/mockData';
 import { LinearGradient } from 'expo-linear-gradient';
+import { supabase } from '../lib/supabase';
 
 // Configure notifications
 Notifications.setNotificationHandler({
@@ -33,13 +34,13 @@ Notifications.setNotificationHandler({
 const GEOFENCE_RADIUS = 200; // meters
 
 const getStatusColor = (status) => {
-  switch (status) {
+  switch (status?.toLowerCase()) {
+    case 'pending':
+      return '#3B82F6'; // Blue for pending
+    case 'completed':
+      return '#10B981'; // Green for completed
     case 'skip':
       return '#EF4444'; // Red for skip
-    case 'new':
-      return '#10B981'; // Green for new customer
-    case 'collect':
-      return '#3B82F6'; // Blue for regular collection
     default:
       return '#6B7280'; // Gray for unknown
   }
@@ -65,7 +66,7 @@ const AddressModal = ({ visible, house, onClose, onSaveNote, onNavigate }) => (
         
         <View style={[styles.modalStatusBadge, { backgroundColor: getStatusColor(house?.status) + '20' }]}>
           <Text style={[styles.modalStatusText, { color: getStatusColor(house?.status) }]}>
-            {house?.status === 'new' ? 'New Customer' : house?.status === 'skip' ? 'Skip' : 'Collect'}
+            {house?.status?.charAt(0).toUpperCase() + house?.status?.slice(1)}
           </Text>
         </View>
 
@@ -103,7 +104,7 @@ const HouseItem = ({ house, onToggle, isSelected, onPress }) => (
       )}
       <View style={[styles.statusBadge, { backgroundColor: getStatusColor(house.status) + '20' }]}>
         <Text style={[styles.statusText, { color: getStatusColor(house.status) }]}>
-          {house.status === 'new' ? 'New Customer' : house.status === 'skip' ? 'Skip' : 'Collect'}
+          {house.status?.charAt(0).toUpperCase() + house.status?.slice(1)}
         </Text>
       </View>
     </View>
@@ -137,14 +138,52 @@ const RouteScreen = ({ routeId }) => {
   const [modalVisible, setModalVisible] = useState(false);
   const [notifications, setNotifications] = useState([]);
   const [showNotifications, setShowNotifications] = useState(true);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const routeData = mockRoutes.find(r => r.id === routeId);
-    if (routeData) {
-      setRoute(routeData);
-    }
+    fetchRouteData();
     setupLocationAndNotifications();
   }, [routeId]);
+
+  const fetchRouteData = async () => {
+    try {
+      setLoading(true);
+      const { data: routeData, error: routeError } = await supabase
+        .from('routes')
+        .select(`
+          *,
+          houses (
+            id,
+            address,
+            lat,
+            lng,
+            status,
+            notes,
+            estimated_time
+          )
+        `)
+        .eq('id', routeId)
+        .single();
+
+      if (routeError) throw routeError;
+      
+      if (routeData) {
+        setRoute(routeData);
+        // Set selected houses based on completed status
+        const completedHouses = new Set(
+          routeData.houses
+            .filter(h => h.status === 'completed')
+            .map(h => h.id)
+        );
+        setSelectedHouses(completedHouses);
+      }
+    } catch (error) {
+      console.error('Error fetching route:', error);
+      Alert.alert('Error', 'Failed to load route data');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const setupLocationAndNotifications = async () => {
     try {
@@ -248,7 +287,7 @@ const RouteScreen = ({ routeId }) => {
     return R * c;
   };
 
-  const toggleHouse = (houseId) => {
+  const toggleHouse = async (houseId) => {
     const newSelected = new Set(selectedHouses);
     if (newSelected.has(houseId)) {
       newSelected.delete(houseId);
@@ -256,6 +295,18 @@ const RouteScreen = ({ routeId }) => {
       newSelected.add(houseId);
     }
     setSelectedHouses(newSelected);
+
+    // Update house status in Supabase
+    try {
+      const { error } = await supabase
+        .from('houses')
+        .update({ status: newSelected.has(houseId) ? 'completed' : 'pending' })
+        .eq('id', houseId);
+
+      if (error) throw error;
+    } catch (error) {
+      console.error('Error updating house status:', error);
+    }
   };
 
   const toggleAll = () => {
@@ -271,15 +322,29 @@ const RouteScreen = ({ routeId }) => {
     setModalVisible(true);
   };
 
-  const handleSaveNote = (note) => {
-    setRoute(prev => ({
-      ...prev,
-      houses: prev.houses.map(h => 
-        h.id === selectedHouse.id 
-          ? { ...h, notes: note }
-          : h
-      )
-    }));
+  const handleSaveNote = async (note) => {
+    try {
+      // Update note in Supabase
+      const { error } = await supabase
+        .from('houses')
+        .update({ notes: note })
+        .eq('id', selectedHouse.id);
+
+      if (error) throw error;
+
+      // Update local state
+      setRoute(prev => ({
+        ...prev,
+        houses: prev.houses.map(h => 
+          h.id === selectedHouse.id 
+            ? { ...h, notes: note }
+            : h
+        )
+      }));
+    } catch (error) {
+      console.error('Error saving note:', error);
+      Alert.alert('Error', 'Failed to save note');
+    }
   };
 
   const handleNavigate = () => {
@@ -291,7 +356,7 @@ const RouteScreen = ({ routeId }) => {
     Linking.openURL(url);
   };
 
-  const handleEndRoute = () => {
+  const handleEndRoute = async () => {
     const stats = {
       total: route.houses.length,
       completed: selectedHouses.size,
@@ -299,6 +364,26 @@ const RouteScreen = ({ routeId }) => {
       newCustomers: route.houses.filter(h => h.status === 'new').length,
       startTime: new Date(route.date),
       endTime: new Date(),
+    };
+
+    const handleComplete = async () => {
+      try {
+        // Update route status to completed
+        const { error } = await supabase
+          .from('routes')
+          .update({ status: 'completed' })
+          .eq('id', route.id);
+
+        if (error) throw error;
+
+        router.push({
+          pathname: '/route-complete',
+          params: { summary: JSON.stringify(stats) }
+        });
+      } catch (error) {
+        console.error('Error completing route:', error);
+        Alert.alert('Error', 'Failed to complete route');
+      }
     };
 
     if (selectedHouses.size < route.houses.length) {
@@ -310,25 +395,27 @@ const RouteScreen = ({ routeId }) => {
           { 
             text: 'End Route', 
             style: 'destructive',
-            onPress: () => router.push({
-              pathname: '/route-complete',
-              params: { summary: JSON.stringify(stats) }
-            })
+            onPress: handleComplete
           }
         ]
       );
     } else {
-      router.push({
-        pathname: '/route-complete',
-        params: { summary: JSON.stringify(stats) }
-      });
+      handleComplete();
     }
   };
 
+  if (loading) {
+    return (
+      <View style={[styles.container, styles.centerContent]}>
+        <ActivityIndicator size="large" color="#3B82F6" />
+      </View>
+    );
+  }
+
   if (!route) {
     return (
-      <View style={styles.container}>
-        <Text style={styles.loadingText}>Loading route...</Text>
+      <View style={[styles.container, styles.centerContent]}>
+        <Text style={styles.errorText}>Route not found</Text>
       </View>
     );
   }
@@ -721,6 +808,15 @@ const styles = StyleSheet.create({
   headerActions: {
     flexDirection: 'row',
     alignItems: 'center',
+  },
+  centerContent: {
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  errorText: {
+    color: '#EF4444',
+    fontSize: 16,
+    textAlign: 'center',
   },
 });
 

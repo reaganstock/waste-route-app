@@ -17,6 +17,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { useRoutes } from '../hooks/useRoutes';
 import { supabase } from '../lib/supabase';
+import { useAuth } from '../contexts/AuthContext';
 
 const { width } = Dimensions.get('window');
 
@@ -39,8 +40,17 @@ const QuickAction = ({ icon, title, color, onPress }) => (
 
 // RouteCard Component
 const RouteCard = ({ route, isActive, router }) => {
+  const { user } = useAuth();
+  const isAssignedDriver = route.driver_id === user?.id;
+
   const handleStartRoute = async () => {
     try {
+      // Only allow the assigned driver to start/continue the route
+      if (!isAssignedDriver) {
+        Alert.alert('Permission Denied', 'Only the assigned driver can start this route');
+        return;
+      }
+
       const { error } = await supabase
         .from('routes')
         .update({ status: 'in_progress' })
@@ -61,9 +71,23 @@ const RouteCard = ({ route, isActive, router }) => {
       >
         <View style={styles.routeInfo}>
           <Text style={styles.routeName}>{route.name}</Text>
-          <Text style={styles.routeDate}>
-            {new Date(route.date).toLocaleDateString()}
-          </Text>
+          <View style={styles.routeMeta}>
+            <Text style={styles.routeDate}>
+              {new Date(route.date).toLocaleDateString()}
+            </Text>
+            {route.driver && (
+              <>
+                <Text style={styles.routeMetaDivider}>•</Text>
+                <Text style={[
+                  styles.routeDriver,
+                  route.driver_id === user?.id && styles.currentDriverText
+                ]}>
+                  {route.driver.full_name}
+                  {route.driver_id === user?.id && ' (You)'}
+                </Text>
+              </>
+            )}
+          </View>
         </View>
         <View style={styles.routeStats}>
           <View style={styles.routeStat}>
@@ -81,13 +105,26 @@ const RouteCard = ({ route, isActive, router }) => {
         </View>
       </TouchableOpacity>
       
-      {route.status === 'pending' && (
+      {/* Only show start/continue button to assigned driver */}
+      {isAssignedDriver && (route.status === 'pending' || route.status === 'in_progress') && (
         <TouchableOpacity 
-          style={styles.startButton}
+          style={[
+            styles.startButton,
+            route.status === 'in_progress' && styles.continueButton
+          ]}
           onPress={handleStartRoute}
         >
-          <Ionicons name="play" size={20} color="#10B981" />
-          <Text style={styles.startButtonText}>Start</Text>
+          <Ionicons 
+            name={route.status === 'in_progress' ? "arrow-forward" : "play"} 
+            size={20} 
+            color={route.status === 'in_progress' ? "#3B82F6" : "#10B981"} 
+          />
+          <Text style={[
+            styles.startButtonText,
+            route.status === 'in_progress' && styles.continueButtonText
+          ]}>
+            {route.status === 'in_progress' ? 'Continue' : 'Start'}
+          </Text>
         </TouchableOpacity>
       )}
     </View>
@@ -96,15 +133,26 @@ const RouteCard = ({ route, isActive, router }) => {
 
 const HomeScreen = () => {
   const router = useRouter();
+  const { user } = useAuth();
   const { routes, loading, error, fetchRoutes } = useRoutes();
   const [refreshing, setRefreshing] = useState(false);
 
-  const activeRoute = routes.find(r => r.status === 'in_progress');
-  const upcomingRoutes = routes
+  // Filter routes based on user role and assignment
+  const filteredRoutes = routes.filter(route => {
+    const userRole = user?.user_metadata?.role;
+    if (userRole === 'admin') {
+      return true; // Admins can see all routes
+    }
+    // Drivers can only see routes assigned to them
+    return route.driver_id === user?.id;
+  });
+
+  const activeRoute = filteredRoutes.find(r => r.status === 'in_progress');
+  const pendingRoutes = filteredRoutes
     .filter(r => r.status === 'pending')
-    .sort((a, b) => new Date(a.date) - new Date(b.date))
-    .slice(0, 3);
-  const completedRoutes = routes.filter(r => r.status === 'completed');
+    .sort((a, b) => new Date(a.date) - new Date(b.date));
+  const upcomingRoutes = pendingRoutes.slice(0, 3);
+  const completedRoutes = filteredRoutes.filter(r => r.status === 'completed');
 
   const stats = {
     todayHouses: activeRoute?.completed_houses || 0,
@@ -225,18 +273,27 @@ const HomeScreen = () => {
         {/* Active Route */}
         {activeRoute && (
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Active Route</Text>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>Active Routes</Text>
+              <TouchableOpacity 
+                onPress={() => router.push('/active-routes')}
+                style={styles.seeAllButton}
+              >
+                <Text style={styles.seeAllText}>See All</Text>
+                <Ionicons name="chevron-forward" size={16} color="#3B82F6" />
+              </TouchableOpacity>
+            </View>
             <RouteCard route={activeRoute} isActive router={router} />
           </View>
         )}
 
         {/* Upcoming Routes */}
-        {upcomingRoutes.length > 0 && (
+        {pendingRoutes.length > 0 && (
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
               <Text style={styles.sectionTitle}>Upcoming Routes</Text>
               <TouchableOpacity 
-                onPress={() => router.push('/routes')}
+                onPress={() => router.push('/upcoming-routes')}
                 style={styles.seeAllButton}
               >
                 <Text style={styles.seeAllText}>See All</Text>
@@ -405,9 +462,23 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginBottom: 4,
   },
+  routeMeta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
   routeDate: {
     color: '#6B7280',
     fontSize: 12,
+  },
+  routeMetaDivider: {
+    color: '#6B7280',
+    fontSize: 12,
+  },
+  routeDriver: {
+    color: '#3B82F6',
+    fontSize: 12,
+    fontWeight: '500',
   },
   routeStats: {
     gap: 8,
@@ -447,6 +518,16 @@ const styles = StyleSheet.create({
   activeRouteCard: {
     borderColor: '#3B82F6',
     borderWidth: 1,
+  },
+  continueButton: {
+    backgroundColor: 'rgba(59,130,246,0.1)',
+  },
+  continueButtonText: {
+    color: '#3B82F6',
+  },
+  currentDriverText: {
+    color: '#10B981',
+    fontWeight: '600',
   },
 });
 

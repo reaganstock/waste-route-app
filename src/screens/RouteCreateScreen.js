@@ -90,15 +90,34 @@ const parseAddressList = (text) => {
     .filter(line => line);
 
   return addresses.map(address => {
-    const parts = address.split(',');
+    // Split by commas and trim each part
+    const parts = address.split(',').map(part => part.trim());
+    
+    // Need at least street, city, state, zip
     if (parts.length < 4) return null;
 
-    const [street, city, state, zip, status = 'collect', notes = ''] = parts.map(p => p.trim());
-    const fullAddress = `${street}, ${city}, ${state} ${zip}`;
+    const [street, city, state, zip, ...rest] = parts;
+    const inputStatus = rest[0]?.toLowerCase() || 'pending';
+    const notes = rest[1] || '';
+
+    // Map input status to database enum values
+    let status;
+    switch (inputStatus) {
+      case 'skip':
+      case 'skipped':
+        status = 'skipped';
+        break;
+      case 'complete':
+      case 'completed':
+        status = 'completed';
+        break;
+      default:
+        status = 'pending';
+    }
 
     return {
-      address: fullAddress,
-      status: status.toLowerCase(),
+      address: `${street}, ${city}, ${state} ${zip}`,
+      status: status,
       notes: notes,
       lat: null,
       lng: null
@@ -119,7 +138,7 @@ const parseGoogleSheetData = (values) => {
     .filter(house => house.address && house.lat && house.lng);
 };
 
-const RouteCreateScreen = ({ isEditing = false, existingRoute = null }) => {
+const RouteCreateScreen = React.forwardRef(({ isEditing = false, existingRoute = null, hideHeader = false, onRouteChange }, ref) => {
   const router = useRouter();
   const { user } = useAuth();
   const { driver_id } = useLocalSearchParams();
@@ -133,19 +152,18 @@ const RouteCreateScreen = ({ isEditing = false, existingRoute = null }) => {
   const [addressInput, setAddressInput] = useState('');
   const [isLoadingGoogleSheet, setIsLoadingGoogleSheet] = useState(false);
   const isAdmin = user?.user_metadata?.role === 'admin';
+  const [notes, setNotes] = useState(existingRoute?.notes || '');
 
   useEffect(() => {
-    if (isAdmin) {
-      fetchDrivers();
-    }
-  }, [isAdmin]);
+    fetchDrivers();
+  }, []);
 
   const fetchDrivers = async () => {
     try {
       const { data, error } = await supabase
         .from('profiles')
         .select('id, full_name, role, avatar_url')
-        .eq('role', 'driver')
+        .in('role', ['driver', 'admin'])
         .eq('status', 'active');
 
       if (error) throw error;
@@ -169,27 +187,20 @@ const RouteCreateScreen = ({ isEditing = false, existingRoute = null }) => {
       // Geocode each address
       const geocodedHouses = await Promise.all(
         newHouses.map(async (house) => {
-          try {
-            const coords = await geocodeAddress(house.address);
-            return {
-              ...house,
-              lat: coords.lat,
-              lng: coords.lng,
-            };
-          } catch (error) {
-            Alert.alert('Error', `Failed to geocode address: ${house.address}`);
-            return null;
-          }
+          const coords = await geocodeAddress(house.address);
+          return {
+            ...house,
+            lat: coords.lat,
+            lng: coords.lng,
+          };
         })
       );
 
-      const validHouses = geocodedHouses.filter(Boolean);
-      if (validHouses.length > 0) {
-        setHouses(prevHouses => [...prevHouses, ...validHouses]);
-        setAddressInput(''); // Clear input after adding
-      }
+      setHouses(prevHouses => [...prevHouses, ...geocodedHouses]);
+      setAddressInput(''); // Clear input after adding
     } catch (error) {
-      Alert.alert('Error', 'Failed to process addresses');
+      console.error('Error processing addresses:', error);
+      Alert.alert('Error', 'Failed to process addresses. Please check the format.');
     } finally {
       setUploading(false);
     }
@@ -281,125 +292,132 @@ const RouteCreateScreen = ({ isEditing = false, existingRoute = null }) => {
   };
 
   const handleCreate = async () => {
-    if (!name || !selectedDriver || houses.length === 0) {
-      Alert.alert('Error', 'Please fill in all required fields');
+    if (!name.trim()) {
+      Alert.alert('Error', 'Please enter a route name');
+      return;
+    }
+
+    if (houses.length === 0) {
+      Alert.alert('Error', 'Please add at least one house to the route');
       return;
     }
 
     try {
-      setUploading(true);
-      
-      if (isEditing && existingRoute) {
-        // Update existing route
-        const { error: routeError } = await supabase
-          .from('routes')
-          .update({
-            name,
-            date,
-            driver_id: selectedDriver,
-          })
-          .eq('id', existingRoute.id);
-
-        if (routeError) throw routeError;
-
-        // Delete existing houses
-        const { error: deleteError } = await supabase
-          .from('houses')
-          .delete()
-          .eq('route_id', existingRoute.id);
-
-        if (deleteError) throw deleteError;
-
-        // Add new houses
-        const { error: housesError } = await supabase
-          .from('houses')
-          .insert(
-            houses.map(house => ({
-              route_id: existingRoute.id,
-              address: house.address,
-              lat: house.lat,
-              lng: house.lng,
-              status: house.status || 'pending',
-              notes: house.notes || '',
-            }))
-          );
-
-        if (housesError) throw housesError;
-
-        router.goBack();
-      } else {
-        // Create new route
-        const { data: route, error: routeError } = await supabase
-          .from('routes')
-          .insert([{
-            name,
+      // Create the route
+      const { data: route, error: routeError } = await supabase
+        .from('routes')
+        .insert([
+          {
+            name: name.trim(),
             date,
             driver_id: selectedDriver,
             status: 'pending',
             total_houses: houses.length,
-            completed_houses: 0,
-            efficiency: 0,
-          }])
-          .select()
-          .single();
+          }
+        ])
+        .select()
+        .single();
 
-        if (routeError) throw routeError;
+      if (routeError) throw routeError;
 
-        // Add houses to the route
-        const { error: housesError } = await supabase
-          .from('houses')
-          .insert(
-            houses.map(house => ({
-              route_id: route.id,
-              address: house.address,
-              lat: house.lat,
-              lng: house.lng,
-              status: house.status || 'pending',
-              notes: house.notes || '',
-            }))
-          );
+      // Add houses to the route
+      const { error: housesError } = await supabase
+        .from('houses')
+        .insert(
+          houses.map(house => ({
+            route_id: route.id,
+            address: house.address,
+            lat: house.lat,
+            lng: house.lng,
+            status: house.status,
+            notes: house.notes,
+            is_new_customer: house.status === 'new'
+          }))
+        );
 
-        if (housesError) throw housesError;
+      if (housesError) throw housesError;
 
-        router.replace(`/route/${route.id}`);
-      }
+      Alert.alert('Success', 'Route created successfully');
+      router.push('/');
     } catch (error) {
-      Alert.alert('Error', error.message);
-    } finally {
-      setUploading(false);
+      console.error('Error creating route:', error);
+      Alert.alert('Error', 'Failed to create route');
     }
   };
 
+  // Expose route data to parent
+  React.useImperativeHandle(ref, () => ({
+    getRouteData: () => {
+      if (!name || !selectedDriver || houses.length === 0) {
+        return null;
+      }
+
+      return {
+        name,
+        date,
+        driver_id: selectedDriver,
+        houses: houses.map(house => ({
+          address: house.address,
+          lat: house.lat,
+          lng: house.lng,
+          status: 'pending',
+          notes: '',
+          is_new_customer: house.status === 'new' || false,
+          estimated_time: house.estimated_time || 5.00,
+          priority: house.priority || 0
+        })),
+        notes: notes || ''
+      };
+    }
+  }));
+
+  // Notify parent of changes
+  React.useEffect(() => {
+    if (onRouteChange) {
+      const hasChanges = 
+        name !== (existingRoute?.name || '') ||
+        selectedDriver !== (existingRoute?.driver_id || '') ||
+        houses.length !== (existingRoute?.total_houses || 0) ||
+        notes !== (existingRoute?.notes || '');
+      
+      if (hasChanges) {
+        onRouteChange();
+      }
+    }
+  }, [name, selectedDriver, houses, notes, existingRoute, onRouteChange]);
+
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity 
-          onPress={() => router.goBack()} 
-          style={styles.backButton}
-        >
-          <Ionicons name="arrow-back" size={24} color="#fff" />
-          <Text style={styles.backButtonText}>Back</Text>
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>
-          {isEditing ? 'Edit Route' : 'Create Route'}
-        </Text>
-        <TouchableOpacity 
-          style={[
-            styles.createButton, 
-            (!name || !selectedDriver || houses.length === 0) && styles.createButtonDisabled
-          ]}
-          onPress={handleCreate}
-          disabled={!name || !selectedDriver || houses.length === 0 || uploading}
-        >
-          {uploading ? (
-            <ActivityIndicator color="#fff" size="small" />
-          ) : (
-            <Text style={styles.createButtonText}>
-              {isEditing ? 'Save' : 'Create'}
-            </Text>
-          )}
-        </TouchableOpacity>
-      </View>
+      {!hideHeader && (
+        <View style={styles.header}>
+          <TouchableOpacity 
+            onPress={() => router.back()} 
+            style={styles.backButton}
+          >
+            <Ionicons name="arrow-back" size={24} color="#fff" />
+            <Text style={styles.backButtonText}>Back</Text>
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>
+            {isEditing ? 'Edit Route' : 'Create Route'}
+          </Text>
+          <TouchableOpacity 
+            style={[
+              styles.createButton, 
+              (!name || !selectedDriver || houses.length === 0) && styles.createButtonDisabled
+            ]}
+            onPress={handleCreate}
+            disabled={!name || !selectedDriver || houses.length === 0 || uploading}
+          >
+            {uploading ? (
+              <ActivityIndicator color="#fff" size="small" />
+            ) : (
+              <Text style={styles.createButtonText}>
+                {isEditing ? 'Save' : 'Create'}
+              </Text>
+            )}
+          </TouchableOpacity>
+        </View>
+      )}
 
       <ScrollView style={styles.content}>
         {/* Route Details Section */}
@@ -582,7 +600,7 @@ const RouteCreateScreen = ({ isEditing = false, existingRoute = null }) => {
       </ScrollView>
     </View>
   );
-};
+});
 
 export default RouteCreateScreen;
 
@@ -596,13 +614,29 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     padding: 20,
-    paddingTop: 60,
+    paddingTop: Platform.OS === 'ios' ? 60 : 20,
     backgroundColor: '#111',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.1)',
   },
   headerTitle: {
     fontSize: 20,
     fontWeight: '600',
     color: '#fff',
+    flex: 1,
+    textAlign: 'center',
+  },
+  backButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+  },
+  backButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '500',
   },
   createButton: {
     paddingHorizontal: 16,
@@ -741,17 +775,6 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 16,
-  },
-  backButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    padding: 8,
-  },
-  backButtonText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '500',
   },
   addressInputContainer: {
     marginBottom: 16,

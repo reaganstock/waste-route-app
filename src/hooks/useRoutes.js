@@ -11,20 +11,19 @@ export const useRoutes = () => {
       setLoading(true);
       setError(null);
 
-      const { data, error: routesError } = await supabase
+      const { data, error: fetchError } = await supabase
         .from('routes')
         .select(`
           *,
-          driver:driver_id(*),
-          houses:houses(*)
+          driver:profiles(id, full_name)
         `)
         .order('date', { ascending: true });
 
-      if (routesError) throw routesError;
-
+      if (fetchError) throw fetchError;
       setRoutes(data || []);
-    } catch (err) {
-      setError(err.message);
+    } catch (error) {
+      console.error('Error fetching routes:', error);
+      setError(error.message);
     } finally {
       setLoading(false);
     }

@@ -114,35 +114,33 @@ const TeamScreen = () => {
 
           <View style={styles.memberInfo}>
             <View style={styles.memberDetails}>
-              <Text style={styles.memberName}>
-                {member.full_name}
-                {member.id === user?.id && (
-                  <Text style={styles.currentUser}> (You)</Text>
+              <View style={styles.nameContainer}>
+                <Text style={styles.memberName}>
+                  {member.full_name}
+                  {member.id === user?.id && (
+                    <Text style={styles.currentUser}> (You)</Text>
+                  )}
+                </Text>
+                {member.role === 'admin' && (
+                  <View style={styles.adminBadge}>
+                    <Ionicons name="shield-checkmark" size={16} color="#3B82F6" />
+                  </View>
                 )}
-              </Text>
+              </View>
               <Text style={styles.memberRole}>{member.role}</Text>
             </View>
             <View style={styles.memberStats}>
-              {member.role === 'driver' ? (
-                <>
-                  <View style={styles.statItem}>
-                    <Ionicons name="checkmark-circle-outline" size={16} color="#3B82F6" />
-                    <Text style={styles.statValue}>{completedRoutes}</Text>
-                    <Text style={styles.statLabel}>Routes</Text>
-                  </View>
-                  <View style={styles.statDivider} />
-                  <View style={styles.statItem}>
-                    <Ionicons name="time-outline" size={16} color="#3B82F6" />
-                    <Text style={styles.statValue}>{member.hours_driven || 0}</Text>
-                    <Text style={styles.statLabel}>Hours</Text>
-                  </View>
-                </>
-              ) : (
-                <View style={styles.statItem}>
-                  <Ionicons name="shield-outline" size={16} color="#3B82F6" />
-                  <Text style={styles.statLabel}>Administrator</Text>
-                </View>
-              )}
+              <View style={styles.statItem}>
+                <Ionicons name="checkmark-circle-outline" size={16} color="#3B82F6" />
+                <Text style={styles.statValue}>{completedRoutes}</Text>
+                <Text style={styles.statLabel}>Routes</Text>
+              </View>
+              <View style={styles.statDivider} />
+              <View style={styles.statItem}>
+                <Ionicons name="time-outline" size={16} color="#3B82F6" />
+                <Text style={styles.statValue}>{member.hours_driven || 0}</Text>
+                <Text style={styles.statLabel}>Hours</Text>
+              </View>
             </View>
           </View>
         </LinearGradient>
@@ -352,6 +350,16 @@ const styles = StyleSheet.create({
   currentUser: {
     color: '#3B82F6',
     fontSize: 14,
+  },
+  nameContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  adminBadge: {
+    backgroundColor: 'rgba(59,130,246,0.1)',
+    padding: 4,
+    borderRadius: 8,
   },
 });
 

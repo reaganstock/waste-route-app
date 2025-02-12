@@ -17,6 +17,8 @@ export default function TabLayout() {
         }}
       >
         <Stack.Screen name="index" />
+        <Stack.Screen name="active-routes" />
+        <Stack.Screen name="upcoming-routes" />
       </Stack>
     );
   }
@@ -40,6 +42,26 @@ export default function TabLayout() {
           title: 'Home',
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="home-outline" size={size} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="active-routes"
+        options={{
+          title: 'Active',
+          href: null, // Hide from tab bar
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="map-outline" size={size} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="upcoming-routes"
+        options={{
+          title: 'Upcoming',
+          href: null, // Hide from tab bar
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="calendar-outline" size={size} color={color} />
           ),
         }}
       />

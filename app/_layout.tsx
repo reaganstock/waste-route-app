@@ -43,6 +43,8 @@ function RootLayoutNav() {
         <Stack.Screen name="profile-details" />
         <Stack.Screen name="route-create" />
         <Stack.Screen name="map" />
+        <Stack.Screen name="active-routes" options={{ presentation: 'card' }} />
+        <Stack.Screen name="upcoming-routes" options={{ presentation: 'card' }} />
       </Stack>
     </>
   );
