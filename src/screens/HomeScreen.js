@@ -72,9 +72,9 @@ const RouteCard = ({ route, isActive, router }) => {
         <View style={styles.routeInfo}>
           <Text style={styles.routeName}>{route.name}</Text>
           <View style={styles.routeMeta}>
-            <Text style={styles.routeDate}>
-              {new Date(route.date).toLocaleDateString()}
-            </Text>
+          <Text style={styles.routeDate}>
+            {new Date(route.date).toLocaleDateString()}
+          </Text>
             {route.driver && (
               <>
                 <Text style={styles.routeMetaDivider}>•</Text>
@@ -136,31 +136,160 @@ const HomeScreen = () => {
   const { user } = useAuth();
   const { routes, loading, error, fetchRoutes } = useRoutes();
   const [refreshing, setRefreshing] = useState(false);
-
-  // Filter routes based on user role and assignment
-  const filteredRoutes = routes.filter(route => {
-    const userRole = user?.user_metadata?.role;
-    if (userRole === 'admin') {
-      return true; // Admins can see all routes
-    }
-    // Drivers can only see routes assigned to them
-    return route.driver_id === user?.id;
+  const [metrics, setMetrics] = useState({
+    todayHouses: 0,
+    todayRoutes: 0,
+    efficiency: 0,
+    hoursDriven: 0
   });
 
-  const activeRoute = filteredRoutes.find(r => r.status === 'in_progress');
-  const pendingRoutes = filteredRoutes
-    .filter(r => r.status === 'pending')
-    .sort((a, b) => new Date(a.date) - new Date(b.date));
-  const upcomingRoutes = pendingRoutes.slice(0, 3);
-  const completedRoutes = filteredRoutes.filter(r => r.status === 'completed');
+  const calculateMetrics = async () => {
+    try {
+      // Get today's date at midnight
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
 
-  const stats = {
-    todayHouses: activeRoute?.completed_houses || 0,
-    completedRoutes: completedRoutes.length,
-    efficiency: completedRoutes.length > 0
-      ? Math.round(completedRoutes.reduce((acc, route) => acc + route.efficiency, 0) / completedRoutes.length)
-      : 0
+      const isAdmin = user?.user_metadata?.role === 'admin';
+
+      // Get all routes for today
+      const { data: todayRoutes, error: routesError } = await supabase
+        .from('routes')
+        .select(`
+          id,
+          total_houses,
+          completed_houses,
+          driver_id,
+          created_at,
+          updated_at,
+          status,
+          driver:profiles(role)
+        `)
+        .gte('date', today.toISOString())
+        .lt('date', new Date(today.getTime() + 24 * 60 * 60 * 1000).toISOString())
+        .neq('status', 'completed'); // Exclude completed routes
+
+      if (routesError) throw routesError;
+
+      // For admin, show team metrics
+      if (isAdmin) {
+        const teamHouses = todayRoutes.reduce((sum, route) => sum + (route.total_houses || 0), 0);
+        const teamRoutes = todayRoutes.length;
+
+        // Calculate team efficiency (average of all completed routes)
+        const { data: completedRoutes, error: completedRoutesError } = await supabase
+          .from('routes')
+          .select(`
+            id,
+            completed_houses,
+            total_houses,
+            created_at,
+            updated_at
+          `)
+          .eq('status', 'completed')
+          .gt('completed_houses', 0)  // Only include routes with completed houses
+          .gt('total_houses', 0);     // Only include routes with total houses
+
+        if (completedRoutesError) {
+          console.error('Error fetching completed routes:', completedRoutesError);
+          throw completedRoutesError;
+        }
+
+        console.log('Completed routes:', completedRoutes);
+
+        let teamEfficiency = 0;
+        if (completedRoutes && completedRoutes.length > 0) {
+          const routeEfficiencies = completedRoutes.map(route => {
+            const duration = Math.round((new Date(route.updated_at) - new Date(route.created_at)) / (1000 * 60));
+            const durationHours = duration / 60;
+            
+            const houseCompletionRate = route.completed_houses / route.total_houses;
+            const housesPerHour = duration === 0 ? 0 : (route.completed_houses / durationHours);
+            const timeEfficiency = Math.min(housesPerHour / 60, 1); // Target: 60 houses/hour
+
+            const efficiency = (0.6 * houseCompletionRate + 0.4 * timeEfficiency) * 100;
+            console.log('Route efficiency calculation:', route.id, {
+              duration,
+              durationHours,
+              houseCompletionRate,
+              housesPerHour,
+              timeEfficiency,
+              efficiency,
+              completed_houses: route.completed_houses,
+              total_houses: route.total_houses
+            });
+            return efficiency;
+          });
+
+          console.log('Route efficiencies:', routeEfficiencies);
+
+          teamEfficiency = routeEfficiencies.length > 0 
+            ? Math.round(routeEfficiencies.reduce((sum, eff) => sum + eff, 0) / routeEfficiencies.length * 10) / 10
+            : 0;
+            
+          console.log('Final team efficiency:', teamEfficiency);
+        }
+
+        setMetrics({
+          todayHouses: teamHouses,
+          todayRoutes: teamRoutes,
+          efficiency: teamEfficiency
+        });
+      } 
+      // For drivers, show personal metrics
+      else {
+        const driverRoutes = todayRoutes.filter(route => route.driver_id === user?.id);
+        const driverHouses = driverRoutes.reduce((sum, route) => sum + (route.total_houses || 0), 0);
+        
+        // Calculate personal efficiency from today's completed routes
+        const { data: completedRoutes } = await supabase
+          .from('routes')
+          .select(`
+            completed_houses,
+            total_houses,
+            created_at,
+            updated_at,
+            date
+          `)
+          .eq('driver_id', user?.id)
+          .eq('status', 'completed')
+          .gte('date', today.toISOString())
+          .lt('date', new Date(today.getTime() + 24 * 60 * 60 * 1000).toISOString());
+
+        let driverEfficiency = 0;
+        if (completedRoutes && completedRoutes.length > 0) {
+          const routeEfficiencies = completedRoutes.map(route => {
+            if (!route.completed_houses || !route.total_houses) return 0;
+            
+            const duration = Math.round((new Date(route.updated_at) - new Date(route.created_at)) / (1000 * 60));
+            const durationHours = duration / 60;
+            
+            const houseCompletionRate = route.completed_houses / route.total_houses;
+            const housesPerHour = duration === 0 ? 0 : (route.completed_houses / durationHours);
+            const timeEfficiency = Math.min(housesPerHour / 60, 1); // Target: 60 houses/hour
+
+            return (0.6 * houseCompletionRate + 0.4 * timeEfficiency) * 100;
+          }).filter(eff => eff > 0); // Filter out zero efficiencies
+
+          driverEfficiency = routeEfficiencies.length > 0 
+            ? Math.round(routeEfficiencies.reduce((sum, eff) => sum + eff, 0) / routeEfficiencies.length * 10) / 10
+            : 0;
+        }
+
+        setMetrics({
+          todayHouses: driverHouses,
+          todayRoutes: driverRoutes.length,
+          efficiency: driverEfficiency
+        });
+      }
+    } catch (error) {
+      console.error('Error calculating metrics:', error);
+    }
   };
+
+  // Update metrics whenever routes change
+  React.useEffect(() => {
+    calculateMetrics();
+  }, [routes]);
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -176,16 +305,11 @@ const HomeScreen = () => {
     );
   }
 
-  if (error) {
-    return (
-      <View style={[styles.container, styles.centerContent]}>
-        <Text style={styles.errorText}>Error loading routes</Text>
-        <TouchableOpacity style={styles.retryButton} onPress={fetchRoutes}>
-          <Text style={styles.retryButtonText}>Retry</Text>
-        </TouchableOpacity>
-      </View>
-    );
-  }
+  // Filter active and upcoming routes
+  const activeRoutes = routes.filter(r => r.status === 'in_progress');
+  const upcomingRoutes = routes.filter(r => r.status === 'pending')
+    .sort((a, b) => new Date(a.date) - new Date(b.date))
+    .slice(0, 3);
 
   return (
     <View style={styles.container}>
@@ -208,34 +332,28 @@ const HomeScreen = () => {
       <ScrollView
         style={styles.content}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#3B82F6" />
         }
         showsVerticalScrollIndicator={false}
       >
-        {/* Stats Overview */}
-        <View style={styles.statsGrid}>
-          <View style={styles.statCard}>
-            <View style={[styles.statIcon, { backgroundColor: 'rgba(59,130,246,0.1)' }]}>
+        {/* Metrics Section */}
+        <View style={styles.metricsContainer}>
+          <View style={styles.metricCard}>
               <Ionicons name="home" size={24} color="#3B82F6" />
-            </View>
-            <Text style={styles.statValue}>{stats.todayHouses}</Text>
-            <Text style={styles.statLabel}>Today's Houses</Text>
+            <Text style={styles.metricValue}>{metrics.todayHouses}</Text>
+            <Text style={styles.metricLabel}>Today's Houses</Text>
           </View>
-
-          <View style={styles.statCard}>
-            <View style={[styles.statIcon, { backgroundColor: 'rgba(16,185,129,0.1)' }]}>
-              <Ionicons name="checkmark-circle" size={24} color="#10B981" />
-            </View>
-            <Text style={styles.statValue}>{stats.completedRoutes}</Text>
-            <Text style={styles.statLabel}>Routes Done</Text>
+          <View style={styles.metricCard}>
+            <Ionicons name="map" size={24} color="#10B981" />
+            <Text style={styles.metricValue}>{metrics.todayRoutes}</Text>
+            <Text style={styles.metricLabel}>Today's Routes</Text>
           </View>
-
-          <View style={styles.statCard}>
-            <View style={[styles.statIcon, { backgroundColor: 'rgba(245,158,11,0.1)' }]}>
-              <Ionicons name="trending-up" size={24} color="#F59E0B" />
-            </View>
-            <Text style={styles.statValue}>{stats.efficiency}%</Text>
-            <Text style={styles.statLabel}>Efficiency</Text>
+          <View style={styles.metricCard}>
+            <Ionicons name="trending-up" size={24} color="#8B5CF6" />
+            <Text style={styles.metricValue}>{metrics.efficiency}%</Text>
+            <Text style={styles.metricLabel}>
+              {user?.user_metadata?.role === 'admin' ? "Team's Efficiency" : "Your Efficiency"}
+            </Text>
           </View>
         </View>
 
@@ -270,8 +388,8 @@ const HomeScreen = () => {
           </View>
         </View>
 
-        {/* Active Route */}
-        {activeRoute && (
+        {/* Active Routes Section */}
+        {activeRoutes.length > 0 && (
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
               <Text style={styles.sectionTitle}>Active Routes</Text>
@@ -283,28 +401,28 @@ const HomeScreen = () => {
                 <Ionicons name="chevron-forward" size={16} color="#3B82F6" />
               </TouchableOpacity>
             </View>
-            <RouteCard route={activeRoute} isActive router={router} />
-          </View>
-        )}
-
-        {/* Upcoming Routes */}
-        {pendingRoutes.length > 0 && (
-          <View style={styles.section}>
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>Upcoming Routes</Text>
-              <TouchableOpacity 
-                onPress={() => router.push('/upcoming-routes')}
-                style={styles.seeAllButton}
-              >
-                <Text style={styles.seeAllText}>See All</Text>
-                <Ionicons name="chevron-forward" size={16} color="#3B82F6" />
-              </TouchableOpacity>
-            </View>
-            {upcomingRoutes.map(route => (
-              <RouteCard key={route.id} route={route} router={router} />
+            {activeRoutes.map(route => (
+              <RouteCard key={route.id} route={route} isActive router={router} />
             ))}
           </View>
         )}
+
+        {/* Upcoming Routes Section */}
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Upcoming Routes</Text>
+            <TouchableOpacity 
+              onPress={() => router.push('/upcoming-routes')}
+              style={styles.seeAllButton}
+            >
+              <Text style={styles.seeAllText}>See All</Text>
+              <Ionicons name="chevron-forward" size={16} color="#3B82F6" />
+            </TouchableOpacity>
+          </View>
+          {upcomingRoutes.map(route => (
+            <RouteCard key={route.id} route={route} router={router} />
+          ))}
+        </View>
       </ScrollView>
     </View>
   );
@@ -359,35 +477,29 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
   },
-  statsGrid: {
+  metricsContainer: {
     flexDirection: 'row',
-    padding: 20,
+    justifyContent: 'space-between',
+    padding: 16,
     gap: 12,
   },
-  statCard: {
+  metricCard: {
     flex: 1,
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    borderRadius: 16,
+    backgroundColor: 'rgba(31, 41, 55, 0.5)',
+    borderRadius: 12,
     padding: 16,
     alignItems: 'center',
+    gap: 8,
   },
-  statIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  statValue: {
+  metricValue: {
     color: '#fff',
     fontSize: 24,
-    fontWeight: 'bold',
-    marginBottom: 4,
+    fontWeight: '700',
   },
-  statLabel: {
-    color: '#6B7280',
+  metricLabel: {
+    color: '#9CA3AF',
     fontSize: 12,
+    textAlign: 'center',
   },
   quickActions: {
     padding: 20,
@@ -425,14 +537,13 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   section: {
-    padding: 20,
-    paddingTop: 0,
+    padding: 16,
   },
   sectionHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 12,
   },
   seeAllButton: {
     flexDirection: 'row',
@@ -449,6 +560,8 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     marginBottom: 12,
     overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
   },
   routeContent: {
     padding: 16,
@@ -517,7 +630,6 @@ const styles = StyleSheet.create({
   },
   activeRouteCard: {
     borderColor: '#3B82F6',
-    borderWidth: 1,
   },
   continueButton: {
     backgroundColor: 'rgba(59,130,246,0.1)',

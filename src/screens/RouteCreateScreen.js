@@ -115,6 +115,12 @@ const parseAddressList = (text) => {
         status = 'pending';
     }
 
+    if (status === 'completed') {
+      status = 'collect';
+    } else if (status === 'skipped') {
+      status = 'skip';
+    }
+
     return {
       address: `${street}, ${city}, ${state} ${zip}`,
       status: status,

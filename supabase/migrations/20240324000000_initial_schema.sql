@@ -36,7 +36,7 @@ alter database postgres set timezone to 'UTC';
 
 -- Create custom types for status enums
 create type public.route_status as enum ('pending', 'in_progress', 'completed');
-create type public.house_status as enum ('pending', 'completed', 'skipped');
+create type public.house_status as enum ('pending', 'collect', 'skip', 'new customer');
 create type public.user_role as enum ('driver', 'admin');
 create type public.user_status as enum ('pending', 'active', 'inactive');
 

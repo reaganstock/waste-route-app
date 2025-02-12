@@ -6,37 +6,36 @@ import {
   ScrollView,
   TouchableOpacity,
   Platform,
+  ActivityIndicator,
+  Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { mockRoutes } from '../lib/mockData';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
-import DateTimePicker from '@react-native-community/datetimepicker';
+import { supabase } from '../lib/supabase';
 
-const RouteCard = ({ route, onPress }) => {
+const RouteCard = ({ route }) => {
+  const router = useRouter();
+  const efficiency = Math.round((route.completed_houses / route.total_houses) * 100);
   const date = new Date(route.date);
-  const efficiency = Math.round((route.completed_houses / route.houses.length) * 100);
-  const specialHouses = route.houses.filter(h => h.status === 'skip' || h.notes).length;
-  const duration = route.duration || '2.5'; // This would come from your backend
 
   return (
-    <TouchableOpacity style={styles.routeCard} onPress={onPress}>
+    <TouchableOpacity 
+      style={styles.routeCard}
+      onPress={() => router.push(`/route/${route.id}/details`)}
+      activeOpacity={0.7}
+    >
       <LinearGradient
         colors={['rgba(59, 130, 246, 0.1)', 'rgba(59, 130, 246, 0.05)']}
         style={styles.routeGradient}
       >
         <View style={styles.routeHeader}>
-          <View>
-            <Text style={styles.routeName}>{route.name}</Text>
-            <Text style={styles.routeDate}>
-              {date.toLocaleDateString()} • {date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-            </Text>
-          </View>
+          <Text style={styles.routeName}>{route.name}</Text>
           <View style={[styles.efficiencyBadge, { 
-            backgroundColor: efficiency >= 90 ? 'rgba(16, 185, 129, 0.2)' : 
-                           efficiency >= 70 ? 'rgba(245, 158, 11, 0.2)' : 
-                           'rgba(239, 68, 68, 0.2)'
+            backgroundColor: efficiency >= 90 ? '#10B98120' : 
+                           efficiency >= 70 ? '#F59E0B20' : 
+                           '#EF444420'
           }]}>
             <Text style={[styles.efficiencyText, {
               color: efficiency >= 90 ? '#10B981' : 
@@ -46,73 +45,103 @@ const RouteCard = ({ route, onPress }) => {
           </View>
         </View>
 
+        <View style={styles.routeMeta}>
+          <Text style={styles.routeDate}>
+            {date.toLocaleDateString()} • {date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+          </Text>
+          {route.driver && (
+            <View style={styles.driverInfo}>
+              <View style={[styles.driverAvatar, { backgroundColor: getDriverColor(route.driver.role) }]}>
+                <Text style={styles.driverInitials}>
+                  {route.driver.full_name.split(' ').map(n => n[0]).join('')}
+                </Text>
+              </View>
+              <Text style={styles.driverName}>{route.driver.full_name}</Text>
+            </View>
+          )}
+        </View>
+
         <View style={styles.routeStats}>
           <View style={styles.routeStat}>
             <Ionicons name="home" size={16} color="#3B82F6" />
             <Text style={styles.routeStatText}>
-              {route.completed_houses}/{route.houses.length} Houses
+              {route.completed_houses}/{route.total_houses} Houses
             </Text>
           </View>
-          {specialHouses > 0 && (
-            <View style={styles.routeStat}>
-              <Ionicons name="alert-circle" size={16} color="#8B5CF6" />
-              <Text style={styles.routeStatText}>
-                {specialHouses} Special
-              </Text>
-            </View>
-          )}
           <View style={styles.routeStat}>
-            <Ionicons name="time" size={16} color="#F59E0B" />
-            <Text style={styles.routeStatText}>{duration} hrs</Text>
+            <Ionicons name="time" size={16} color="#3B82F6" />
+            <Text style={styles.routeStatText}>
+              {route.duration || 0} Hours
+            </Text>
           </View>
-        </View>
-
-        <View style={styles.progressBar}>
-          <View 
-            style={[
-              styles.progressFill,
-              { 
-                width: `${efficiency}%`,
-                backgroundColor: efficiency >= 90 ? '#10B981' : 
-                               efficiency >= 70 ? '#F59E0B' : 
-                               '#EF4444'
-              }
-            ]} 
-          />
         </View>
       </LinearGradient>
     </TouchableOpacity>
   );
 };
 
+const getDriverColor = (role) => {
+  switch (role?.toLowerCase()) {
+    case 'admin':
+      return '#3B82F6';
+    case 'driver':
+      return '#10B981';
+    default:
+      return '#6B7280';
+  }
+};
+
 const CompletedRoutesScreen = () => {
   const router = useRouter();
+  const [loading, setLoading] = useState(true);
   const [routes, setRoutes] = useState([]);
-  const [startDate, setStartDate] = useState(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)); // 30 days ago
-  const [endDate, setEndDate] = useState(new Date());
-  const [showStartPicker, setShowStartPicker] = useState(false);
-  const [showEndPicker, setShowEndPicker] = useState(false);
 
   useEffect(() => {
-    fetchRoutes();
-  }, [startDate, endDate]);
+    fetchCompletedRoutes();
+  }, []);
 
-  const fetchRoutes = () => {
-    // Filter routes by date range and completed status
-    const filteredRoutes = mockRoutes.filter(route => {
-      const routeDate = new Date(route.date);
-      return route.status === 'completed' && 
-             routeDate >= startDate && 
-             routeDate <= endDate;
-    });
-    
-    // Sort by date, newest first
-    filteredRoutes.sort((a, b) => new Date(b.date) - new Date(a.date));
-    setRoutes(filteredRoutes);
+  const fetchCompletedRoutes = async () => {
+    try {
+      setLoading(true);
+
+      const { data, error } = await supabase
+        .from('routes')
+        .select(`
+          *,
+          driver:profiles (
+            id,
+            full_name,
+            role
+          )
+        `)
+        .eq('status', 'completed')
+        .order('date', { ascending: false });
+
+      if (error) throw error;
+      setRoutes(data || []);
+    } catch (error) {
+      console.error('Error fetching completed routes:', error);
+      Alert.alert('Error', 'Failed to load completed routes');
+    } finally {
+      setLoading(false);
+    }
   };
+
+  if (loading) {
+    return (
+      <View style={[styles.container, styles.centerContent]}>
+        <ActivityIndicator size="large" color="#3B82F6" />
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
+      <LinearGradient
+        colors={['#1a1a1a', '#000000']}
+        style={StyleSheet.absoluteFill}
+      />
+      
       <BlurView intensity={80} style={styles.header}>
         <TouchableOpacity 
           onPress={() => router.back()}
@@ -124,70 +153,22 @@ const CompletedRoutesScreen = () => {
         <View style={styles.placeholder} />
       </BlurView>
 
-      <View style={styles.dateSelector}>
-        <TouchableOpacity 
-          style={styles.dateButton} 
-          onPress={() => setShowStartPicker(true)}
-        >
-          <Ionicons name="calendar-outline" size={20} color="#3B82F6" />
-          <Text style={styles.dateText}>
-            {startDate.toLocaleDateString()}
-          </Text>
-        </TouchableOpacity>
-        <Text style={styles.dateText}>to</Text>
-        <TouchableOpacity 
-          style={styles.dateButton} 
-          onPress={() => setShowEndPicker(true)}
-        >
-          <Ionicons name="calendar-outline" size={20} color="#3B82F6" />
-          <Text style={styles.dateText}>
-            {endDate.toLocaleDateString()}
-          </Text>
-        </TouchableOpacity>
-      </View>
-
-      {showStartPicker && (
-        <DateTimePicker
-          value={startDate}
-          mode="date"
-          display="default"
-          onChange={(event, selectedDate) => {
-            setShowStartPicker(false);
-            if (selectedDate) setStartDate(selectedDate);
-          }}
-        />
-      )}
-
-      {showEndPicker && (
-        <DateTimePicker
-          value={endDate}
-          mode="date"
-          display="default"
-          onChange={(event, selectedDate) => {
-            setShowEndPicker(false);
-            if (selectedDate) setEndDate(selectedDate);
-          }}
-        />
-      )}
-
       <ScrollView 
         style={styles.content}
         showsVerticalScrollIndicator={false}
       >
-        <View style={styles.routesList}>
-          {routes.map(route => (
-            <RouteCard
-              key={route.id}
-              route={route}
-              onPress={() => router.push(`/route/${route.id}/details`)}
-            />
-          ))}
-          {routes.length === 0 && (
-            <Text style={styles.noRoutesText}>
-              No completed routes found in this date range
-            </Text>
-          )}
-        </View>
+        {routes.length > 0 ? (
+          <View style={styles.routesGrid}>
+            {routes.map(route => (
+              <RouteCard key={route.id} route={route} />
+            ))}
+          </View>
+        ) : (
+          <View style={styles.emptyState}>
+            <Ionicons name="checkmark-circle-outline" size={48} color="#6B7280" />
+            <Text style={styles.emptyStateText}>No completed routes</Text>
+          </View>
+        )}
       </ScrollView>
     </View>
   );
@@ -197,6 +178,10 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#000',
+  },
+  centerContent: {
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   header: {
     flexDirection: 'row',
@@ -212,6 +197,7 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.1)',
   },
   headerTitle: {
     fontSize: 20,
@@ -221,72 +207,72 @@ const styles = StyleSheet.create({
   placeholder: {
     width: 40,
   },
-  dateSelector: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 12,
-    padding: 20,
-    backgroundColor: 'rgba(17, 24, 39, 0.8)',
-  },
-  dateButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    backgroundColor: 'rgba(59,130,246,0.1)',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 8,
-  },
-  dateText: {
-    color: '#3B82F6',
-    fontSize: 14,
-    fontWeight: '500',
-  },
   content: {
     flex: 1,
   },
-  routesList: {
-    padding: 20,
+  routesGrid: {
+    padding: 16,
     gap: 16,
   },
   routeCard: {
     borderRadius: 16,
     overflow: 'hidden',
-    marginBottom: 16,
   },
   routeGradient: {
-    padding: 20,
+    padding: 16,
   },
   routeHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     marginBottom: 12,
   },
   routeName: {
     color: '#fff',
     fontSize: 18,
     fontWeight: '600',
-    marginBottom: 4,
-  },
-  routeDate: {
-    color: '#9CA3AF',
-    fontSize: 12,
   },
   efficiencyBadge: {
-    paddingHorizontal: 12,
+    paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 12,
   },
   efficiencyText: {
     fontSize: 12,
+    fontWeight: '500',
+  },
+  routeMeta: {
+    marginBottom: 12,
+  },
+  routeDate: {
+    color: '#9CA3AF',
+    fontSize: 14,
+    marginBottom: 8,
+  },
+  driverInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  driverAvatar: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  driverInitials: {
+    color: '#fff',
+    fontSize: 12,
     fontWeight: '600',
+  },
+  driverName: {
+    color: '#6B7280',
+    fontSize: 14,
   },
   routeStats: {
     flexDirection: 'row',
     gap: 16,
-    marginBottom: 12,
   },
   routeStat: {
     flexDirection: 'row',
@@ -297,22 +283,16 @@ const styles = StyleSheet.create({
     color: '#9CA3AF',
     fontSize: 14,
   },
-  progressBar: {
-    height: 4,
-    backgroundColor: 'rgba(59, 130, 246, 0.2)',
-    borderRadius: 2,
-    overflow: 'hidden',
+  emptyState: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 48,
   },
-  progressFill: {
-    height: '100%',
-    borderRadius: 2,
-  },
-  noRoutesText: {
+  emptyStateText: {
     color: '#6B7280',
     fontSize: 16,
-    textAlign: 'center',
-    marginTop: 40,
-    fontStyle: 'italic',
+    marginTop: 12,
   },
 });
 

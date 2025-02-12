@@ -10,11 +10,13 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { mockTeamMembers, mockRoutes } from '../lib/mockData';
+import { supabase } from '../lib/supabase';
+import { BlurView } from 'expo-blur';
+import { LinearGradient } from 'expo-linear-gradient';
 
 const RouteCard = ({ route, onSelect, isSelected }) => {
   const housesCompleted = route.completed_houses || 0;
-  const totalHouses = route.houses?.length || 0;
+  const totalHouses = route.total_houses || 0;
   const progress = totalHouses > 0 ? (housesCompleted / totalHouses) * 100 : 0;
 
   return (
@@ -82,37 +84,79 @@ const AssignRouteScreen = ({ memberId }) => {
   const [member, setMember] = useState(null);
   const [availableRoutes, setAvailableRoutes] = useState([]);
   const [selectedRoute, setSelectedRoute] = useState(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const memberData = mockTeamMembers.find(m => m.id === memberId);
-    if (memberData) {
-      setMember(memberData);
-    }
-
-    // Filter routes that are pending and not assigned
-    const pendingRoutes = mockRoutes.filter(route => 
-      route.status === 'pending'
-    );
-    setAvailableRoutes(pendingRoutes);
+    fetchData();
   }, [memberId]);
 
-  const handleAssign = () => {
+  const fetchData = async () => {
+    try {
+      setLoading(true);
+      
+      // Fetch member data
+      const { data: memberData, error: memberError } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', memberId)
+        .single();
+
+      if (memberError) throw memberError;
+      setMember(memberData);
+
+      // Fetch available routes (pending and unassigned)
+      const { data: routesData, error: routesError } = await supabase
+        .from('routes')
+        .select('*')
+        .eq('status', 'pending')
+        .is('driver_id', null);
+
+      if (routesError) throw routesError;
+      setAvailableRoutes(routesData || []);
+    } catch (error) {
+      console.error('Error fetching data:', error);
+      Alert.alert('Error', 'Failed to load data');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleAssign = async () => {
     if (!selectedRoute) {
       Alert.alert('Error', 'Please select a route to assign');
       return;
     }
 
-    // Here you would typically make an API call to assign the route
-    Alert.alert(
-      'Success',
-      'Route assigned successfully',
-      [
-        {
-          text: 'OK',
-          onPress: () => router.back(),
-        },
-      ]
-    );
+    try {
+      setLoading(true);
+      
+      // Update route with driver assignment
+      const { error } = await supabase
+        .from('routes')
+        .update({ 
+          driver_id: memberId,
+          status: 'assigned'
+        })
+        .eq('id', selectedRoute.id);
+
+      if (error) throw error;
+
+      Alert.alert(
+        'Success',
+        'Route assigned successfully',
+        [
+          {
+            text: 'OK',
+            onPress: () => router.back(),
+          },
+        ]
+      );
+    } catch (error) {
+      console.error('Error assigning route:', error);
+      Alert.alert('Error', 'Failed to assign route');
+    } finally {
+      setLoading(false);
+    }
   };
 
   if (!member) {
@@ -125,7 +169,12 @@ const AssignRouteScreen = ({ memberId }) => {
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
+      <LinearGradient
+        colors={['#1a1a1a', '#000000']}
+        style={StyleSheet.absoluteFill}
+      />
+      
+      <BlurView intensity={80} style={styles.header}>
         <TouchableOpacity 
           onPress={() => router.back()}
           style={styles.backButton}
@@ -134,7 +183,7 @@ const AssignRouteScreen = ({ memberId }) => {
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Assign Route</Text>
         <View style={styles.placeholder} />
-      </View>
+      </BlurView>
 
       <View style={styles.memberInfo}>
         <View style={[styles.avatar, { backgroundColor: getAvatarColor(member.role) }]}>
@@ -213,6 +262,7 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.1)',
   },
   headerTitle: {
     fontSize: 20,

@@ -34,59 +34,65 @@ Notifications.setNotificationHandler({
 const GEOFENCE_RADIUS = 200; // meters
 
 const getStatusColor = (status) => {
-  switch (status?.toLowerCase()) {
-    case 'pending':
-      return '#3B82F6'; // Blue for pending
-    case 'completed':
-      return '#10B981'; // Green for completed
+  switch (status) {
     case 'skip':
-      return '#EF4444'; // Red for skip
+      return '#EF4444'; // Red
+    case 'pending':
+      return '#3B82F6'; // Blue
+    case 'new customer':
+      return '#10B981'; // Green
+    case 'collect':
+      return '#6B7280'; // Grey
     default:
-      return '#6B7280'; // Gray for unknown
+      return '#3B82F6'; // Default to blue (pending)
   }
 };
 
 const AddressModal = ({ visible, house, onClose, onSaveNote, onNavigate }) => (
   <Modal
     visible={visible}
-    transparent={true}
+    transparent
     animationType="slide"
     onRequestClose={onClose}
   >
-    <View style={styles.modalOverlay}>
-      <BlurView intensity={90} style={styles.modalContent}>
+    <View style={styles.modalContainer}>
+      <BlurView intensity={80} style={styles.modalContent}>
         <View style={styles.modalHeader}>
-          <Text style={styles.modalTitle}>Address Details</Text>
-          <TouchableOpacity onPress={onClose} style={styles.modalClose}>
+          <Text style={styles.modalTitle}>House Details</Text>
+          <TouchableOpacity onPress={onClose} style={styles.closeButton}>
             <Ionicons name="close" size={24} color="#fff" />
           </TouchableOpacity>
         </View>
-
-        <Text style={styles.modalAddress}>{house?.address}</Text>
-        
-        <View style={[styles.modalStatusBadge, { backgroundColor: getStatusColor(house?.status) + '20' }]}>
-          <Text style={[styles.modalStatusText, { color: getStatusColor(house?.status) }]}>
-            {house?.status?.charAt(0).toUpperCase() + house?.status?.slice(1)}
-          </Text>
+        <View style={styles.modalBody}>
+          <View style={styles.addressSection}>
+            <Text style={styles.addressLabel}>Address</Text>
+            <Text style={styles.addressText}>{house?.address}</Text>
+          </View>
+          <View style={styles.notesSection}>
+            <Text style={styles.notesLabel}>Notes</Text>
+            <TextInput
+              style={styles.notesInput}
+              multiline
+              numberOfLines={4}
+              value={house?.notes || ''}
+              onChangeText={(text) => onSaveNote(text)}
+              placeholder="Add notes..."
+              placeholderTextColor="#6B7280"
+            />
+          </View>
+          <TouchableOpacity 
+            style={styles.navigateButton}
+            onPress={onNavigate}
+          >
+            <LinearGradient
+              colors={['#3B82F6', '#2563EB']}
+              style={styles.navigateButtonGradient}
+            >
+              <Ionicons name="navigate" size={20} color="#fff" />
+              <Text style={styles.navigateButtonText}>Navigate</Text>
+            </LinearGradient>
+          </TouchableOpacity>
         </View>
-
-        <Text style={styles.modalLabel}>Notes</Text>
-        <TextInput
-          style={styles.modalInput}
-          multiline
-          placeholder="Add notes here..."
-          placeholderTextColor="#6B7280"
-          defaultValue={house?.notes}
-          onEndEditing={(e) => onSaveNote(e.nativeEvent.text)}
-        />
-
-        <TouchableOpacity 
-          style={styles.navigateButton}
-          onPress={onNavigate}
-        >
-          <Ionicons name="navigate" size={20} color="#fff" />
-          <Text style={styles.navigateText}>Navigate to Address</Text>
-        </TouchableOpacity>
       </BlurView>
     </View>
   </Modal>
@@ -172,7 +178,7 @@ const RouteScreen = ({ routeId }) => {
         // Set selected houses based on completed status
         const completedHouses = new Set(
           routeData.houses
-            .filter(h => h.status === 'completed')
+            .filter(h => h.status === 'collect')
             .map(h => h.id)
         );
         setSelectedHouses(completedHouses);
@@ -253,7 +259,7 @@ const RouteScreen = ({ routeId }) => {
 
       if (distance <= GEOFENCE_RADIUS && !selectedHouses.has(house.id)) {
         const isSkip = house.status === 'skip';
-        const isNew = house.status === 'new';
+        const isNew = house.status === 'new customer';
         const message = `${isSkip ? '⚠️ Skip House' : isNew ? '🆕 New Customer' : '🏠 Collection'}: ${house.address}`;
         
         // Show in-app notification
@@ -300,7 +306,7 @@ const RouteScreen = ({ routeId }) => {
     try {
       const { error } = await supabase
         .from('houses')
-        .update({ status: newSelected.has(houseId) ? 'completed' : 'pending' })
+        .update({ status: newSelected.has(houseId) ? 'collect' : 'pending' })
         .eq('id', houseId);
 
       if (error) throw error;
@@ -361,24 +367,42 @@ const RouteScreen = ({ routeId }) => {
       total: route.houses.length,
       completed: selectedHouses.size,
       skipped: route.houses.filter(h => h.status === 'skip').length,
-      newCustomers: route.houses.filter(h => h.status === 'new').length,
+      newCustomers: route.houses.filter(h => h.status === 'new customer').length,
+      special_houses: route.houses.filter(h => h.notes || h.status === 'new customer' || h.status === 'skip').length,
       startTime: new Date(route.date),
       endTime: new Date(),
     };
 
     const handleComplete = async () => {
       try {
-        // Update route status to completed
+        const completedHouses = Array.from(selectedHouses).length;
+        const totalHouses = route.houses.length;
+        const duration = Math.round((new Date() - new Date(route.created_at)) / (1000 * 60)); // duration in minutes
+
+        // Update route status and counts
         const { error } = await supabase
           .from('routes')
-          .update({ status: 'completed' })
+          .update({
+            status: 'completed',
+            completed_houses: completedHouses,
+            total_houses: totalHouses,
+            duration: duration
+          })
           .eq('id', route.id);
 
         if (error) throw error;
 
+        // Navigate to completion screen with route data
         router.push({
           pathname: '/route-complete',
-          params: { summary: JSON.stringify(stats) }
+          params: {
+            summary: JSON.stringify({
+              ...stats,
+              duration: duration,
+              route_id: route.id,
+              route_name: route.name
+            })
+          }
         });
       } catch (error) {
         console.error('Error completing route:', error);
@@ -707,17 +731,15 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 20,
   },
-  modalOverlay: {
+  modalContainer: {
     flex: 1,
     justifyContent: 'flex-end',
-    backgroundColor: 'rgba(0,0,0,0.5)',
   },
   modalContent: {
-    backgroundColor: 'rgba(31, 41, 55, 0.98)',
+    backgroundColor: 'rgba(17, 24, 39, 0.8)',
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     padding: 20,
-    minHeight: '50%',
   },
   modalHeader: {
     flexDirection: 'row',
@@ -730,51 +752,52 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#fff',
   },
-  modalClose: {
-    padding: 4,
+  closeButton: {
+    padding: 8,
   },
-  modalAddress: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: '#fff',
-    marginBottom: 12,
+  modalBody: {
+    gap: 20,
   },
-  modalStatusBadge: {
-    alignSelf: 'flex-start',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 12,
-    marginBottom: 24,
+  addressSection: {
+    gap: 8,
   },
-  modalStatusText: {
+  addressLabel: {
     fontSize: 14,
-    fontWeight: '600',
-  },
-  modalLabel: {
     color: '#9CA3AF',
-    fontSize: 14,
-    marginBottom: 8,
   },
-  modalInput: {
-    backgroundColor: 'rgba(55, 65, 81, 0.8)',
-    borderRadius: 12,
-    padding: 16,
-    color: '#fff',
+  addressText: {
     fontSize: 16,
+    color: '#fff',
+    fontWeight: '500',
+  },
+  notesSection: {
+    gap: 8,
+  },
+  notesLabel: {
+    fontSize: 14,
+    color: '#9CA3AF',
+  },
+  notesInput: {
+    backgroundColor: '#1F2937',
+    borderRadius: 12,
+    padding: 12,
+    color: '#fff',
     minHeight: 100,
     textAlignVertical: 'top',
-    marginBottom: 20,
   },
   navigateButton: {
-    backgroundColor: '#3B82F6',
+    overflow: 'hidden',
+    borderRadius: 12,
+    marginTop: 8,
+  },
+  navigateButtonGradient: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 16,
-    borderRadius: 12,
     gap: 8,
+    padding: 16,
   },
-  navigateText: {
+  navigateButtonText: {
     color: '#fff',
     fontSize: 16,
     fontWeight: '600',
