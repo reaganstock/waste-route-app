@@ -363,46 +363,44 @@ const RouteScreen = ({ routeId }) => {
   };
 
   const handleEndRoute = async () => {
-    const stats = {
-      total: route.houses.length,
-      completed: selectedHouses.size,
-      skipped: route.houses.filter(h => h.status === 'skip').length,
-      newCustomers: route.houses.filter(h => h.status === 'new customer').length,
-      special_houses: route.houses.filter(h => h.notes || h.status === 'new customer' || h.status === 'skip').length,
-      startTime: new Date(route.date),
-      endTime: new Date(),
-    };
-
     const handleComplete = async () => {
       try {
-        const completedHouses = Array.from(selectedHouses).length;
-        const totalHouses = route.houses.length;
-        const duration = Math.round((new Date() - new Date(route.created_at)) / (1000 * 60)); // duration in minutes
-
-        // Update route status and counts
-        const { error } = await supabase
+        // Calculate metrics
+        const completed = selectedHouses.size;
+        const total = route.houses.length;
+        const endTime = new Date().toISOString();
+        const durationMinutes = Math.round((new Date(endTime) - new Date(route.start_time)) / (1000 * 60));
+        
+        // Update route status and metrics
+        const { error: updateError } = await supabase
           .from('routes')
           .update({
             status: 'completed',
-            completed_houses: completedHouses,
-            total_houses: totalHouses,
-            duration: duration
+            completed_houses: completed,
+            total_houses: total,
+            duration: durationMinutes,
+            end_time: endTime
           })
           .eq('id', route.id);
 
-        if (error) throw error;
+        if (updateError) throw updateError;
 
-        // Navigate to completion screen with route data
+        // Prepare summary for completion screen
+        const summary = {
+          route_name: route.name,
+          total: total,
+          completed: completed,
+          special_houses: route.houses.filter(h => 
+            h.status === 'skip' || h.status === 'new customer'
+          ).length,
+          startTime: route.start_time,
+          endTime: endTime
+        };
+
+        // Navigate to completion screen with summary
         router.push({
-          pathname: '/route-complete',
-          params: {
-            summary: JSON.stringify({
-              ...stats,
-              duration: duration,
-              route_id: route.id,
-              route_name: route.name
-            })
-          }
+          pathname: `/route/${route.id}/completion`,
+          params: { summary: JSON.stringify(summary) }
         });
       } catch (error) {
         console.error('Error completing route:', error);

@@ -9,7 +9,7 @@ export default function RouteLayout() {
       }}
     >
       <Stack.Screen name="[id]" />
-      <Stack.Screen name="[id]/complete" />
+      <Stack.Screen name="[id]/completion" options={{ presentation: 'modal' }} />
       <Stack.Screen name="[id]/details" />
       <Stack.Screen name="completed" />
     </Stack>

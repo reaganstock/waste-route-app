@@ -151,7 +151,7 @@ const HomeScreen = () => {
 
       const isAdmin = user?.user_metadata?.role === 'admin';
 
-      // Get all routes for today
+      // Get all non-completed routes for today
       const { data: todayRoutes, error: routesError } = await supabase
         .from('routes')
         .select(`
@@ -172,10 +172,12 @@ const HomeScreen = () => {
 
       // For admin, show team metrics
       if (isAdmin) {
+        // Calculate total houses scheduled today for entire team (excluding completed routes)
         const teamHouses = todayRoutes.reduce((sum, route) => sum + (route.total_houses || 0), 0);
+        // Calculate total routes scheduled today for entire team (excluding completed routes)
         const teamRoutes = todayRoutes.length;
 
-        // Calculate team efficiency (average of all completed routes)
+        // Calculate team efficiency (average of all completed routes with 60/40 formula)
         const { data: completedRoutes, error: completedRoutesError } = await supabase
           .from('routes')
           .select(`
@@ -183,50 +185,26 @@ const HomeScreen = () => {
             completed_houses,
             total_houses,
             created_at,
-            updated_at
+            updated_at,
+            duration
           `)
           .eq('status', 'completed')
           .gt('completed_houses', 0)  // Only include routes with completed houses
           .gt('total_houses', 0);     // Only include routes with total houses
 
-        if (completedRoutesError) {
-          console.error('Error fetching completed routes:', completedRoutesError);
-          throw completedRoutesError;
-        }
-
-        console.log('Completed routes:', completedRoutes);
+        if (completedRoutesError) throw completedRoutesError;
 
         let teamEfficiency = 0;
         if (completedRoutes && completedRoutes.length > 0) {
           const routeEfficiencies = completedRoutes.map(route => {
-            const duration = Math.round((new Date(route.updated_at) - new Date(route.created_at)) / (1000 * 60));
-            const durationHours = duration / 60;
-            
             const houseCompletionRate = route.completed_houses / route.total_houses;
-            const housesPerHour = duration === 0 ? 0 : (route.completed_houses / durationHours);
+            const housesPerHour = route.duration ? (route.completed_houses / route.duration) : 0;
             const timeEfficiency = Math.min(housesPerHour / 60, 1); // Target: 60 houses/hour
 
-            const efficiency = (0.6 * houseCompletionRate + 0.4 * timeEfficiency) * 100;
-            console.log('Route efficiency calculation:', route.id, {
-              duration,
-              durationHours,
-              houseCompletionRate,
-              housesPerHour,
-              timeEfficiency,
-              efficiency,
-              completed_houses: route.completed_houses,
-              total_houses: route.total_houses
-            });
-            return efficiency;
+            return (0.6 * houseCompletionRate + 0.4 * timeEfficiency) * 100;
           });
 
-          console.log('Route efficiencies:', routeEfficiencies);
-
-          teamEfficiency = routeEfficiencies.length > 0 
-            ? Math.round(routeEfficiencies.reduce((sum, eff) => sum + eff, 0) / routeEfficiencies.length * 10) / 10
-            : 0;
-            
-          console.log('Final team efficiency:', teamEfficiency);
+          teamEfficiency = Math.round(routeEfficiencies.reduce((sum, eff) => sum + eff, 0) / routeEfficiencies.length * 10) / 10;
         }
 
         setMetrics({
@@ -237,47 +215,42 @@ const HomeScreen = () => {
       } 
       // For drivers, show personal metrics
       else {
+        // Filter non-completed routes for this driver
         const driverRoutes = todayRoutes.filter(route => route.driver_id === user?.id);
+        // Calculate total houses scheduled today for this driver (excluding completed routes)
         const driverHouses = driverRoutes.reduce((sum, route) => sum + (route.total_houses || 0), 0);
-        
-        // Calculate personal efficiency from today's completed routes
-        const { data: completedRoutes } = await supabase
+        // Calculate total routes scheduled today for this driver (excluding completed routes)
+        const driverRoutesCount = driverRoutes.length;
+
+        // Calculate driver's overall efficiency
+        const { data: driverCompletedRoutes } = await supabase
           .from('routes')
           .select(`
             completed_houses,
             total_houses,
-            created_at,
-            updated_at,
-            date
+            duration
           `)
           .eq('driver_id', user?.id)
           .eq('status', 'completed')
-          .gte('date', today.toISOString())
-          .lt('date', new Date(today.getTime() + 24 * 60 * 60 * 1000).toISOString());
+          .gt('completed_houses', 0)
+          .gt('total_houses', 0);
 
         let driverEfficiency = 0;
-        if (completedRoutes && completedRoutes.length > 0) {
-          const routeEfficiencies = completedRoutes.map(route => {
-            if (!route.completed_houses || !route.total_houses) return 0;
-            
-            const duration = Math.round((new Date(route.updated_at) - new Date(route.created_at)) / (1000 * 60));
-            const durationHours = duration / 60;
-            
+        if (driverCompletedRoutes && driverCompletedRoutes.length > 0) {
+          const routeEfficiencies = driverCompletedRoutes.map(route => {
             const houseCompletionRate = route.completed_houses / route.total_houses;
-            const housesPerHour = duration === 0 ? 0 : (route.completed_houses / durationHours);
+            const housesPerHour = route.duration ? (route.completed_houses / route.duration) : 0;
             const timeEfficiency = Math.min(housesPerHour / 60, 1); // Target: 60 houses/hour
 
             return (0.6 * houseCompletionRate + 0.4 * timeEfficiency) * 100;
-          }).filter(eff => eff > 0); // Filter out zero efficiencies
+          });
 
-          driverEfficiency = routeEfficiencies.length > 0 
-            ? Math.round(routeEfficiencies.reduce((sum, eff) => sum + eff, 0) / routeEfficiencies.length * 10) / 10
-            : 0;
+          driverEfficiency = Math.round(routeEfficiencies.reduce((sum, eff) => sum + eff, 0) / routeEfficiencies.length * 10) / 10;
         }
 
         setMetrics({
           todayHouses: driverHouses,
-          todayRoutes: driverRoutes.length,
+          todayRoutes: driverRoutesCount,
           efficiency: driverEfficiency
         });
       }

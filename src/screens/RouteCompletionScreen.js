@@ -36,114 +36,100 @@ const RouteCompletionScreen = () => {
   const params = useLocalSearchParams();
   
   const defaultSummary = {
+    route_name: '',
     total: 0,
     completed: 0,
     special_houses: 0,
-    houses: [],
-    completed_houses: 0,
     startTime: new Date().toISOString(),
     endTime: new Date().toISOString(),
   };
 
   const summary = params.summary ? JSON.parse(params.summary) : defaultSummary;
   const duration = Math.round((new Date(summary.endTime) - new Date(summary.startTime)) / (1000 * 60));
-  const durationHours = (duration / 60).toFixed(1);
   
-  // Calculate efficiency using new formula
-  const houseCompletionRate = summary.completed / (summary.total || 1);
-  const housesPerHour = duration === 0 ? 0 : (summary.completed / (duration / 60));
-  const timeEfficiency = Math.min(housesPerHour / 60, 1); // Target: 60 houses/hour
-  
-  const efficiency = Math.round((0.6 * houseCompletionRate + 0.4 * timeEfficiency) * 1000) / 10; // Round to nearest 0.1%
-  const housesPerHourDisplay = Math.round(housesPerHour * 10) / 10; // Round to nearest 0.1
+  const calculateEfficiency = () => {
+    const durationHours = duration / 60; // Convert minutes to hours
+    const completionRate = summary.completed / summary.total;
+    const housesPerHour = durationHours > 0 ? (summary.completed / durationHours) : 0;
+    const speedEfficiency = housesPerHour / 60; // No cap
+    
+    // Final efficiency (60/40 formula)
+    const efficiency = (0.6 * completionRate + 0.4 * speedEfficiency) * 100;
+    
+    return Number(efficiency.toFixed(2)); // Round to 2 decimal places
+  };
+
+  const formatDuration = (minutes) => {
+    const hours = minutes / 60; // Convert to hours
+    return `${hours.toFixed(2)} hrs`;  // Show to nearest hundredth
+  };
+
+  const formatHousesPerHour = () => {
+    if (duration === 0) return '0.00';
+    const housesPerHour = (summary.completed / (duration / 60));
+    return housesPerHour.toFixed(2); // Round to nearest hundredth
+  };
 
   const handleShare = async () => {
     try {
       const message = `Route Summary\n\n` +
         `Total Houses: ${summary.total}\n` +
         `Collected: ${summary.completed}\n` +
-        `Duration: ${durationHours} hours\n` +
-        `Efficiency: ${efficiency}%\n` +
-        `Houses/Hr: ${housesPerHourDisplay}`;
+        `Duration: ${formatDuration(duration)}\n` +
+        `Efficiency: ${calculateEfficiency()}%\n` +
+        `Houses/Hr: ${formatHousesPerHour()}`;
 
       const result = await Share.share({
         message,
         title: 'Route Summary',
       });
-
-      if (result.action === Share.sharedAction) {
-        if (result.activityType) {
-          // shared with activity type of result.activityType
-        } else {
-          // shared
-        }
-      }
     } catch (error) {
       console.error('Error sharing:', error);
     }
   };
 
-  const calculateEfficiency = () => {
-    const durationHours = duration / 60; // Convert minutes to hours
-    const houseCompletionRate = summary.completed / (summary.total || 1);
-    const housesPerHour = durationHours === 0 ? 0 : (summary.completed / durationHours);
-    const timeEfficiency = Math.min(housesPerHour / 60, 1); // Target: 60 houses/hour
-
-    return Math.round((0.6 * houseCompletionRate + 0.4 * timeEfficiency) * 1000) / 10; // Round to nearest 0.1%
-  };
-
-  const formatDuration = (minutes) => {
-    const hours = Math.round(minutes / 60 * 10) / 10; // Round to nearest 0.1
-    return `${hours} hrs`;
-  };
-
-  const formatHousesPerHour = () => {
-    if (duration === 0) return '0.0';
-    return Math.round((summary.completed / (duration / 60)) * 10) / 10;
-  };
-
   const metrics = [
     {
+      icon: 'home',
       label: 'Total Houses',
       value: summary.total,
-      icon: 'home-outline',
-      color: '#3B82F6', // Blue
-      info: 'Total number of houses on this route'
+      color: '#6B7280',
+      info: 'Total number of houses in the route'
     },
     {
-      label: 'Houses Collected',
+      icon: 'checkmark-circle',
+      label: 'Completed',
       value: summary.completed,
-      icon: 'checkmark-circle-outline',
-      color: '#10B981', // Green
-      info: 'Number of houses where bins were collected'
+      color: '#10B981',
+      info: 'Number of houses serviced'
     },
     {
+      icon: 'flag',
       label: 'Special Houses',
-      value: summary.special_houses || 0,
-      icon: 'alert-circle-outline',
-      color: '#8B5CF6', // Purple
-      info: 'Houses with special notes, new customers, or requiring additional attention'
+      value: summary.special_houses,
+      color: '#8B5CF6',
+      info: 'Houses that were skipped or marked as new customers'
     },
     {
-      label: 'Efficiency',
-      value: `${calculateEfficiency()}%`,
-      icon: 'trending-up-outline',
-      color: '#F59E0B', // Orange
-      info: 'Overall route efficiency based on completion rate and time'
-    },
-    {
+      icon: 'time',
       label: 'Duration',
       value: formatDuration(duration),
-      icon: 'time-outline',
-      color: '#EC4899', // Pink
-      info: 'Total time spent on the route'
+      color: '#F59E0B',
+      info: 'Total time spent on route'
     },
     {
+      icon: 'flash',
       label: 'Houses/Hr',
       value: formatHousesPerHour(),
-      icon: 'flash-outline',
-      color: '#EF4444', // Red
+      color: '#14B8A6',
       info: 'Average number of houses serviced per hour'
+    },
+    {
+      icon: 'trending-up',
+      label: 'Efficiency',
+      value: `${calculateEfficiency()}%`,
+      color: '#3B82F6',
+      info: 'Based on 60% completion rate and 40% speed (target: 60 houses/hour)'
     }
   ];
 

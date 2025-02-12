@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -8,21 +8,22 @@ import {
   RefreshControl,
   Platform,
   ActivityIndicator,
-  Image,
   Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import { useRouter } from 'expo-router';
+import { mockTeamMembers } from '../lib/mockData';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
+import { useAuth } from '../contexts/AuthContext';
 
 const TeamScreen = () => {
   const router = useRouter();
   const { user } = useAuth();
-  const [members, setMembers] = React.useState([]);
-  const [loading, setLoading] = React.useState(true);
+  const [members, setMembers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
   const fetchTeamMembers = async () => {
     try {
@@ -35,19 +36,40 @@ const TeamScreen = () => {
           role,
           status,
           avatar_url,
-          hours_driven,
-          routes:routes(
+          routes(
             id,
             status,
             completed_houses,
-            total_houses
+            total_houses,
+            duration,
+            date
           )
         `)
         .order('role', { ascending: false }) // Show admins first
         .order('full_name');
 
       if (error) throw error;
-      setMembers(data || []);
+
+      // Calculate metrics for each member
+      const membersWithMetrics = data.map(member => {
+        // Only count completed routes
+        const completedRoutes = member.routes?.filter(r => r.status === 'completed').length || 0;
+        
+        // Calculate total hours driven from completed routes only
+        const totalHoursDriven = member.routes
+          ?.filter(r => r.status === 'completed')
+          .reduce((sum, route) => sum + (route.duration || 0), 0) || 0;
+
+        return {
+          ...member,
+          metrics: {
+            completedRoutes,
+            totalHoursDriven: Number((totalHoursDriven / 60).toFixed(2))  // Convert minutes to hours
+          }
+        };
+      });
+
+      setMembers(membersWithMetrics);
     } catch (error) {
       console.error('Error fetching team members:', error);
       Alert.alert('Error', 'Failed to load team members');
@@ -56,18 +78,18 @@ const TeamScreen = () => {
     }
   };
 
-  React.useEffect(() => {
+  useEffect(() => {
     fetchTeamMembers();
   }, []);
 
-  const onRefresh = React.useCallback(() => {
-    setLoading(true);
+  const onRefresh = () => {
+    setRefreshing(true);
     fetchTeamMembers();
-  }, []);
+    setRefreshing(false);
+  };
 
   const MemberCard = ({ member }) => {
     const activeRoute = member.routes?.find(r => r.status === 'in_progress');
-    const completedRoutes = member.routes?.filter(r => r.status === 'completed').length || 0;
     
     return (
       <TouchableOpacity 
@@ -80,21 +102,14 @@ const TeamScreen = () => {
           style={styles.memberGradient}
         >
           <View style={styles.memberHeader}>
-            {member.avatar_url ? (
-              <Image
-                source={{ uri: member.avatar_url }}
-                style={styles.avatarContainer}
-              />
-            ) : (
-              <View style={[
-                styles.avatarContainer,
-                { backgroundColor: getAvatarColor(member.role) }
-              ]}>
-                <Text style={styles.avatarText}>
-                  {member.full_name?.split(' ').map(n => n[0]).join('')}
-                </Text>
-              </View>
-            )}
+            <View style={[
+              styles.avatarContainer,
+              { backgroundColor: getAvatarColor(member.role) }
+            ]}>
+              <Text style={styles.avatarText}>
+                {member.full_name?.split(' ').map(n => n[0]).join('')}
+              </Text>
+            </View>
             <View style={[
               styles.statusBadge,
               { backgroundColor: member.status === 'active' ? 'rgba(16,185,129,0.1)' : 'rgba(107,114,128,0.1)' }
@@ -132,13 +147,13 @@ const TeamScreen = () => {
             <View style={styles.memberStats}>
               <View style={styles.statItem}>
                 <Ionicons name="checkmark-circle-outline" size={16} color="#3B82F6" />
-                <Text style={styles.statValue}>{completedRoutes}</Text>
+                <Text style={styles.statValue}>{member.metrics.completedRoutes}</Text>
                 <Text style={styles.statLabel}>Routes</Text>
               </View>
               <View style={styles.statDivider} />
               <View style={styles.statItem}>
                 <Ionicons name="time-outline" size={16} color="#3B82F6" />
-                <Text style={styles.statValue}>{member.hours_driven || 0}</Text>
+                <Text style={styles.statValue}>{member.metrics.totalHoursDriven.toFixed(1)}</Text>
                 <Text style={styles.statLabel}>Hours</Text>
               </View>
             </View>
@@ -180,7 +195,7 @@ const TeamScreen = () => {
         <Text style={styles.title}>Team</Text>
         <TouchableOpacity 
           style={styles.addButton}
-          onPress={() => router.push('/team/add')}
+          onPress={() => router.push('/add-team-member')}
           activeOpacity={0.7}
         >
           <Ionicons name="add" size={24} color="#fff" />
@@ -192,7 +207,7 @@ const TeamScreen = () => {
         contentContainerStyle={styles.scrollContent}
         refreshControl={
           <RefreshControl 
-            refreshing={loading} 
+            refreshing={refreshing} 
             onRefresh={onRefresh}
             tintColor="#3B82F6"
           />
@@ -331,35 +346,20 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.1)',
     marginHorizontal: 12,
   },
-  errorText: {
-    color: '#EF4444',
-    fontSize: 16,
-    marginBottom: 12,
-  },
-  retryButton: {
-    backgroundColor: '#3B82F6',
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 8,
-  },
-  retryText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  currentUser: {
-    color: '#3B82F6',
-    fontSize: 14,
-  },
   nameContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+  },
+  currentUser: {
+    color: '#9CA3AF',
+    fontSize: 12,
+    marginLeft: 4,
   },
   adminBadge: {
     backgroundColor: 'rgba(59,130,246,0.1)',
+    borderRadius: 12,
     padding: 4,
-    borderRadius: 8,
+    marginLeft: 8,
   },
 });
 

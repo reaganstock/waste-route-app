@@ -19,11 +19,10 @@ import * as WebBrowser from 'expo-web-browser';
 import Map from '../components/Map';
 import { mockTeamMembers } from '../lib/mockData';
 import { supabase } from '../lib/supabase';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import Papa from 'papaparse';
 import { v4 as uuidv4 } from 'uuid';
 import { useAuth } from '../contexts/AuthContext';
-import { useLocalSearchParams } from 'expo-router';
 
 // Google OAuth2 credentials - you'll need to replace these with your own
 const GOOGLE_CLIENT_ID = 'YOUR_GOOGLE_CLIENT_ID';
@@ -100,26 +99,8 @@ const parseAddressList = (text) => {
     const inputStatus = rest[0]?.toLowerCase() || 'pending';
     const notes = rest[1] || '';
 
-    // Map input status to database enum values
-    let status;
-    switch (inputStatus) {
-      case 'skip':
-      case 'skipped':
-        status = 'skipped';
-        break;
-      case 'complete':
-      case 'completed':
-        status = 'completed';
-        break;
-      default:
-        status = 'pending';
-    }
-
-    if (status === 'completed') {
-      status = 'collect';
-    } else if (status === 'skipped') {
-      status = 'skip';
-    }
+    // Map input status to valid enum values
+    let status = processHouseStatus(inputStatus);
 
     return {
       address: `${street}, ${city}, ${state} ${zip}`,
@@ -144,15 +125,37 @@ const parseGoogleSheetData = (values) => {
     .filter(house => house.address && house.lat && house.lng);
 };
 
+const processHouseStatus = (status) => {
+  // Convert status to lowercase and trim
+  const normalizedStatus = status?.toLowerCase().trim();
+  
+  // Check if it's one of our valid statuses
+  if (['skip', 'collect', 'new customer', 'pending'].includes(normalizedStatus)) {
+    return normalizedStatus;
+  }
+  
+  // Handle legacy or incorrect statuses
+  switch (normalizedStatus) {
+    case 'new':
+      return 'new customer';
+    case 'completed':
+      return 'collect';
+    case 'skipped':
+      return 'skip';
+    default:
+      return 'pending';
+  }
+};
+
 const RouteCreateScreen = React.forwardRef(({ isEditing = false, existingRoute = null, hideHeader = false, onRouteChange }, ref) => {
   const router = useRouter();
   const { user } = useAuth();
-  const { driver_id } = useLocalSearchParams();
+  const { driver } = useLocalSearchParams();
   const [name, setName] = useState(existingRoute?.name || '');
   const [date, setDate] = useState(existingRoute?.date ? new Date(existingRoute.date) : new Date());
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [drivers, setDrivers] = useState([]);
-  const [selectedDriver, setSelectedDriver] = useState(driver_id || existingRoute?.driver_id || user?.id);
+  const [selectedDriver, setSelectedDriver] = useState(driver || null);
   const [uploading, setUploading] = useState(false);
   const [houses, setHouses] = useState(existingRoute?.houses || []);
   const [addressInput, setAddressInput] = useState('');
@@ -163,6 +166,12 @@ const RouteCreateScreen = React.forwardRef(({ isEditing = false, existingRoute =
   useEffect(() => {
     fetchDrivers();
   }, []);
+
+  useEffect(() => {
+    if (driver) {
+      setSelectedDriver(driver);
+    }
+  }, [driver]);
 
   const fetchDrivers = async () => {
     try {
@@ -297,49 +306,42 @@ const RouteCreateScreen = React.forwardRef(({ isEditing = false, existingRoute =
     setHouses(prevHouses => prevHouses.filter((_, i) => i !== index));
   };
 
-  const handleCreate = async () => {
-    if (!name.trim()) {
-      Alert.alert('Error', 'Please enter a route name');
-      return;
-    }
-
-    if (houses.length === 0) {
-      Alert.alert('Error', 'Please add at least one house to the route');
-      return;
-    }
-
+  const handleCreateRoute = async () => {
     try {
-      // Create the route
+      setUploading(true);
+
+      // Create route first
       const { data: route, error: routeError } = await supabase
         .from('routes')
-        .insert([
-          {
-            name: name.trim(),
-            date,
-            driver_id: selectedDriver,
-            status: 'pending',
-            total_houses: houses.length,
-          }
-        ])
+        .insert({
+          name: name.trim(),
+          date: date.toISOString(),
+          driver_id: selectedDriver,
+          status: 'pending',
+          start_time: new Date().toISOString(),
+          total_houses: houses.length,
+          completed_houses: 0
+        })
         .select()
         .single();
 
       if (routeError) throw routeError;
 
-      // Add houses to the route
+      // Process houses data with proper status handling
+      const housesData = houses.map(house => ({
+        route_id: route.id,
+        address: house.address,
+        status: processHouseStatus(house.status),
+        notes: house.notes,
+        is_new_customer: house.status === 'new customer' || house.status === 'new',
+        lat: house.lat,
+        lng: house.lng
+      }));
+
+      // Insert houses
       const { error: housesError } = await supabase
         .from('houses')
-        .insert(
-          houses.map(house => ({
-            route_id: route.id,
-            address: house.address,
-            lat: house.lat,
-            lng: house.lng,
-            status: house.status,
-            notes: house.notes,
-            is_new_customer: house.status === 'new'
-          }))
-        );
+        .insert(housesData);
 
       if (housesError) throw housesError;
 
@@ -348,6 +350,8 @@ const RouteCreateScreen = React.forwardRef(({ isEditing = false, existingRoute =
     } catch (error) {
       console.error('Error creating route:', error);
       Alert.alert('Error', 'Failed to create route');
+    } finally {
+      setUploading(false);
     }
   };
 
@@ -411,7 +415,7 @@ const RouteCreateScreen = React.forwardRef(({ isEditing = false, existingRoute =
               styles.createButton, 
               (!name || !selectedDriver || houses.length === 0) && styles.createButtonDisabled
             ]}
-            onPress={handleCreate}
+            onPress={handleCreateRoute}
             disabled={!name || !selectedDriver || houses.length === 0 || uploading}
           >
             {uploading ? (

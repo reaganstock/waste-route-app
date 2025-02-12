@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Dimensions, Alert, Platform, ActivityIndicator, RefreshControl } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Dimensions, Alert, Platform, ActivityIndicator, RefreshControl, Image } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -93,11 +93,18 @@ const PerformerCard = ({ member, position }) => {
               { color: position <= 3 ? '#000' : '#fff' }
             ]}>#{position}</Text>
           </View>
-          <View style={[styles.avatar, { backgroundColor: getAvatarColor(member.role) }]}>
-            <Text style={styles.avatarText}>
-              {member.full_name.split(' ').map(n => n[0]).join('')}
-            </Text>
-          </View>
+          {member.avatar_url ? (
+            <Image
+              source={{ uri: member.avatar_url }}
+              style={styles.avatar}
+            />
+          ) : (
+            <View style={[styles.avatar, { backgroundColor: getAvatarColor(member.role) }]}>
+              <Text style={styles.avatarText}>
+                {member.full_name.split(' ').map(n => n[0]).join('')}
+              </Text>
+            </View>
+          )}
           <View style={styles.nameContainer}>
             <Text style={styles.performerName}>{member.full_name}</Text>
             <View style={[styles.roleBadge, { backgroundColor: `${getAvatarColor(member.role)}20` }]}>
@@ -168,65 +175,121 @@ const RouteCard = ({ route }) => {
 };
 
 const calculateAnalytics = (routes) => {
-  const totalRoutes = routes.length;
-  const completedRoutes = routes.filter(r => r.status === 'completed').length;
-  const completionRate = totalRoutes > 0 ? Math.round((completedRoutes / totalRoutes) * 100) : 0;
+  // Filter routes within the selected date range
+  const today = new Date();
   
-  // Calculate total houses and special houses
-  const totalHouses = routes.reduce((sum, r) => sum + r.total_houses, 0);
-  const completedHouses = routes.reduce((sum, r) => sum + (r.completed_houses || 0), 0);
-  const housesPerHour = routes.reduce((sum, r) => {
-    if (r.duration && r.completed_houses) {
-      return sum + (r.completed_houses / r.duration);
-    }
-    return sum;
-  }, 0) / (completedRoutes || 1);
-
-  // Calculate efficiency
-  const efficiency = routes.reduce((sum, r) => {
-    if (r.completed_houses && r.total_houses) {
-      const routeCompletion = (r.completed_houses / r.total_houses) * 100;
-      const routeSpeed = r.duration ? Math.min((r.completed_houses / r.duration / 60) * 100, 100) : 0;
-      return sum + (routeCompletion * 0.6 + routeSpeed * 0.4);
-    }
-    return sum;
-  }, 0) / (completedRoutes || 1);
+  // Calculate completion rate only for routes scheduled within date range
+  const scheduledRoutes = routes.filter(r => {
+    const scheduleDate = new Date(r.date);
+    return scheduleDate <= today;
+  });
+  
+  const completedRoutes = routes.filter(route => route.status === 'completed');
+  
+  // Calculate total houses and completed houses
+  const totalHouses = completedRoutes.reduce((sum, route) => sum + route.total_houses, 0);
+  const completedHouses = completedRoutes.reduce((sum, route) => sum + route.completed_houses, 0);
+  
+  // Calculate special houses (skip or new customer)
+  const specialHouses = completedRoutes.reduce((sum, route) => {
+    const specialInRoute = route.houses?.filter(h => 
+      h.status === 'skip' || h.status === 'new customer'
+    ).length || 0;
+    return sum + specialInRoute;
+  }, 0);
+  
+  // Calculate total hours driven (from completed routes only)
+  const totalHoursDriven = completedRoutes.reduce((sum, route) => 
+    sum + (route.duration || 0), 0) / 60; // Convert minutes to hours
+  
+  // Calculate houses per hour
+  const housesPerHour = totalHoursDriven > 0 ? 
+    completedHouses / totalHoursDriven : 0;
+  
+  // Calculate average efficiency across all completed routes
+  const avgEfficiency = completedRoutes.length > 0
+    ? completedRoutes.reduce((sum, route) => {
+        const durationHours = route.duration / 60;
+        const completionRate = route.completed_houses / route.total_houses;
+        const routeHousesPerHour = durationHours > 0 ? 
+          route.completed_houses / durationHours : 0;
+        const speedEfficiency = routeHousesPerHour / 60; // No cap
+        const routeEfficiency = (0.6 * completionRate + 0.4 * speedEfficiency) * 100;
+        return sum + routeEfficiency;
+      }, 0) / completedRoutes.length
+    : 0;
+  
+  // Calculate completion rate
+  const completionRate = scheduledRoutes.length > 0
+    ? (completedRoutes.length / scheduledRoutes.length) * 100
+    : 0;
+  
+  // Calculate expired routes
+  const expiredRoutes = scheduledRoutes.filter(r => 
+    r.status !== 'completed' && new Date(r.date) < today
+  ).length;
 
   return {
-    totalRoutes,
-    completedRoutes,
-    completionRate,
     totalHouses,
     completedHouses,
-    housesPerHour: housesPerHour.toFixed(1),
-    efficiency: Math.round(efficiency),
+    specialHouses,
+    efficiency: Number(avgEfficiency.toFixed(2)),
+    completionRate: Number(completionRate.toFixed(2)),
+    expiredRoutes,
+    hoursDriven: Number(totalHoursDriven.toFixed(2)),
+    housesPerHour: Number(housesPerHour.toFixed(2))
   };
 };
 
 const AnalyticsScreen = () => {
-  const [startDate, setStartDate] = useState(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000));
-  const [endDate, setEndDate] = useState(new Date());
-  const [showStartPicker, setShowStartPicker] = useState(false);
-  const [showEndPicker, setShowEndPicker] = useState(false);
+  const router = useRouter();
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [analytics, setAnalytics] = useState({
-    totalRoutes: 0,
-    completedRoutes: 0,
-    completionRate: 0,
     totalHouses: 0,
-    completedHouses: 0,
+    routesCompleted: 0,
+    completionRate: 0,
+    expiredRoutes: 0,
+    specialHouses: 0,
+    hoursDriven: 0,
     housesPerHour: 0,
     efficiency: 0,
   });
+  const [topPerformers, setTopPerformers] = useState([]);
   const [recentRoutes, setRecentRoutes] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [showAllPerformers, setShowAllPerformers] = useState(false);
-  const [allPerformers, setAllPerformers] = useState([]);
-
-  const router = useRouter();
+  const [showStartPicker, setShowStartPicker] = useState(false);
+  const [showEndPicker, setShowEndPicker] = useState(false);
+  const [startDate, setStartDate] = useState(() => {
+    const date = new Date();
+    date.setDate(date.getDate() - 30); // Default to last 30 days
+    date.setHours(0, 0, 0, 0);
+    return date;
+  });
+  const [endDate, setEndDate] = useState(() => {
+    const date = new Date();
+    date.setHours(23, 59, 59, 999);
+    return date;
+  });
 
   useEffect(() => {
     fetchAnalytics();
   }, [startDate, endDate]);
+
+  const onStartDateChange = (event, selectedDate) => {
+    setShowStartPicker(false);
+    if (selectedDate) {
+      selectedDate.setHours(0, 0, 0, 0);
+      setStartDate(selectedDate);
+    }
+  };
+
+  const onEndDateChange = (event, selectedDate) => {
+    setShowEndPicker(false);
+    if (selectedDate) {
+      selectedDate.setHours(23, 59, 59, 999);
+      setEndDate(selectedDate);
+    }
+  };
 
   const fetchAnalytics = async () => {
     try {
@@ -239,7 +302,8 @@ const AnalyticsScreen = () => {
           *,
           houses (
             id,
-            status
+            status,
+            notes
           ),
           driver:profiles(
             id,
@@ -253,59 +317,69 @@ const AnalyticsScreen = () => {
 
       if (routesError) throw routesError;
 
-      // Fetch all team members
+      // Calculate analytics
+      const stats = calculateAnalytics(routes);
+      setAnalytics(stats);
+      
+      // Set recent routes (only completed ones)
+      const completedRoutes = routes.filter(r => r.status === 'completed');
+      setRecentRoutes(completedRoutes.slice(0, 5));
+
+      // Fetch top performers
       const { data: members, error: membersError } = await supabase
         .from('profiles')
         .select(`
           id,
           full_name,
           role,
+          avatar_url,
           routes(
             id,
-            status,
             completed_houses,
-            total_houses
+            total_houses,
+            duration,
+            efficiency,
+            date,
+            status
           )
         `)
-        .eq('status', 'active')
-        .order('role', { ascending: false });
+        .eq('status', 'active');
 
       if (membersError) throw membersError;
 
-      // Calculate member performance
-      const memberPerformance = members.map(member => {
-        const completedRoutes = member.routes?.filter(r => r.status === 'completed').length || 0;
-        const totalHouses = member.routes?.reduce((sum, r) => sum + (r.completed_houses || 0), 0) || 0;
-        const efficiency = member.routes?.length > 0 
-          ? Math.round((completedRoutes / member.routes.length) * 100) 
-          : 0;
+      const performers = members
+        .map(member => {
+          const memberRoutes = member.routes?.filter(r => 
+            r.status === 'completed' &&
+            new Date(r.date) >= startDate && 
+            new Date(r.date) <= endDate
+          ) || [];
 
-        return {
-          ...member,
-          completed_routes: completedRoutes,
-          total_houses: totalHouses,
-          efficiency
-        };
-      });
+          return {
+            ...member,
+            completed_routes: memberRoutes.length,
+            efficiency: memberRoutes.length > 0
+              ? Number((memberRoutes.reduce((sum, r) => sum + (r.efficiency || 0), 0) / memberRoutes.length).toFixed(2))
+              : 0
+          };
+        })
+        .sort((a, b) => b.completed_routes - a.completed_routes)
+        .slice(0, 3);
 
-      // Sort members by completed routes and efficiency
-      const sortedMembers = memberPerformance.sort((a, b) => {
-        if (b.completed_routes !== a.completed_routes) {
-          return b.completed_routes - a.completed_routes;
-        }
-        return b.efficiency - a.efficiency;
-      });
-
-      setAllPerformers(sortedMembers);
-      setRecentRoutes(routes?.slice(0, 3) || []);
-      setAnalytics(calculateAnalytics(routes || []));
+      setTopPerformers(performers);
     } catch (error) {
       console.error('Error fetching analytics:', error);
-      Alert.alert('Error', 'Failed to load analytics data');
+      Alert.alert('Error', 'Failed to load analytics');
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   };
+
+  const onRefresh = React.useCallback(() => {
+    setRefreshing(true);
+    fetchAnalytics();
+  }, []);
 
   if (loading) {
     return (
@@ -326,11 +400,45 @@ const AnalyticsScreen = () => {
         <Text style={styles.title}>Analytics</Text>
       </BlurView>
 
-      <ScrollView 
+      <View style={styles.datePickerContainer}>
+        <TouchableOpacity 
+          style={styles.dateButton} 
+          onPress={() => setShowStartPicker(true)}
+        >
+          <Ionicons name="calendar-outline" size={20} color="#3B82F6" />
+          <Text style={styles.dateButtonText}>
+            {startDate.toLocaleDateString()}
+          </Text>
+        </TouchableOpacity>
+
+        <Text style={styles.dateSeperator}>to</Text>
+
+        <TouchableOpacity 
+          style={styles.dateButton} 
+          onPress={() => setShowEndPicker(true)}
+        >
+          <Ionicons name="calendar-outline" size={20} color="#3B82F6" />
+          <Text style={styles.dateButtonText}>
+            {endDate.toLocaleDateString()}
+          </Text>
+        </TouchableOpacity>
+      </View>
+
+      {(showStartPicker || showEndPicker) && (
+        <DateTimePicker
+          value={showStartPicker ? startDate : endDate}
+          mode="date"
+          display="default"
+          onChange={showStartPicker ? onStartDateChange : onEndDateChange}
+          maximumDate={new Date()}
+        />
+      )}
+
+      <ScrollView
         style={styles.content}
         showsVerticalScrollIndicator={false}
         refreshControl={
-          <RefreshControl refreshing={loading} onRefresh={fetchAnalytics} />
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
       >
         <View style={styles.metricsGrid}>
@@ -345,7 +453,7 @@ const AnalyticsScreen = () => {
           <MetricCard
             icon="checkmark-circle-outline"
             title="Routes Completed"
-            value={analytics.completedRoutes}
+            value={analytics.routesCompleted}
             color="#10B981"
           />
           <MetricCard
@@ -359,7 +467,7 @@ const AnalyticsScreen = () => {
           <MetricCard
             icon="alert-circle-outline"
             title="Expired Routes"
-            value={analytics.totalRoutes - analytics.completedRoutes}
+            value={analytics.expiredRoutes}
             color="#EF4444"
             showInfo
             infoText="Routes not completed by their scheduled date"
@@ -367,7 +475,7 @@ const AnalyticsScreen = () => {
           <MetricCard
             icon="flag-outline"
             title="Special Houses"
-            value={analytics.totalHouses - analytics.completedHouses}
+            value={analytics.specialHouses}
             color="#8B5CF6"
             showInfo
             infoText="Houses that were skipped or marked as new customers"
@@ -401,19 +509,9 @@ const AnalyticsScreen = () => {
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>Top Performers</Text>
-            {allPerformers.length > 3 && (
-              <TouchableOpacity 
-                style={styles.viewAllButton}
-                onPress={() => setShowAllPerformers(!showAllPerformers)}
-              >
-                <Text style={styles.viewAllButtonText}>
-                  {showAllPerformers ? 'Show Less' : 'Show All'}
-                </Text>
-              </TouchableOpacity>
-            )}
           </View>
           <View style={styles.performersGrid}>
-            {(showAllPerformers ? allPerformers : allPerformers.slice(0, 3)).map((member, index) => (
+            {topPerformers.map((member, index) => (
               <PerformerCard
                 key={member.id}
                 member={member}
@@ -426,20 +524,29 @@ const AnalyticsScreen = () => {
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>Recent Routes</Text>
-            {recentRoutes.length > 0 && (
+            {recentRoutes?.length === 3 && (
               <TouchableOpacity 
                 style={styles.viewAllButton}
-                onPress={() => router.push('/completed-routes')}
+                onPress={() => router.push('completed-routes')}
+                activeOpacity={0.7}
               >
-                <Text style={styles.viewAllButtonText}>View All</Text>
+                <Text style={styles.viewAllText}>View All</Text>
+                <Ionicons name="chevron-forward" size={16} color="#3B82F6" />
               </TouchableOpacity>
             )}
           </View>
-          <View style={styles.routesGrid}>
-            {recentRoutes.map(route => (
-              <RouteCard key={route.id} route={route} />
-            ))}
-          </View>
+          {recentRoutes.length > 0 ? (
+            <View style={styles.routesGrid}>
+              {recentRoutes.map(route => (
+                <RouteCard key={route.id} route={route} />
+              ))}
+            </View>
+          ) : (
+            <View style={styles.emptyState}>
+              <Ionicons name="map-outline" size={48} color="#6B7280" />
+              <Text style={styles.emptyStateText}>No completed routes yet</Text>
+            </View>
+          )}
         </View>
       </ScrollView>
     </View>
@@ -608,17 +715,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 16,
   },
-  viewAllButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
-    backgroundColor: 'rgba(59, 130, 246, 0.1)',
-  },
-  viewAllButtonText: {
-    color: '#3B82F6',
-    fontSize: 14,
-    fontWeight: '500',
-  },
   routesGrid: {
     gap: 12,
   },
@@ -670,6 +766,51 @@ const styles = StyleSheet.create({
   centerContent: {
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  datePickerContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 16,
+    backgroundColor: 'rgba(17, 24, 39, 0.8)',
+  },
+  dateButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(59, 130, 246, 0.1)',
+    padding: 8,
+    borderRadius: 8,
+    gap: 8,
+  },
+  dateButtonText: {
+    color: '#3B82F6',
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  dateSeperator: {
+    color: '#6B7280',
+    marginHorizontal: 12,
+  },
+  viewAllButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  viewAllText: {
+    color: '#3B82F6',
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  emptyState: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  emptyStateText: {
+    color: '#6B7280',
+    fontSize: 16,
+    fontWeight: '500',
+    marginTop: 12,
   },
 });
 

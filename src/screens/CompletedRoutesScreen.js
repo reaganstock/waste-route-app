@@ -8,34 +8,42 @@ import {
   Platform,
   ActivityIndicator,
   Alert,
+  RefreshControl,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 import { supabase } from '../lib/supabase';
+import DateTimePicker from '@react-native-community/datetimepicker';
 
 const RouteCard = ({ route }) => {
   const router = useRouter();
-  const efficiency = Math.round((route.completed_houses / route.total_houses) * 100);
   const date = new Date(route.date);
+  const efficiency = Math.round((route.completed_houses / route.total_houses) * 100);
+  const specialHouses = route.houses?.filter(h => h.notes || h.status === 'new customer' || h.status === 'skip')?.length || 0;
+  const duration = route.duration || '2.5';
 
   return (
     <TouchableOpacity 
-      style={styles.routeCard}
+      style={styles.routeCard} 
       onPress={() => router.push(`/route/${route.id}/details`)}
-      activeOpacity={0.7}
     >
       <LinearGradient
         colors={['rgba(59, 130, 246, 0.1)', 'rgba(59, 130, 246, 0.05)']}
         style={styles.routeGradient}
       >
         <View style={styles.routeHeader}>
-          <Text style={styles.routeName}>{route.name}</Text>
+          <View>
+            <Text style={styles.routeName}>{route.name}</Text>
+            <Text style={styles.routeDate}>
+              {date.toLocaleDateString()} • {date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            </Text>
+          </View>
           <View style={[styles.efficiencyBadge, { 
-            backgroundColor: efficiency >= 90 ? '#10B98120' : 
-                           efficiency >= 70 ? '#F59E0B20' : 
-                           '#EF444420'
+            backgroundColor: efficiency >= 90 ? 'rgba(16, 185, 129, 0.2)' : 
+                           efficiency >= 70 ? 'rgba(245, 158, 11, 0.2)' : 
+                           'rgba(239, 68, 68, 0.2)'
           }]}>
             <Text style={[styles.efficiencyText, {
               color: efficiency >= 90 ? '#10B981' : 
@@ -45,22 +53,6 @@ const RouteCard = ({ route }) => {
           </View>
         </View>
 
-        <View style={styles.routeMeta}>
-          <Text style={styles.routeDate}>
-            {date.toLocaleDateString()} • {date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-          </Text>
-          {route.driver && (
-            <View style={styles.driverInfo}>
-              <View style={[styles.driverAvatar, { backgroundColor: getDriverColor(route.driver.role) }]}>
-                <Text style={styles.driverInitials}>
-                  {route.driver.full_name.split(' ').map(n => n[0]).join('')}
-                </Text>
-              </View>
-              <Text style={styles.driverName}>{route.driver.full_name}</Text>
-            </View>
-          )}
-        </View>
-
         <View style={styles.routeStats}>
           <View style={styles.routeStat}>
             <Ionicons name="home" size={16} color="#3B82F6" />
@@ -68,37 +60,76 @@ const RouteCard = ({ route }) => {
               {route.completed_houses}/{route.total_houses} Houses
             </Text>
           </View>
+          {specialHouses > 0 && (
+            <View style={styles.routeStat}>
+              <Ionicons name="alert-circle" size={16} color="#8B5CF6" />
+              <Text style={styles.routeStatText}>
+                {specialHouses} Special
+              </Text>
+            </View>
+          )}
           <View style={styles.routeStat}>
-            <Ionicons name="time" size={16} color="#3B82F6" />
-            <Text style={styles.routeStatText}>
-              {route.duration || 0} Hours
-            </Text>
+            <Ionicons name="time" size={16} color="#F59E0B" />
+            <Text style={styles.routeStatText}>{duration} hrs</Text>
           </View>
+        </View>
+
+        <View style={styles.progressBar}>
+          <View 
+            style={[
+              styles.progressFill,
+              { 
+                width: `${efficiency}%`,
+                backgroundColor: efficiency >= 90 ? '#10B981' : 
+                               efficiency >= 70 ? '#F59E0B' : 
+                               '#EF4444'
+              }
+            ]} 
+          />
         </View>
       </LinearGradient>
     </TouchableOpacity>
   );
 };
 
-const getDriverColor = (role) => {
-  switch (role?.toLowerCase()) {
-    case 'admin':
-      return '#3B82F6';
-    case 'driver':
-      return '#10B981';
-    default:
-      return '#6B7280';
-  }
-};
-
 const CompletedRoutesScreen = () => {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [routes, setRoutes] = useState([]);
+  const [showStartPicker, setShowStartPicker] = useState(false);
+  const [showEndPicker, setShowEndPicker] = useState(false);
+  const [startDate, setStartDate] = useState(() => {
+    const date = new Date();
+    date.setDate(date.getDate() - 30); // Default to last 30 days
+    date.setHours(0, 0, 0, 0);
+    return date;
+  });
+  const [endDate, setEndDate] = useState(() => {
+    const date = new Date();
+    date.setHours(23, 59, 59, 999);
+    return date;
+  });
 
   useEffect(() => {
     fetchCompletedRoutes();
-  }, []);
+  }, [startDate, endDate]);
+
+  const onStartDateChange = (event, selectedDate) => {
+    setShowStartPicker(false);
+    if (selectedDate) {
+      selectedDate.setHours(0, 0, 0, 0);
+      setStartDate(selectedDate);
+    }
+  };
+
+  const onEndDateChange = (event, selectedDate) => {
+    setShowEndPicker(false);
+    if (selectedDate) {
+      selectedDate.setHours(23, 59, 59, 999);
+      setEndDate(selectedDate);
+    }
+  };
 
   const fetchCompletedRoutes = async () => {
     try {
@@ -108,6 +139,11 @@ const CompletedRoutesScreen = () => {
         .from('routes')
         .select(`
           *,
+          houses (
+            id,
+            status,
+            notes
+          ),
           driver:profiles (
             id,
             full_name,
@@ -115,6 +151,8 @@ const CompletedRoutesScreen = () => {
           )
         `)
         .eq('status', 'completed')
+        .gte('date', startDate.toISOString())
+        .lte('date', endDate.toISOString())
         .order('date', { ascending: false });
 
       if (error) throw error;
@@ -124,8 +162,14 @@ const CompletedRoutesScreen = () => {
       Alert.alert('Error', 'Failed to load completed routes');
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   };
+
+  const onRefresh = React.useCallback(() => {
+    setRefreshing(true);
+    fetchCompletedRoutes();
+  }, []);
 
   if (loading) {
     return (
@@ -153,9 +197,46 @@ const CompletedRoutesScreen = () => {
         <View style={styles.placeholder} />
       </BlurView>
 
+      <View style={styles.datePickerContainer}>
+        <TouchableOpacity 
+          style={styles.dateButton} 
+          onPress={() => setShowStartPicker(true)}
+        >
+          <Ionicons name="calendar-outline" size={20} color="#3B82F6" />
+          <Text style={styles.dateButtonText}>
+            {startDate.toLocaleDateString()}
+          </Text>
+        </TouchableOpacity>
+
+        <Text style={styles.dateSeperator}>to</Text>
+
+        <TouchableOpacity 
+          style={styles.dateButton} 
+          onPress={() => setShowEndPicker(true)}
+        >
+          <Ionicons name="calendar-outline" size={20} color="#3B82F6" />
+          <Text style={styles.dateButtonText}>
+            {endDate.toLocaleDateString()}
+          </Text>
+        </TouchableOpacity>
+      </View>
+
+      {(showStartPicker || showEndPicker) && (
+        <DateTimePicker
+          value={showStartPicker ? startDate : endDate}
+          mode="date"
+          display="default"
+          onChange={showStartPicker ? onStartDateChange : onEndDateChange}
+          maximumDate={new Date()}
+        />
+      )}
+
       <ScrollView 
         style={styles.content}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }
       >
         {routes.length > 0 ? (
           <View style={styles.routesGrid}>
@@ -179,10 +260,6 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#000',
   },
-  centerContent: {
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -197,7 +274,6 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.1)',
   },
   headerTitle: {
     fontSize: 20,
@@ -207,72 +283,74 @@ const styles = StyleSheet.create({
   placeholder: {
     width: 40,
   },
+  datePickerContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 16,
+    backgroundColor: 'rgba(17, 24, 39, 0.8)',
+  },
+  dateButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(59, 130, 246, 0.1)',
+    padding: 8,
+    borderRadius: 8,
+    gap: 8,
+  },
+  dateButtonText: {
+    color: '#3B82F6',
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  dateSeperator: {
+    color: '#6B7280',
+    marginHorizontal: 12,
+  },
   content: {
     flex: 1,
   },
-  routesGrid: {
-    padding: 16,
+  routesList: {
+    padding: 20,
     gap: 16,
   },
   routeCard: {
     borderRadius: 16,
     overflow: 'hidden',
+    marginBottom: 16,
   },
   routeGradient: {
-    padding: 16,
+    padding: 20,
   },
   routeHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     marginBottom: 12,
   },
   routeName: {
     color: '#fff',
     fontSize: 18,
     fontWeight: '600',
+    marginBottom: 4,
+  },
+  routeDate: {
+    color: '#9CA3AF',
+    fontSize: 12,
   },
   efficiencyBadge: {
-    paddingHorizontal: 8,
+    paddingHorizontal: 12,
     paddingVertical: 4,
     borderRadius: 12,
   },
   efficiencyText: {
     fontSize: 12,
-    fontWeight: '500',
-  },
-  routeMeta: {
-    marginBottom: 12,
-  },
-  routeDate: {
-    color: '#9CA3AF',
-    fontSize: 14,
-    marginBottom: 8,
-  },
-  driverInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  driverAvatar: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  driverInitials: {
-    color: '#fff',
-    fontSize: 12,
     fontWeight: '600',
-  },
-  driverName: {
-    color: '#6B7280',
-    fontSize: 14,
   },
   routeStats: {
     flexDirection: 'row',
     gap: 16,
+    marginBottom: 12,
   },
   routeStat: {
     flexDirection: 'row',
@@ -283,16 +361,43 @@ const styles = StyleSheet.create({
     color: '#9CA3AF',
     fontSize: 14,
   },
+  progressBar: {
+    height: 4,
+    backgroundColor: 'rgba(59, 130, 246, 0.2)',
+    borderRadius: 2,
+    overflow: 'hidden',
+  },
+  progressFill: {
+    height: '100%',
+    borderRadius: 2,
+  },
+  noRoutesText: {
+    color: '#6B7280',
+    fontSize: 16,
+    textAlign: 'center',
+    marginTop: 40,
+    fontStyle: 'italic',
+  },
+  centerContent: {
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  routesGrid: {
+    padding: 20,
+    gap: 16,
+  },
   emptyState: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingVertical: 48,
+    padding: 20,
   },
   emptyStateText: {
     color: '#6B7280',
     fontSize: 16,
-    marginTop: 12,
+    textAlign: 'center',
+    marginTop: 16,
+    fontStyle: 'italic',
   },
 });
 

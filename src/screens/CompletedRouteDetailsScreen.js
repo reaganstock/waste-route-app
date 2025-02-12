@@ -78,6 +78,18 @@ const formatStatus = (status) => {
   ).join(' ');
 };
 
+const calculateEfficiency = (route) => {
+  const durationHours = route.duration / 60; // Convert minutes to hours
+  const completionRate = route.completed_houses / route.total_houses;
+  const housesPerHour = durationHours > 0 ? (route.completed_houses / durationHours) : 0;
+  const speedEfficiency = housesPerHour / 60; // No cap
+  
+  // Final efficiency (60/40 formula)
+  const efficiency = (0.6 * completionRate + 0.4 * speedEfficiency) * 100;
+  
+  return Number(efficiency.toFixed(2)); // Round to 2 decimal places
+};
+
 const CompletedRouteDetailsScreen = ({ routeId }) => {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
@@ -138,10 +150,19 @@ const CompletedRouteDetailsScreen = ({ routeId }) => {
     );
   }
 
-  const completionRate = Math.round((route.completed_houses / route.total_houses) * 100);
-  const collectedHouses = route.houses?.filter(h => h.status === 'collect').length || 0;
-  const specialHouses = route.houses?.filter(h => h.status === 'skip' || h.status === 'new customer').length || 0;
-  const binsPerHour = route.duration ? Math.round(collectedHouses / route.duration) : 0;
+  // Use stored metrics instead of recalculating
+  const metrics = {
+    totalHouses: route.total_houses,
+    completedHouses: route.completed_houses,
+    specialHouses: route.houses?.filter(h => 
+      h.status === 'skip' || h.status === 'new customer'
+    ).length || 0,
+    efficiency: calculateEfficiency(route),
+    duration: Number((route.duration / 60).toFixed(2)), // Convert to hours and round to nearest hundredth
+    housesPerHour: route.duration > 0 ? 
+      Number((route.completed_houses / (route.duration / 60)).toFixed(2)) : 
+      0
+  };
 
   // Add initial region calculation
   const getInitialRegion = () => {
@@ -210,21 +231,21 @@ const CompletedRouteDetailsScreen = ({ routeId }) => {
           <MetricCard
             icon="home-outline"
             title="Total Houses"
-            value={route.total_houses}
+            value={metrics.totalHouses}
             borderColor="#6B7280"
             infoText="Total number of houses assigned to this route"
           />
           <MetricCard
             icon="checkmark-circle-outline"
             title="Houses Collected"
-            value={collectedHouses}
+            value={metrics.completedHouses}
             borderColor="#10B981"
             infoText="Number of houses successfully serviced on this route"
           />
           <MetricCard
             icon="alert-circle-outline"
             title="Special Houses"
-            value={specialHouses}
+            value={metrics.specialHouses}
             borderColor="#8B5CF6"
             infoText="Houses that were either skipped or marked as new customers"
           />
@@ -234,21 +255,21 @@ const CompletedRouteDetailsScreen = ({ routeId }) => {
           <MetricCard
             icon="pie-chart-outline"
             title="Efficiency"
-            value={`${completionRate}%`}
+            value={`${metrics.efficiency}%`}
             borderColor="#3B82F6"
-            infoText="Percentage of total houses that were successfully collected"
+            infoText="Based on 60% completion rate and 40% speed (target: 60 houses/hour)"
           />
           <MetricCard
             icon="time-outline"
             title="Duration"
-            value={route.duration || 0}
+            value={`${metrics.duration} hrs`}
             borderColor="#F59E0B"
-            infoText="Total number of hours spent on this route"
+            infoText="Total time spent on this route"
           />
           <MetricCard
             icon="speedometer-outline"
             title="Houses/Hr"
-            value={binsPerHour}
+            value={metrics.housesPerHour}
             borderColor="#EF4444"
             infoText="Average number of houses serviced per hour"
           />

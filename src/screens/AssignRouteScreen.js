@@ -7,6 +7,7 @@ import {
   ScrollView,
   Platform,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -25,37 +26,59 @@ const RouteCard = ({ route, onSelect, isSelected }) => {
       onPress={onSelect}
       activeOpacity={0.7}
     >
-      <View style={styles.routeInfo}>
-        <Text style={styles.routeName}>{route.name}</Text>
-        <Text style={styles.routeDate}>
-          {new Date(route.date).toLocaleDateString()}
-        </Text>
-        <View style={styles.progressContainer}>
-          <View style={styles.progressBar}>
-            <View 
-              style={[
-                styles.progressFill,
-                { width: `${progress}%` }
-              ]} 
-            />
+      <LinearGradient
+        colors={['rgba(59, 130, 246, 0.1)', 'rgba(59, 130, 246, 0.05)']}
+        style={styles.routeGradient}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+      >
+        <View style={styles.routeInfo}>
+          <Text style={styles.routeName}>{route.name}</Text>
+          <Text style={styles.routeDate}>
+            {new Date(route.date).toLocaleDateString()}
+          </Text>
+          {route.driver && (
+            <View style={styles.driverBadge}>
+              <LinearGradient
+                colors={['rgba(59, 130, 246, 0.2)', 'rgba(59, 130, 246, 0.1)']}
+                style={styles.driverBadgeGradient}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+              >
+                <Ionicons name="person-outline" size={14} color="#3B82F6" />
+                <Text style={styles.driverText}>
+                  Assigned to {route.driver.full_name}
+                </Text>
+              </LinearGradient>
+            </View>
+          )}
+          <View style={styles.progressContainer}>
+            <View style={styles.progressBar}>
+              <LinearGradient
+                colors={['#3B82F6', '#2563EB']}
+                style={[styles.progressFill, { width: `${progress}%` }]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+              />
+            </View>
+            <Text style={styles.progressText}>
+              {housesCompleted}/{totalHouses} houses
+            </Text>
           </View>
-          <Text style={styles.progressText}>
-            {housesCompleted}/{totalHouses} houses
+        </View>
+        <View style={styles.routeStatus}>
+          <View style={[
+            styles.statusDot,
+            { backgroundColor: getStatusColor(route.status) }
+          ]} />
+          <Text style={[
+            styles.statusText,
+            { color: getStatusColor(route.status) }
+          ]}>
+            {formatStatus(route.status)}
           </Text>
         </View>
-      </View>
-      <View style={styles.routeStatus}>
-        <View style={[
-          styles.statusDot,
-          { backgroundColor: getStatusColor(route.status) }
-        ]} />
-        <Text style={[
-          styles.statusText,
-          { color: getStatusColor(route.status) }
-        ]}>
-          {formatStatus(route.status)}
-        </Text>
-      </View>
+      </LinearGradient>
     </TouchableOpacity>
   );
 };
@@ -104,12 +127,20 @@ const AssignRouteScreen = ({ memberId }) => {
       if (memberError) throw memberError;
       setMember(memberData);
 
-      // Fetch available routes (pending and unassigned)
+      // Get today's date at midnight
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      // Fetch upcoming routes (pending and future dated)
       const { data: routesData, error: routesError } = await supabase
         .from('routes')
-        .select('*')
+        .select(`
+          *,
+          driver:profiles(id, full_name)
+        `)
         .eq('status', 'pending')
-        .is('driver_id', null);
+        .gte('date', today.toISOString())
+        .order('date', { ascending: true });
 
       if (routesError) throw routesError;
       setAvailableRoutes(routesData || []);
@@ -130,16 +161,45 @@ const AssignRouteScreen = ({ memberId }) => {
     try {
       setLoading(true);
       
-      // Update route with driver assignment
-      const { error } = await supabase
+      // Create a new route with the same details but assigned to this driver
+      const { data: newRoute, error: createError } = await supabase
         .from('routes')
-        .update({ 
+        .insert({
+          name: selectedRoute.name,
+          date: selectedRoute.date,
           driver_id: memberId,
-          status: 'assigned'
+          status: 'pending',
+          total_houses: selectedRoute.total_houses,
+          completed_houses: 0,
+          duration: 0
         })
-        .eq('id', selectedRoute.id);
+        .select()
+        .single();
 
-      if (error) throw error;
+      if (createError) throw createError;
+
+      // Copy all houses from the original route to the new route
+      const { data: houses, error: housesError } = await supabase
+        .from('houses')
+        .select('*')
+        .eq('route_id', selectedRoute.id);
+
+      if (housesError) throw housesError;
+
+      if (houses && houses.length > 0) {
+        const newHouses = houses.map(house => ({
+          ...house,
+          id: undefined, // Let Supabase generate new IDs
+          route_id: newRoute.id,
+          status: 'pending'
+        }));
+
+        const { error: insertError } = await supabase
+          .from('houses')
+          .insert(newHouses);
+
+        if (insertError) throw insertError;
+      }
 
       Alert.alert(
         'Success',
@@ -186,21 +246,31 @@ const AssignRouteScreen = ({ memberId }) => {
       </BlurView>
 
       <View style={styles.memberInfo}>
-        <View style={[styles.avatar, { backgroundColor: getAvatarColor(member.role) }]}>
-          <Text style={styles.avatarText}>
-            {member.full_name.split(' ').map(n => n[0]).join('')}
-          </Text>
-        </View>
-        <View style={styles.memberDetails}>
-          <Text style={styles.memberName}>{member.full_name}</Text>
-          <Text style={styles.memberRole}>{member.role}</Text>
-        </View>
+        <LinearGradient
+          colors={['rgba(59, 130, 246, 0.1)', 'rgba(59, 130, 246, 0.05)']}
+          style={styles.memberInfoGradient}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+        >
+          <View style={[styles.avatar, { backgroundColor: getAvatarColor(member.role) }]}>
+            <Text style={styles.avatarText}>
+              {member.full_name.split(' ').map(n => n[0]).join('')}
+            </Text>
+          </View>
+          <View style={styles.memberDetails}>
+            <Text style={styles.memberName}>{member.full_name}</Text>
+            <Text style={styles.memberRole}>{member.role}</Text>
+          </View>
+        </LinearGradient>
       </View>
 
       <View style={styles.content}>
         <Text style={styles.sectionTitle}>Available Routes</Text>
         
-        <ScrollView style={styles.routesList}>
+        <ScrollView 
+          style={styles.routesList}
+          showsVerticalScrollIndicator={false}
+        >
           {availableRoutes.length > 0 ? (
             availableRoutes.map(route => (
               <RouteCard
@@ -211,7 +281,10 @@ const AssignRouteScreen = ({ memberId }) => {
               />
             ))
           ) : (
-            <Text style={styles.noRoutesText}>No available routes</Text>
+            <View style={styles.emptyState}>
+              <Ionicons name="calendar-outline" size={48} color="#6B7280" />
+              <Text style={styles.noRoutesText}>No available routes</Text>
+            </View>
           )}
         </ScrollView>
 
@@ -221,9 +294,41 @@ const AssignRouteScreen = ({ memberId }) => {
             !selectedRoute && styles.assignButtonDisabled
           ]}
           onPress={handleAssign}
-          disabled={!selectedRoute}
+          disabled={!selectedRoute || loading}
         >
-          <Text style={styles.assignButtonText}>Assign Route</Text>
+          <LinearGradient
+            colors={['#3B82F6', '#2563EB']}
+            style={styles.assignButtonGradient}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+          >
+            {loading ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <Text style={styles.assignButtonText}>Assign Route</Text>
+            )}
+          </LinearGradient>
+        </TouchableOpacity>
+
+        <View style={styles.dividerContainer}>
+          <View style={styles.divider} />
+          <Text style={styles.dividerText}>or</Text>
+          <View style={styles.divider} />
+        </View>
+
+        <TouchableOpacity 
+          style={styles.createButton}
+          onPress={() => router.push(`/route/create?driver=${memberId}`)}
+        >
+          <LinearGradient
+            colors={['rgba(59, 130, 246, 0.1)', 'rgba(59, 130, 246, 0.05)']}
+            style={styles.createButtonGradient}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+          >
+            <Ionicons name="add-circle-outline" size={24} color="#3B82F6" />
+            <Text style={styles.createButtonText}>Create New Route</Text>
+          </LinearGradient>
         </TouchableOpacity>
       </View>
     </View>
@@ -246,7 +351,7 @@ const getAvatarColor = (role) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#1F2937',
+    backgroundColor: '#000',
   },
   header: {
     flexDirection: 'row',
@@ -255,6 +360,8 @@ const styles = StyleSheet.create({
     padding: 20,
     paddingTop: Platform.OS === 'ios' ? 60 : 20,
     backgroundColor: 'rgba(17, 24, 39, 0.8)',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.1)',
   },
   backButton: {
     width: 40,
@@ -273,10 +380,13 @@ const styles = StyleSheet.create({
     width: 40,
   },
   memberInfo: {
+    padding: 16,
+  },
+  memberInfoGradient: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 20,
-    backgroundColor: '#374151',
+    padding: 16,
+    borderRadius: 16,
   },
   avatar: {
     width: 60,
@@ -284,7 +394,6 @@ const styles = StyleSheet.create({
     borderRadius: 30,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 16,
   },
   avatarText: {
     color: '#fff',
@@ -292,25 +401,25 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   memberDetails: {
-    flex: 1,
+    marginLeft: 16,
   },
   memberName: {
     color: '#fff',
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: '600',
     marginBottom: 4,
   },
   memberRole: {
     color: '#9CA3AF',
-    fontSize: 14,
+    fontSize: 16,
     textTransform: 'capitalize',
   },
   content: {
     flex: 1,
-    padding: 20,
+    padding: 16,
   },
   sectionTitle: {
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: '600',
     color: '#fff',
     marginBottom: 16,
@@ -319,22 +428,24 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   routeCard: {
-    backgroundColor: '#374151',
-    borderRadius: 12,
-    padding: 16,
+    borderRadius: 16,
     marginBottom: 12,
+    overflow: 'hidden',
     borderWidth: 2,
     borderColor: 'transparent',
   },
   routeCardSelected: {
     borderColor: '#3B82F6',
   },
+  routeGradient: {
+    padding: 16,
+  },
   routeInfo: {
     flex: 1,
   },
   routeName: {
     color: '#fff',
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: '600',
     marginBottom: 4,
   },
@@ -343,30 +454,48 @@ const styles = StyleSheet.create({
     fontSize: 14,
     marginBottom: 8,
   },
+  driverBadge: {
+    marginBottom: 12,
+  },
+  driverBadgeGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 12,
+    alignSelf: 'flex-start',
+  },
+  driverText: {
+    color: '#3B82F6',
+    fontSize: 14,
+    fontWeight: '500',
+    marginLeft: 8,
+  },
   progressContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 12,
   },
   progressBar: {
     flex: 1,
     height: 4,
-    backgroundColor: '#4B5563',
+    backgroundColor: 'rgba(59, 130, 246, 0.1)',
     borderRadius: 2,
     overflow: 'hidden',
   },
   progressFill: {
     height: '100%',
-    backgroundColor: '#3B82F6',
   },
   progressText: {
     color: '#9CA3AF',
-    fontSize: 12,
+    fontSize: 14,
+    fontWeight: '500',
+    minWidth: 80,
   },
   routeStatus: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 8,
+    marginTop: 12,
   },
   statusDot: {
     width: 8,
@@ -376,29 +505,36 @@ const styles = StyleSheet.create({
   },
   statusText: {
     fontSize: 14,
-    fontWeight: '500',
+    fontWeight: '600',
   },
   assignButton: {
-    backgroundColor: '#3B82F6',
-    borderRadius: 12,
-    padding: 16,
+    borderRadius: 16,
+    overflow: 'hidden',
+    marginTop: 16,
+  },
+  assignButtonGradient: {
+    paddingVertical: 16,
     alignItems: 'center',
-    marginTop: 20,
   },
   assignButtonDisabled: {
-    backgroundColor: '#6B7280',
+    opacity: 0.5,
   },
   assignButtonText: {
     color: '#fff',
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: '600',
+  },
+  emptyState: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 40,
   },
   noRoutesText: {
     color: '#6B7280',
     fontSize: 16,
+    marginTop: 12,
     textAlign: 'center',
-    marginTop: 20,
-    fontStyle: 'italic',
   },
   errorText: {
     color: '#EF4444',
@@ -406,9 +542,45 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 20,
   },
+  dividerContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 20,
+    paddingHorizontal: 20,
+  },
+  divider: {
+    flex: 1,
+    height: 1,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+  },
+  dividerText: {
+    color: '#6B7280',
+    fontSize: 14,
+    fontWeight: '500',
+    marginHorizontal: 16,
+  },
+  createButton: {
+    marginHorizontal: 20,
+    marginBottom: 12,
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  createButtonGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 16,
+    gap: 8,
+  },
+  createButtonText: {
+    color: '#3B82F6',
+    fontSize: 16,
+    fontWeight: '600',
+  },
 });
 
 export default AssignRouteScreen; 
+ 
  
  
  
