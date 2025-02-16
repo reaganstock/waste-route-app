@@ -124,79 +124,87 @@ const PerformanceScreen = () => {
       if (memberError) throw memberError;
       setMember(memberData);
 
-      // Get the date ranges based on selected period
+      // Get current date
       const now = new Date();
-      let startDate = new Date();
-      
+      let startDate;
+
+      // Set start date based on selected period
       switch (selectedPeriod) {
         case 'week':
-          startDate.setDate(now.getDate() - 7);
+          startDate = new Date(now);
+          startDate.setDate(startDate.getDate() - 7);
           break;
         case 'month':
-          startDate.setMonth(now.getMonth() - 1);
+          startDate = new Date(now);
+          startDate.setMonth(startDate.getMonth() - 1);
           break;
         case 'year':
-          startDate.setFullYear(now.getFullYear() - 1);
+          startDate = new Date(now);
+          startDate.setFullYear(startDate.getFullYear() - 1);
           break;
         default:
-          startDate.setDate(now.getDate() - 7);
+          startDate = new Date(now);
+          startDate.setDate(startDate.getDate() - 7);
       }
 
-      // Fetch ALL completed routes for the member (for all-time metrics)
-      const { data: allRoutes, error: allRoutesError } = await supabase
+      // Fetch all completed routes for the member
+      const { data: allRoutes, error: routesError } = await supabase
         .from('routes')
         .select(`
           id,
           name,
+          date,
           status,
           completed_houses,
           total_houses,
           duration,
-          date,
-          houses (
-            id,
-            status
-          )
+          efficiency
         `)
         .eq('driver_id', id)
-        .eq('status', 'completed');
+        .eq('status', 'completed')
+        .order('date', { ascending: false });
 
-      if (allRoutesError) throw allRoutesError;
+      if (routesError) throw routesError;
 
       // Calculate all-time metrics
-      const totalHousesServiced = allRoutes.reduce((sum, route) => sum + (route.completed_houses || 0), 0);
+      const totalHousesServiced = allRoutes.reduce((sum, route) => 
+        sum + (route.completed_houses || 0), 0);
       const completedRoutes = allRoutes.length;
-      const totalHoursDriven = allRoutes.reduce((sum, route) => sum + (route.duration || 0), 0);
+      const totalHoursDriven = allRoutes.reduce((sum, route) => 
+        sum + (route.duration || 0), 0);
 
-      // Filter routes for the selected period (for efficiency calculation only)
+      // Filter routes for the selected period (for efficiency calculation)
       const periodRoutes = allRoutes.filter(route => {
         const routeDate = new Date(route.date);
         return routeDate >= startDate && routeDate <= now;
       });
 
-      // Calculate efficiency using 60/40 formula for the selected period
-      const routeEfficiencies = periodRoutes.map(route => {
-        const durationHours = route.duration / 60;
-        const completionRate = route.completed_houses / route.total_houses;
-        const housesPerHour = durationHours > 0 ? (route.completed_houses / durationHours) : 0;
-        const speedEfficiency = housesPerHour / 60; // No cap at 100%
-        return (0.6 * completionRate + 0.4 * speedEfficiency) * 100;
-      });
+      // Calculate average efficiency for the period using 60/40 formula
+      let periodEfficiency = 0;
+      if (periodRoutes.length > 0) {
+        const routeEfficiencies = periodRoutes
+          .filter(route => route.completed_houses && route.total_houses && route.duration)
+          .map(route => {
+            const completionRate = route.completed_houses / route.total_houses;
+            const housesPerHour = (route.completed_houses / (route.duration / 60)) || 0;
+            const speedEfficiency = Math.min(housesPerHour / 60, 1); // Cap at 100%
+            return (0.6 * completionRate + 0.4 * speedEfficiency) * 100;
+          });
 
-      // Calculate average efficiency from all route efficiencies
-      const averageEfficiency = routeEfficiencies.length > 0
-        ? Number((routeEfficiencies.reduce((sum, eff) => sum + Number(eff), 0) / routeEfficiencies.length).toFixed(2))
-        : 0;
+        if (routeEfficiencies.length > 0) {
+          periodEfficiency = Math.round(routeEfficiencies.reduce((sum, eff) => sum + eff, 0) / routeEfficiencies.length);
+        }
+      }
 
       setMetrics({
         totalHouses: totalHousesServiced,
         routesCompleted: completedRoutes,
-        hoursDriven: Number((totalHoursDriven / 60).toFixed(2)),  // Convert minutes to hours
-        efficiency: averageEfficiency
+        hoursDriven: Number((totalHoursDriven / 60).toFixed(1)), // Convert minutes to hours with 1 decimal
+        efficiency: periodEfficiency
       });
 
       // Set recent routes for the timeline (from the selected period)
-      setRecentRoutes(periodRoutes.sort((a, b) => new Date(b.date) - new Date(a.date)).slice(0, 5));
+      setRecentRoutes(periodRoutes.slice(0, 5));
 
     } catch (error) {
       console.error('Error fetching member data:', error);

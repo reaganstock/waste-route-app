@@ -61,7 +61,8 @@ const TeamMemberDetailsScreen = () => {
             completed_houses,
             total_houses,
             duration,
-            date
+            date,
+            efficiency
           )
         `)
         .eq('id', id)
@@ -69,11 +70,19 @@ const TeamMemberDetailsScreen = () => {
 
       if (memberError) throw memberError;
 
-      // Calculate metrics from completed routes only
+      // Get all completed routes
       const completedRoutes = memberData.routes?.filter(r => r.status === 'completed') || [];
-      const totalHousesServiced = completedRoutes.reduce((sum, route) => sum + (route.completed_houses || 0), 0);
-      const totalHoursDriven = completedRoutes.reduce((sum, route) => sum + (route.duration || 0), 0);
+      
+      // Total houses serviced (from completed routes)
+      const totalHousesServiced = completedRoutes.reduce((sum, route) => 
+        sum + (route.completed_houses || 0), 0);
+      
+      // Total completed routes (all-time)
       const completedRoutesCount = completedRoutes.length;
+      
+      // Total hours driven (from completed routes, all-time)
+      const totalHoursDriven = completedRoutes.reduce((sum, route) => 
+        sum + (route.duration || 0), 0);
 
       // Find active route if exists
       const activeRoute = memberData.routes?.find(r => r.status === 'in_progress');
@@ -83,9 +92,9 @@ const TeamMemberDetailsScreen = () => {
         metrics: {
           totalHousesServiced,
           completedRoutes: completedRoutesCount,
-          totalHoursDriven: Number((totalHoursDriven / 60).toFixed(2))  // Convert minutes to hours
-        },
-        activeRoute
+          totalHoursDriven: Number((totalHoursDriven / 60).toFixed(1)), // Convert minutes to hours with 1 decimal
+          activeRoute
+        }
       });
 
     } catch (error) {

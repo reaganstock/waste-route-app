@@ -82,6 +82,39 @@ const geocodeAddress = async (address) => {
   }
 };
 
+const getStatusColor = (status) => {
+  switch (status?.toLowerCase()) {
+    case 'collect':
+      return '#6B7280'; // grey
+    case 'skip':
+      return '#EF4444'; // red
+    case 'new customer':
+      return '#10B981'; // green
+    case 'pending':
+    default:
+      return '#3B82F6'; // blue
+  }
+};
+
+const AddressCard = ({ house, onRemove }) => (
+  <View style={[styles.addressCard, { borderLeftColor: getStatusColor(house.status) }]}>
+    <View style={styles.addressContent}>
+      <Text style={styles.addressText}>{house.address}</Text>
+      <View style={[styles.statusBadge, { backgroundColor: `${getStatusColor(house.status)}20` }]}>
+        <Text style={[styles.statusText, { color: getStatusColor(house.status) }]}>
+          {house.status}
+        </Text>
+      </View>
+      {house.notes && (
+        <Text style={styles.notesText}>{house.notes}</Text>
+      )}
+    </View>
+    <TouchableOpacity onPress={onRemove} style={styles.removeButton}>
+      <Ionicons name="close-circle" size={24} color="#EF4444" />
+    </TouchableOpacity>
+  </View>
+);
+
 const parseAddressList = (text) => {
   // Split by newlines and filter empty lines
   const addresses = text.split('\n')
@@ -92,19 +125,16 @@ const parseAddressList = (text) => {
     // Split by commas and trim each part
     const parts = address.split(',').map(part => part.trim());
     
-    // Need at least street, city, state, zip
+    // Need at least address, city, state, zip
     if (parts.length < 4) return null;
 
-    const [street, city, state, zip, ...rest] = parts;
-    const inputStatus = rest[0]?.toLowerCase() || 'pending';
-    const notes = rest[1] || '';
-
-    // Map input status to valid enum values
-    let status = processHouseStatus(inputStatus);
+    // Format: "123 Address, City, State, Zip Code, status, notes"
+    const [street, city, state, zip, status = 'pending', ...noteParts] = parts;
+    const notes = noteParts.join(',').trim(); // Join remaining parts as notes
 
     return {
       address: `${street}, ${city}, ${state} ${zip}`,
-      status: status,
+      status: processHouseStatus(status),
       notes: notes,
       lat: null,
       lng: null
@@ -587,21 +617,7 @@ const RouteCreateScreen = React.forwardRef(({ isEditing = false, existingRoute =
 
               <View style={styles.housesList}>
                 {houses.map((house, index) => (
-                  <View key={`house-${index}`} style={styles.houseItem}>
-                    <View style={styles.houseItemContent}>
-                      <Text style={styles.houseAddress}>{house.address}</Text>
-                      {house.notes && (
-                        <Text style={styles.houseNotes}>{house.notes}</Text>
-                      )}
-                      <Text style={styles.houseStatus}>Status: {house.status}</Text>
-                    </View>
-                    <TouchableOpacity
-                      style={styles.removeButton}
-                      onPress={() => removeHouse(index)}
-                    >
-                      <Ionicons name="close-circle" size={20} color="#EF4444" />
-                    </TouchableOpacity>
-                  </View>
+                  <AddressCard key={`house-${index}`} house={house} onRemove={() => removeHouse(index)} />
                 ))}
               </View>
             </>
@@ -663,6 +679,7 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
+    marginTop: Platform.OS === 'ios' ? 20 : 0,
   },
   section: {
     padding: 20,
@@ -737,33 +754,55 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
   mapContainer: {
-    height: 200,
+    height: 240,
     borderRadius: 12,
     overflow: 'hidden',
-    marginBottom: 16,
+    marginBottom: 12,
   },
   housesList: {
     gap: 12,
   },
-  houseItem: {
+  addressCard: {
     backgroundColor: '#1F2937',
-    padding: 12,
     borderRadius: 8,
-    marginBottom: 8,
+    marginBottom: 6,
+    padding: 8,
+    borderLeftWidth: 3,
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
+    minHeight: 36,
   },
-  houseItemContent: {
+  addressContent: {
     flex: 1,
+    gap: 2,
   },
-  houseAddress: {
+  addressText: {
     color: '#fff',
-    fontSize: 16,
-    marginBottom: 4,
+    fontSize: 13,
+    fontWeight: '500',
+    lineHeight: 16,
   },
-  houseNotes: {
-    color: '#6B7280',
-    fontSize: 14,
+  statusBadge: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+    marginTop: 2,
+  },
+  statusText: {
+    fontSize: 10,
+    fontWeight: '600',
+    textTransform: 'capitalize',
+    lineHeight: 12,
+  },
+  notesText: {
+    color: '#9CA3AF',
+    fontSize: 11,
+    lineHeight: 14,
+  },
+  removeButton: {
+    marginLeft: 8,
+    padding: 2,
   },
   uploadButtons: {
     flexDirection: 'row',
@@ -817,13 +856,6 @@ const styles = StyleSheet.create({
     color: '#6B7280',
     fontSize: 12,
     marginBottom: 16,
-  },
-  removeButton: {
-    padding: 8,
-  },
-  houseStatus: {
-    color: '#6B7280',
-    fontSize: 14,
   },
   map: {
     flex: 1,

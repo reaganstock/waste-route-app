@@ -45,7 +45,15 @@ function RootLayoutNav() {
         <Stack.Screen name="map" />
         <Stack.Screen name="active-routes" options={{ presentation: 'card' }} />
         <Stack.Screen name="upcoming-routes" options={{ presentation: 'card' }} />
-        <Stack.Screen name="route/[id]/completion" options={{ presentation: 'modal' }} />
+        <Stack.Screen name="route/[id]/completion" options={{ 
+          presentation: 'card',
+          gestureEnabled: false,
+          headerShown: false,
+          animation: 'none',
+          contentStyle: {
+            backgroundColor: '#000'
+          }
+        }} />
       </Stack>
     </>
   );

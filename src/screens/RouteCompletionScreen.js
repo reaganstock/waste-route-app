@@ -35,109 +35,59 @@ const RouteCompletionScreen = () => {
   const router = useRouter();
   const params = useLocalSearchParams();
   
+  // Default data in case params.summary is undefined
   const defaultSummary = {
-    route_name: '',
     total: 0,
     completed: 0,
-    special_houses: 0,
+    houses: [],
+    completed_houses: 0,
     startTime: new Date().toISOString(),
     endTime: new Date().toISOString(),
   };
 
+  // Safely parse summary with fallback to default
   const summary = params.summary ? JSON.parse(params.summary) : defaultSummary;
+
   const duration = Math.round((new Date(summary.endTime) - new Date(summary.startTime)) / (1000 * 60));
-  
-  const calculateEfficiency = () => {
-    const durationHours = duration / 60; // Convert minutes to hours
-    const completionRate = summary.completed / summary.total;
-    const housesPerHour = durationHours > 0 ? (summary.completed / durationHours) : 0;
-    const speedEfficiency = housesPerHour / 60; // No cap
-    
-    // Final efficiency (60/40 formula)
-    const efficiency = (0.6 * completionRate + 0.4 * speedEfficiency) * 100;
-    
-    return Number(efficiency.toFixed(2)); // Round to 2 decimal places
-  };
-
-  const formatDuration = (minutes) => {
-    const hours = minutes / 60; // Convert to hours
-    return `${hours.toFixed(2)} hrs`;  // Show to nearest hundredth
-  };
-
-  const formatHousesPerHour = () => {
-    if (duration === 0) return '0.00';
-    const housesPerHour = (summary.completed / (duration / 60));
-    return housesPerHour.toFixed(2); // Round to nearest hundredth
-  };
+  const completionRate = summary.completed / (summary.total || 1);
+  const housesPerHour = duration === 0 ? 0 : (summary.completed / (duration / 60));
+  const speedEfficiency = Math.min(housesPerHour / 60, 1); // Cap at 100%
+  const efficiency = Math.round((0.6 * completionRate + 0.4 * speedEfficiency) * 100);
+  const binsPerHour = duration === 0 ? 0 : Math.round((summary.completed / (duration / 60)) * 10) / 10;
 
   const handleShare = async () => {
     try {
       const message = `Route Summary\n\n` +
-        `Total Houses: ${summary.total}\n` +
+        `Total Bins: ${summary.total}\n` +
         `Collected: ${summary.completed}\n` +
-        `Duration: ${formatDuration(duration)}\n` +
-        `Efficiency: ${calculateEfficiency()}%\n` +
-        `Houses/Hr: ${formatHousesPerHour()}`;
+        `Duration: ${duration} minutes\n` +
+        `Efficiency: ${efficiency}%\n` +
+        `Bins/Hour: ${binsPerHour}`;
 
       const result = await Share.share({
         message,
         title: 'Route Summary',
       });
+
+      if (result.action === Share.sharedAction) {
+        if (result.activityType) {
+          // shared with activity type of result.activityType
+        } else {
+          // shared
+        }
+      }
     } catch (error) {
       console.error('Error sharing:', error);
     }
   };
-
-  const metrics = [
-    {
-      icon: 'home',
-      label: 'Total Houses',
-      value: summary.total,
-      color: '#6B7280',
-      info: 'Total number of houses in the route'
-    },
-    {
-      icon: 'checkmark-circle',
-      label: 'Completed',
-      value: summary.completed,
-      color: '#10B981',
-      info: 'Number of houses serviced'
-    },
-    {
-      icon: 'flag',
-      label: 'Special Houses',
-      value: summary.special_houses,
-      color: '#8B5CF6',
-      info: 'Houses that were skipped or marked as new customers'
-    },
-    {
-      icon: 'time',
-      label: 'Duration',
-      value: formatDuration(duration),
-      color: '#F59E0B',
-      info: 'Total time spent on route'
-    },
-    {
-      icon: 'flash',
-      label: 'Houses/Hr',
-      value: formatHousesPerHour(),
-      color: '#14B8A6',
-      info: 'Average number of houses serviced per hour'
-    },
-    {
-      icon: 'trending-up',
-      label: 'Efficiency',
-      value: `${calculateEfficiency()}%`,
-      color: '#3B82F6',
-      info: 'Based on 60% completion rate and 40% speed (target: 60 houses/hour)'
-    }
-  ];
 
   return (
     <View style={styles.container}>
       <LinearGradient
         colors={['#1a1a1a', '#000000']}
         style={StyleSheet.absoluteFill}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
       />
       
       <BlurView intensity={80} style={styles.header}>
@@ -159,25 +109,23 @@ const RouteCompletionScreen = () => {
       <ScrollView 
         style={styles.content}
         showsVerticalScrollIndicator={false}
+        scrollEnabled={true}
+        bounces={false}
+        overScrollMode="never"
       >
-        <Text style={styles.timestamp}>
-          {new Date(summary.endTime).toLocaleString()}
-        </Text>
-
         <View style={styles.congratsSection}>
           <LinearGradient
             colors={['rgba(16, 185, 129, 0.2)', 'rgba(16, 185, 129, 0.05)']}
             style={styles.congratsGradient}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
           >
             <View style={styles.congratsIcon}>
               <Ionicons name="checkmark-circle" size={40} color="#10B981" />
             </View>
             <Text style={styles.congratsTitle}>Great job!</Text>
-            <Text style={styles.routeName}>{summary.route_name}</Text>
             <Text style={styles.congratsText}>
-              {summary.completed === summary.total 
-                ? `You've completed all ${summary.total} houses!`
-                : `You've completed ${summary.completed} out of ${summary.total} houses`}
+              You've completed {summary.completed} out of {summary.total} bins
             </Text>
           </LinearGradient>
         </View>
@@ -185,31 +133,61 @@ const RouteCompletionScreen = () => {
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Collection Summary</Text>
           <View style={styles.metricsGrid}>
-            {metrics.map((metric, index) => (
-              <MetricCard
-                key={index}
-                icon={metric.icon}
-                title={(
-                  <View style={styles.titleWithInfo}>
-                    <Text style={styles.metricTitle}>{metric.label}</Text>
-                    <TouchableOpacity 
-                      style={styles.infoButton}
-                      onPress={() => Alert.alert(metric.label, metric.info)}
-                    >
-                      <Ionicons name="information-circle-outline" size={16} color="#9CA3AF" />
-                    </TouchableOpacity>
-                  </View>
-                )}
-                value={metric.value}
-                borderColor={metric.color}
-              />
-            ))}
+            <MetricCard
+              icon="home"
+              title="Total Houses"
+              value={summary.total}
+              borderColor="#3B82F6"
+            />
+            <MetricCard
+              icon="checkmark-circle"
+              title="Houses Collected"
+              value={summary.completed}
+              borderColor="#10B981"
+            />
+            <MetricCard
+              icon="time-outline"
+              title="Duration"
+              value={`${duration} min`}
+              borderColor="#F59E0B"
+            />
+            <MetricCard
+              icon="alert-circle"
+              title={
+                <View style={styles.titleWithInfo}>
+                  <Text style={styles.metricTitle}>Special Houses</Text>
+                  <TouchableOpacity 
+                    style={styles.infoButton}
+                    onPress={() => Alert.alert(
+                      'Special Houses',
+                      'Includes houses marked as:\n• Skip\n• New Customer\n• Special Instructions'
+                    )}
+                  >
+                    <Ionicons name="information-circle" size={16} color="#9CA3AF" />
+                  </TouchableOpacity>
+                </View>
+              }
+              value={summary.special_houses || 0}
+              borderColor="#8B5CF6"
+            />
+            <MetricCard
+              icon="trending-up"
+              title="Efficiency"
+              value={`${efficiency}%`}
+              borderColor="#8B5CF6"
+            />
+            <MetricCard
+              icon="speedometer"
+              title="Bins/Hr"
+              value={binsPerHour}
+              borderColor="#EC4899"
+            />
           </View>
         </View>
 
         <TouchableOpacity 
           style={styles.newRouteButton}
-          onPress={() => router.push('/route/create')}
+          onPress={() => router.push('/route-create')}
         >
           <Ionicons name="add-circle" size={20} color="#fff" />
           <Text style={styles.newRouteText}>Create New Route</Text>
@@ -223,6 +201,11 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: 'transparent',
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
   },
   header: {
     flexDirection: 'row',
@@ -307,7 +290,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 12,
-    padding: 4,
   },
   metricCard: {
     width: '48%',
@@ -453,19 +435,6 @@ const styles = StyleSheet.create({
   },
   infoButton: {
     padding: 2,
-  },
-  timestamp: {
-    color: '#9CA3AF',
-    fontSize: 14,
-    textAlign: 'left',
-    paddingHorizontal: 20,
-    paddingTop: 20,
-  },
-  routeName: {
-    fontSize: 18,
-    color: '#fff',
-    marginBottom: 12,
-    opacity: 0.8,
   },
 });
 

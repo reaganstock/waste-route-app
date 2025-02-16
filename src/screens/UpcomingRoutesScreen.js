@@ -15,6 +15,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { useRoutes } from '../hooks/useRoutes';
 import { useAuth } from '../contexts/AuthContext';
+import { supabase } from '../lib/supabase';
 
 const FilterButton = ({ label, active, onPress }) => (
   <TouchableOpacity 
@@ -31,15 +32,14 @@ const RouteCard = ({ route, router }) => {
   const { user } = useAuth();
   const isAssignedDriver = route.driver_id === user?.id;
   
-  // Get yesterday's date at midnight
-  const yesterday = new Date();
-  yesterday.setDate(yesterday.getDate() - 1);
-  yesterday.setHours(0, 0, 0, 0);
+  // Get today's date at midnight for comparison
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
   
   const routeDate = new Date(route.date);
   routeDate.setHours(0, 0, 0, 0);
   
-  const isExpired = routeDate < yesterday && route.status === 'pending';
+  const isExpired = routeDate.getTime() < today.getTime() && (route.status === 'pending' || route.status === 'expired');
 
   return (
     <View style={[
@@ -93,33 +93,91 @@ const UpcomingRoutesScreen = () => {
   const { routes, loading, error } = useRoutes();
   const [filter, setFilter] = useState('all'); // 'all', 'upcoming', 'expired'
 
+  const fetchRoutes = async () => {
+    try {
+      setLoading(true);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      const { data: routesData, error } = await supabase
+        .from('routes')
+        .select(`
+          *,
+          driver:profiles(
+            id,
+            full_name,
+            avatar_url
+          )
+        `)
+        .or('status.eq.pending,status.eq.expired')
+        .order('date', { ascending: true });
+
+      if (error) throw error;
+
+      // Separate routes into categories
+      const activeRoutes = routesData.filter(route => route.status === 'in_progress');
+      const expiredRoutes = routesData.filter(route => {
+        const routeDate = new Date(route.date);
+        routeDate.setHours(0, 0, 0, 0);
+        return routeDate.getTime() < today.getTime() && (route.status === 'pending' || route.status === 'expired');
+      });
+      const upcomingRoutes = routesData.filter(route => {
+        const routeDate = new Date(route.date);
+        routeDate.setHours(0, 0, 0, 0);
+        return routeDate.getTime() >= today.getTime() && route.status === 'pending';
+      });
+
+      setRoutes([...expiredRoutes, ...activeRoutes, ...upcomingRoutes]);
+
+    } catch (error) {
+      console.error('Error fetching routes:', error);
+      Alert.alert('Error', 'Failed to load routes');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const filteredRoutes = routes.filter(route => {
     const userRole = user?.user_metadata?.role;
     const isAssigned = userRole === 'admin' || route.driver_id === user?.id;
-    const isPending = route.status === 'pending';
     
-    // Get yesterday's date at midnight
-    const yesterday = new Date();
-    yesterday.setDate(yesterday.getDate() - 1);
-    yesterday.setHours(0, 0, 0, 0);
+    // Get today's date at midnight for comparison
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
     
     const routeDate = new Date(route.date);
     routeDate.setHours(0, 0, 0, 0);
     
-    const isExpired = routeDate < yesterday && isPending;
-    const isUpcoming = routeDate >= yesterday && isPending;
+    const isExpired = routeDate.getTime() < today.getTime() && (route.status === 'pending' || route.status === 'expired');
+    const isUpcoming = routeDate.getTime() >= today.getTime() && route.status === 'pending';
+    const isActive = route.status === 'in_progress';
 
     if (!isAssigned) return false;
     
     switch (filter) {
       case 'upcoming':
-        return isUpcoming;
+        return isUpcoming || isActive;
       case 'expired':
         return isExpired;
       default:
-        return isPending;
+        return true;
     }
-  }).sort((a, b) => new Date(a.date) - new Date(b.date));
+  }).sort((a, b) => {
+    // Sort by date, but keep expired routes at the top
+    if (filter === 'all') {
+      const aDate = new Date(a.date);
+      const bDate = new Date(b.date);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      
+      const aIsExpired = aDate.getTime() < today.getTime() && (a.status === 'pending' || a.status === 'expired');
+      const bIsExpired = bDate.getTime() < today.getTime() && (b.status === 'pending' || b.status === 'expired');
+      
+      if (aIsExpired && !bIsExpired) return -1;
+      if (!aIsExpired && bIsExpired) return 1;
+    }
+    return new Date(a.date) - new Date(b.date);
+  });
 
   if (loading) {
     return (

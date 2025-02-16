@@ -145,9 +145,10 @@ const HomeScreen = () => {
 
   const calculateMetrics = async () => {
     try {
-      // Get today's date at midnight
+      // Get today's date range
       const today = new Date();
-      today.setHours(0, 0, 0, 0);
+      const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+      const endOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59);
 
       const isAdmin = user?.user_metadata?.role === 'admin';
 
@@ -159,99 +160,88 @@ const HomeScreen = () => {
           total_houses,
           completed_houses,
           driver_id,
-          created_at,
-          updated_at,
           status,
+          date,
           driver:profiles(role)
         `)
-        .gte('date', today.toISOString())
-        .lt('date', new Date(today.getTime() + 24 * 60 * 60 * 1000).toISOString())
-        .neq('status', 'completed'); // Exclude completed routes
+        .gte('date', startOfDay.toISOString())
+        .lte('date', endOfDay.toISOString())
+        .neq('status', 'completed');
 
       if (routesError) throw routesError;
 
       // For admin, show team metrics
       if (isAdmin) {
-        // Calculate total houses scheduled today for entire team (excluding completed routes)
-        const teamHouses = todayRoutes.reduce((sum, route) => sum + (route.total_houses || 0), 0);
-        // Calculate total routes scheduled today for entire team (excluding completed routes)
-        const teamRoutes = todayRoutes.length;
+        // Calculate total houses and routes for today (excluding completed)
+        const teamHouses = todayRoutes?.reduce((sum, route) => sum + (route.total_houses || 0), 0) || 0;
+        const teamRoutes = todayRoutes?.length || 0;
 
-        // Calculate team efficiency (average of all completed routes with 60/40 formula)
-        const { data: completedRoutes, error: completedRoutesError } = await supabase
+        // Calculate team efficiency from all completed routes (all time)
+        const { data: completedRoutes } = await supabase
           .from('routes')
-          .select(`
-            id,
-            completed_houses,
-            total_houses,
-            created_at,
-            updated_at,
-            duration
-          `)
+          .select('completed_houses, total_houses, duration')
           .eq('status', 'completed')
-          .gt('completed_houses', 0)  // Only include routes with completed houses
-          .gt('total_houses', 0);     // Only include routes with total houses
-
-        if (completedRoutesError) throw completedRoutesError;
+          .gt('total_houses', 0);
 
         let teamEfficiency = 0;
-        if (completedRoutes && completedRoutes.length > 0) {
-          const routeEfficiencies = completedRoutes.map(route => {
-            const houseCompletionRate = route.completed_houses / route.total_houses;
-            const housesPerHour = route.duration ? (route.completed_houses / route.duration) : 0;
-            const timeEfficiency = Math.min(housesPerHour / 60, 1); // Target: 60 houses/hour
+        if (completedRoutes?.length > 0) {
+          const routeEfficiencies = completedRoutes
+            .filter(route => route.completed_houses && route.total_houses && route.duration)
+            .map(route => {
+              const completionRate = route.completed_houses / route.total_houses;
+              const housesPerHour = (route.completed_houses / (route.duration / 60)) || 0;
+              const speedEfficiency = Math.min(housesPerHour / 60, 1); // Cap at 100%
+              return (0.6 * completionRate + 0.4 * speedEfficiency) * 100;
+            });
 
-            return (0.6 * houseCompletionRate + 0.4 * timeEfficiency) * 100;
-          });
-
-          teamEfficiency = Math.round(routeEfficiencies.reduce((sum, eff) => sum + eff, 0) / routeEfficiencies.length * 10) / 10;
+          if (routeEfficiencies.length > 0) {
+            teamEfficiency = Math.round(routeEfficiencies.reduce((sum, eff) => sum + eff, 0) / routeEfficiencies.length);
+          }
         }
 
         setMetrics({
           todayHouses: teamHouses,
           todayRoutes: teamRoutes,
-          efficiency: teamEfficiency
+          efficiency: teamEfficiency,
+          hoursDriven: 0
         });
-      } 
+      }
       // For drivers, show personal metrics
       else {
-        // Filter non-completed routes for this driver
-        const driverRoutes = todayRoutes.filter(route => route.driver_id === user?.id);
-        // Calculate total houses scheduled today for this driver (excluding completed routes)
+        // Filter routes for this driver (excluding completed)
+        const driverRoutes = todayRoutes?.filter(route => route.driver_id === user?.id) || [];
         const driverHouses = driverRoutes.reduce((sum, route) => sum + (route.total_houses || 0), 0);
-        // Calculate total routes scheduled today for this driver (excluding completed routes)
         const driverRoutesCount = driverRoutes.length;
 
-        // Calculate driver's overall efficiency
+        // Calculate driver efficiency from all their completed routes (all time)
         const { data: driverCompletedRoutes } = await supabase
           .from('routes')
-          .select(`
-            completed_houses,
-            total_houses,
-            duration
-          `)
+          .select('completed_houses, total_houses, duration')
           .eq('driver_id', user?.id)
           .eq('status', 'completed')
-          .gt('completed_houses', 0)
           .gt('total_houses', 0);
 
         let driverEfficiency = 0;
-        if (driverCompletedRoutes && driverCompletedRoutes.length > 0) {
-          const routeEfficiencies = driverCompletedRoutes.map(route => {
-            const houseCompletionRate = route.completed_houses / route.total_houses;
-            const housesPerHour = route.duration ? (route.completed_houses / route.duration) : 0;
-            const timeEfficiency = Math.min(housesPerHour / 60, 1); // Target: 60 houses/hour
+        if (driverCompletedRoutes?.length > 0) {
+          const routeEfficiencies = driverCompletedRoutes
+            .filter(route => route.completed_houses && route.total_houses && route.duration)
+            .map(route => {
+              const completionRate = route.completed_houses / route.total_houses;
+              const housesPerHour = (route.completed_houses / (route.duration / 60)) || 0;
+              const speedEfficiency = Math.min(housesPerHour / 60, 1); // Cap at 100%
+              return (0.6 * completionRate + 0.4 * speedEfficiency) * 100;
+            });
 
-            return (0.6 * houseCompletionRate + 0.4 * timeEfficiency) * 100;
-          });
-
-          driverEfficiency = Math.round(routeEfficiencies.reduce((sum, eff) => sum + eff, 0) / routeEfficiencies.length * 10) / 10;
+          if (routeEfficiencies.length > 0) {
+            driverEfficiency = Math.round(routeEfficiencies.reduce((sum, eff) => sum + eff, 0) / routeEfficiencies.length);
+          }
         }
 
         setMetrics({
           todayHouses: driverHouses,
           todayRoutes: driverRoutesCount,
-          efficiency: driverEfficiency
+          efficiency: driverEfficiency,
+          hoursDriven: 0
         });
       }
     } catch (error) {

@@ -52,19 +52,23 @@ const TeamScreen = () => {
 
       // Calculate metrics for each member
       const membersWithMetrics = data.map(member => {
-        // Only count completed routes
+        // Get all completed routes (all-time)
         const completedRoutes = member.routes?.filter(r => r.status === 'completed').length || 0;
         
-        // Calculate total hours driven from completed routes only
+        // Calculate total hours driven from all completed routes (all-time)
         const totalHoursDriven = member.routes
           ?.filter(r => r.status === 'completed')
           .reduce((sum, route) => sum + (route.duration || 0), 0) || 0;
+
+        // Get active route if exists
+        const activeRoute = member.routes?.find(r => r.status === 'in_progress');
 
         return {
           ...member,
           metrics: {
             completedRoutes,
-            totalHoursDriven: Number((totalHoursDriven / 60).toFixed(2))  // Convert minutes to hours
+            totalHoursDriven: Number((totalHoursDriven / 60).toFixed(1)), // Convert minutes to hours with 1 decimal
+            activeRoute
           }
         };
       });
