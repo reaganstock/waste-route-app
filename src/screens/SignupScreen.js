@@ -28,38 +28,78 @@ export default function SignupScreen() {
     role: 'driver',
   });
 
+  const validateEmail = (email) => {
+    const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return re.test(email);
+  };
+
+  const validatePassword = (password) => {
+    return password.length >= 8 && // At least 8 characters
+           /[A-Z]/.test(password) && // At least one uppercase
+           /[a-z]/.test(password) && // At least one lowercase
+           /[0-9]/.test(password) && // At least one number
+           /[^A-Za-z0-9]/.test(password); // At least one special character
+  };
+
   const handleSignup = async () => {
+    // Validate all fields are filled
     if (!formData.fullName || !formData.email || !formData.password || !formData.confirmPassword) {
       Alert.alert('Error', 'Please fill in all fields');
       return;
     }
 
-    if (formData.password !== formData.confirmPassword) {
-      Alert.alert('Error', 'Passwords do not match');
+    // Validate email format
+    if (!validateEmail(formData.email)) {
+      Alert.alert('Error', 'Please enter a valid email address');
       return;
     }
 
-    if (formData.password.length < 6) {
-      Alert.alert('Error', 'Password must be at least 6 characters long');
+    // Validate password strength
+    if (!validatePassword(formData.password)) {
+      Alert.alert(
+        'Error', 
+        'Password must be at least 8 characters long and contain:\n' +
+        '- One uppercase letter\n' +
+        '- One lowercase letter\n' +
+        '- One number\n' +
+        '- One special character'
+      );
+      return;
+    }
+
+    // Validate passwords match
+    if (formData.password !== formData.confirmPassword) {
+      Alert.alert('Error', 'Passwords do not match');
       return;
     }
 
     setLoading(true);
 
     try {
-      await signUp(
+      const { success, error, message } = await signUp(
         formData.email,
         formData.password,
         formData.fullName,
         formData.role
       );
-      Alert.alert(
-        'Success',
-        'Please check your email for verification instructions.',
-        [{ text: 'OK', onPress: () => router.push('/(auth)/sign-in') }]
-      );
+
+      if (success) {
+        Alert.alert(
+          'Success',
+          message || 'Account created successfully',
+          [
+            { 
+              text: 'OK', 
+              onPress: () => router.push('/(auth)/sign-in')
+            }
+          ]
+        );
+      } else {
+        Alert.alert('Error', error || 'Failed to create account');
+      }
     } catch (error) {
-      Alert.alert('Error', error.message);
+      console.error('Signup error:', error);
+      Alert.alert('Error', error.message || 'An unexpected error occurred');
     } finally {
       setLoading(false);
     }
@@ -99,6 +139,7 @@ export default function SignupScreen() {
             placeholderTextColor="#6B7280"
             value={formData.fullName}
             onChangeText={(text) => setFormData({ ...formData, fullName: text })}
+            autoCapitalize="words"
           />
         </View>
 
@@ -150,7 +191,7 @@ export default function SignupScreen() {
               onPress={() => setFormData({ ...formData, role: 'driver' })}
             >
               <Ionicons 
-                name="car" 
+                name="car-outline" 
                 size={24} 
                 color={formData.role === 'driver' ? '#fff' : '#6B7280'} 
               />
@@ -168,7 +209,7 @@ export default function SignupScreen() {
               onPress={() => setFormData({ ...formData, role: 'admin' })}
             >
               <Ionicons 
-                name="shield" 
+                name="shield-outline" 
                 size={24} 
                 color={formData.role === 'admin' ? '#fff' : '#6B7280'} 
               />
