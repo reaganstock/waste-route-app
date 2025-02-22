@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   View,
   Text,
@@ -18,6 +18,13 @@ const RouteEditScreen = ({ route }) => {
   const [loading, setLoading] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
   const routeCreateRef = useRef(null);
+
+  useEffect(() => {
+    if (route?.driver_id) {
+      // The RouteCreateScreen will handle setting the driver
+      // when we pass it in the existingRoute prop
+    }
+  }, [route]);
 
   const handleDelete = () => {
     Alert.alert(

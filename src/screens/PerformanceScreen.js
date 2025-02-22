@@ -119,9 +119,15 @@ const PerformanceScreen = () => {
         .from('profiles')
         .select('*')
         .eq('id', id)
-        .single();
+        .maybeSingle();
 
       if (memberError) throw memberError;
+
+      if (!memberData) {
+        setError('Member not found');
+        return;
+      }
+
       setMember(memberData);
 
       // Get current date

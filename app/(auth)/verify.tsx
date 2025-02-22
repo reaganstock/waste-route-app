@@ -1,21 +1,18 @@
 import { View } from 'react-native';
 import { useRouter } from 'expo-router';
-import SignupScreen from '../../src/screens/SignupScreen';
+import VerifyScreen from '../../src/screens/VerifyScreen';
 
-export default function Signup() {
+export default function Verify() {
   const router = useRouter();
   
   return (
     <View style={{ flex: 1 }}>
-      <SignupScreen 
+      <VerifyScreen 
         navigation={{
           goBack: () => router.back(),
           replace: (screen: string) => {
-            // After successful signup, go to verify screen
-            router.push({
-              pathname: '/verify',
-              params: { type: 'signup' }
-            });
+            // After successful verification, go to main app
+            router.replace('/(tabs)');
           }
         }} 
       />

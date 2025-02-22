@@ -36,6 +36,20 @@ function RootLayoutNav() {
       >
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="(auth)" />
+        <Stack.Screen 
+          name="active-routes" 
+          options={{ 
+            presentation: 'modal',
+            animation: 'slide_from_bottom'
+          }} 
+        />
+        <Stack.Screen 
+          name="upcoming-routes" 
+          options={{ 
+            presentation: 'modal',
+            animation: 'slide_from_bottom'
+          }} 
+        />
         <Stack.Screen name="route" />
         <Stack.Screen name="settings" />
         <Stack.Screen name="support" />
@@ -43,8 +57,6 @@ function RootLayoutNav() {
         <Stack.Screen name="profile-details" />
         <Stack.Screen name="route-create" />
         <Stack.Screen name="map" />
-        <Stack.Screen name="active-routes" options={{ presentation: 'card' }} />
-        <Stack.Screen name="upcoming-routes" options={{ presentation: 'card' }} />
         <Stack.Screen name="route/[id]/completion" options={{ 
           presentation: 'card',
           gestureEnabled: false,

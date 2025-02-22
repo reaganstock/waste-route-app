@@ -45,6 +45,7 @@ const TeamScreen = () => {
             date
           )
         `)
+        .in('role', ['driver', 'admin']) // Include both drivers and admins
         .order('role', { ascending: false }) // Show admins first
         .order('full_name');
 

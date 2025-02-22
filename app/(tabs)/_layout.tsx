@@ -8,7 +8,7 @@ export default function TabLayout() {
   const userRole = user?.user_metadata?.role || 'driver';
   const isAdmin = userRole === 'admin';
 
-  // Drivers get a simple stack navigation
+  // Drivers get a simple stack navigation without bottom tabs
   if (!isAdmin) {
     return (
       <Stack
@@ -17,13 +17,11 @@ export default function TabLayout() {
         }}
       >
         <Stack.Screen name="index" />
-        <Stack.Screen name="active-routes" />
-        <Stack.Screen name="upcoming-routes" />
       </Stack>
     );
   }
 
-  // Admins get the full tab navigation
+  // Admins get the full tab navigation with Home, Team, and Analytics
   return (
     <Tabs
       screenOptions={{
@@ -46,26 +44,6 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
-        name="active-routes"
-        options={{
-          title: 'Active',
-          href: null, // Hide from tab bar
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="map-outline" size={size} color={color} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="upcoming-routes"
-        options={{
-          title: 'Upcoming',
-          href: null, // Hide from tab bar
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="calendar-outline" size={size} color={color} />
-          ),
-        }}
-      />
-      <Tabs.Screen
         name="team"
         options={{
           title: 'Team',
@@ -79,7 +57,7 @@ export default function TabLayout() {
         options={{
           title: 'Analytics',
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="bar-chart-outline" size={size} color={color} />
+            <Ionicons name="stats-chart-outline" size={size} color={color} />
           ),
         }}
       />

@@ -4,6 +4,7 @@ import { createClient } from '@supabase/supabase-js';
 
 const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
+const supabaseServiceKey = process.env.EXPO_PUBLIC_SUPABASE_SERVICE_ROLE_KEY;
 
 if (!supabaseUrl || !supabaseAnonKey) {
   throw new Error('Missing Supabase environment variables');
@@ -16,31 +17,19 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     autoRefreshToken: true,
     persistSession: true,
     detectSessionInUrl: false,
+    flowType: 'pkce',
+    debug: __DEV__,
   },
 });
 
-// Create a function to get admin auth client
-export const getAdminAuthClient = async () => {
-  try {
-    const response = await fetch(`${supabaseUrl}/auth/v1/admin`, {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-        'apikey': process.env.EXPO_PUBLIC_SUPABASE_SERVICE_ROLE_KEY,
-        'Authorization': `Bearer ${process.env.EXPO_PUBLIC_SUPABASE_SERVICE_ROLE_KEY}`,
-      },
-    });
-    
-    if (!response.ok) {
-      throw new Error('Failed to get admin auth client');
-    }
-    
-    return response;
-  } catch (error) {
-    console.error('Admin auth client error:', error);
-    throw error;
-  }
-};
+// Create admin client with service role key
+export const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
+  auth: {
+    autoRefreshToken: true,
+    persistSession: false,
+    debug: __DEV__,
+  },
+});
 
 // Helper functions for database operations
 export const addHouse = async (houseData) => {
@@ -114,29 +103,17 @@ export const addRouteHistory = async (historyData) => {
 // Function to create a new user using Supabase Management API
 export const createUserWithManagementAPI = async (email, password, userData) => {
   try {
-    const response = await fetch(`${supabaseUrl}/auth/v1/admin/users`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'apikey': process.env.EXPO_PUBLIC_SUPABASE_SERVICE_ROLE_KEY,
-        'Authorization': `Bearer ${process.env.EXPO_PUBLIC_SUPABASE_SERVICE_ROLE_KEY}`,
-      },
-      body: JSON.stringify({
-        email,
-        password,
-        email_confirm: true,
-        user_metadata: userData,
-      }),
+    const { data, error } = await supabaseAdmin.auth.admin.createUser({
+      email,
+      password,
+      email_confirm: false, // Changed to false to use OTP verification
+      user_metadata: userData,
     });
 
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.message || 'Failed to create user');
-    }
-
-    return await response.json();
+    if (error) throw error;
+    return { data, error: null };
   } catch (error) {
     console.error('Management API Error:', error);
-    throw error;
+    return { data: null, error };
   }
 }; 

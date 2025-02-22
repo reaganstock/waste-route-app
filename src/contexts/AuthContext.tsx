@@ -7,12 +7,13 @@ type AuthContextType = {
   user: User | null;
   session: Session | null;
   loading: boolean;
-  signUp: (email: string, password: string, fullName: string, role: string) => Promise<{ success: boolean, error?: string, message?: string }>;
+  signUp: (email: string, password: string, fullName: string, role: string) => Promise<{ success: boolean, error?: string }>;
   verifyOTP: (email: string, token: string) => Promise<{ success: boolean, error?: string }>;
   signIn: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
   requestPasswordReset: (email: string) => Promise<{ success: boolean, error?: string }>;
   resetPassword: (email: string, token: string, newPassword: string) => Promise<{ success: boolean, error?: string }>;
+  verificationEmail: string;
 };
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -21,6 +22,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
+  const [verificationEmail, setVerificationEmail] = useState<string>('');
 
   useEffect(() => {
     // Listen for auth state changes
@@ -55,54 +57,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return { success: false, error: 'An account with this email already exists' };
       }
 
-      // Create user with admin API to bypass email verification
-      const { data: userData, error: createError } = await supabaseAdmin.auth.admin.createUser({
+      // Sign up with OTP verification
+      const { data, error } = await supabase.auth.signUp({
         email,
         password,
-        email_confirm: true,
-        user_metadata: {
-          full_name: fullName,
-          role: role,
+        options: {
+          data: {
+            full_name: fullName,
+            role: role,
+          },
+          emailRedirectTo: null // Disable redirect URL since we're using OTP
         }
       });
 
-      if (createError) throw createError;
-      if (!userData?.user) throw new Error('Failed to create user account');
+      if (error) throw error;
 
-      // Wait for the trigger to create the profile
-      await new Promise(resolve => setTimeout(resolve, 1000));
-
-      // Verify the profile was created
-      const { data: profile, error: profileError } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', userData.user.id)
-        .maybeSingle();
-
-      if (profileError) throw profileError;
-
-      if (!profile) {
-        // If profile doesn't exist, create it manually
-        const { error: insertError } = await supabase
-          .from('profiles')
-          .insert({
-            id: userData.user.id,
-            full_name: fullName,
-            email: email,
-            role: role,
-            status: 'active',
-          });
-
-        if (insertError) {
-          // If profile creation fails, delete the user and throw error
-          await supabaseAdmin.auth.admin.deleteUser(userData.user.id);
-          throw new Error('Failed to create profile');
-        }
-      }
+      // Store email for verification
+      setVerificationEmail(email);
 
       return { 
         success: true,
-        message: 'Account created successfully. You can now log in.'
+        email,
+        message: 'Please check your email for the verification code.'
       };
     } catch (error) {
       console.error('Signup error:', error);
@@ -122,6 +98,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       });
 
       if (error) throw error;
+
+      // Clear stored email after successful verification
+      setVerificationEmail('');
 
       return { success: true };
     } catch (error) {
@@ -206,6 +185,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     signOut,
     requestPasswordReset,
     resetPassword,
+    verificationEmail,
   };
 
   return (

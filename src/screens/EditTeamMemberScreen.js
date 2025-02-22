@@ -59,9 +59,13 @@ const EditTeamMemberScreen = () => {
         .from('profiles')
         .select('*')
         .eq('id', id)
-        .single();
+        .maybeSingle();
 
       if (error) throw error;
+
+      if (!data) {
+        throw new Error('Member not found');
+      }
 
       setFormData({
         fullName: data.full_name || '',

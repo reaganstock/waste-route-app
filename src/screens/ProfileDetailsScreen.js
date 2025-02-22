@@ -68,19 +68,32 @@ const ProfileDetailsScreen = () => {
         .from('profiles')
         .select('*')
         .eq('id', user.id)
-        .single();
+        .maybeSingle();
 
       if (error) throw error;
 
-      setFormData({
-        fullName: data.full_name || '',
-        email: data.email || '',
-        phone: data.phone || '',
-        role: data.role || '',
-        preferredRegion: data.preferred_region || '',
-        startDate: data.start_date ? new Date(data.start_date).toLocaleDateString() : '',
-      });
-      setProfileImage(data.avatar_url || 'https://via.placeholder.com/150');
+      if (data) {
+        setFormData({
+          fullName: data.full_name || '',
+          email: data.email || '',
+          phone: data.phone || '',
+          role: data.role || '',
+          preferredRegion: data.preferred_region || '',
+          startDate: data.start_date ? new Date(data.start_date).toLocaleDateString() : '',
+        });
+        setProfileImage(data.avatar_url || 'https://via.placeholder.com/150');
+      } else {
+        // Set default values when no profile exists
+        setFormData({
+          fullName: user.user_metadata?.full_name || '',
+          email: user.email || '',
+          phone: '',
+          role: user.user_metadata?.role || 'driver',
+          preferredRegion: '',
+          startDate: new Date().toLocaleDateString(),
+        });
+        setProfileImage('https://via.placeholder.com/150');
+      }
     } catch (error) {
       console.error('Error fetching profile:', error);
       Alert.alert('Error', 'Failed to load profile data');

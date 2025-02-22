@@ -57,17 +57,17 @@ const AddressModal = ({ visible, house, onClose, onSaveNote, onNavigate }) => {
   };
 
   return (
-    <Modal
-      visible={visible}
-      transparent
-      animationType="slide"
-      onRequestClose={onClose}
-    >
-      <View style={styles.modalContainer}>
-        <BlurView intensity={80} style={styles.modalContent}>
-          <View style={styles.modalHeader}>
+  <Modal
+    visible={visible}
+    transparent
+    animationType="slide"
+    onRequestClose={onClose}
+  >
+    <View style={styles.modalContainer}>
+      <BlurView intensity={80} style={styles.modalContent}>
+        <View style={styles.modalHeader}>
             <View style={styles.modalHeaderLeft}>
-              <Text style={styles.modalTitle}>House Details</Text>
+          <Text style={styles.modalTitle}>House Details</Text>
               <View style={[styles.statusBadge, { backgroundColor: `${getStatusColor(house?.status)}20` }]}>
                 <Text style={[styles.statusText, { color: getStatusColor(house?.status) }]}>
                   {house?.status?.charAt(0).toUpperCase() + house?.status?.slice(1)}
@@ -75,15 +75,15 @@ const AddressModal = ({ visible, house, onClose, onSaveNote, onNavigate }) => {
               </View>
             </View>
             <TouchableOpacity onPress={handleSaveAndClose} style={styles.closeButton}>
-              <Ionicons name="close" size={24} color="#fff" />
-            </TouchableOpacity>
+            <Ionicons name="close" size={24} color="#fff" />
+          </TouchableOpacity>
+        </View>
+        <View style={styles.modalBody}>
+          <View style={styles.addressSection}>
+            <Text style={styles.addressLabel}>Address</Text>
+            <Text style={styles.addressText}>{house?.address}</Text>
           </View>
-          <View style={styles.modalBody}>
-            <View style={styles.addressSection}>
-              <Text style={styles.addressLabel}>Address</Text>
-              <Text style={styles.addressText}>{house?.address}</Text>
-            </View>
-            <View style={styles.notesSection}>
+          <View style={styles.notesSection}>
               <Text style={styles.notesLabel}>Initial Notes</Text>
               {house?.notes ? (
                 <View style={styles.initialNotesContainer}>
@@ -95,39 +95,39 @@ const AddressModal = ({ visible, house, onClose, onSaveNote, onNavigate }) => {
               
               <Text style={[styles.notesLabel, { marginTop: 16 }]}>Add Notes</Text>
               <View style={styles.notesInputContainer}>
-                <TextInput
-                  style={styles.notesInput}
-                  multiline
-                  numberOfLines={4}
+            <TextInput
+              style={styles.notesInput}
+              multiline
+              numberOfLines={4}
                   value={additionalNotes}
                   onChangeText={setAdditionalNotes}
                   placeholder="Add additional notes..."
-                  placeholderTextColor="#6B7280"
+              placeholderTextColor="#6B7280"
                   autoCapitalize="sentences"
                   returnKeyType="done"
-                />
+            />
                 <View style={styles.notesInputBorder} />
               </View>
-            </View>
-            <TouchableOpacity 
-              style={styles.navigateButton}
-              onPress={onNavigate}
-            >
-              <LinearGradient
-                colors={['#3B82F6', '#2563EB']}
-                style={styles.navigateButtonGradient}
+          </View>
+          <TouchableOpacity 
+            style={styles.navigateButton}
+            onPress={onNavigate}
+          >
+            <LinearGradient
+              colors={['#3B82F6', '#2563EB']}
+              style={styles.navigateButtonGradient}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 1 }}
-              >
-                <Ionicons name="navigate" size={20} color="#fff" />
+            >
+              <Ionicons name="navigate" size={20} color="#fff" />
                 <Text style={styles.navigateButtonText}>Navigate to Address</Text>
-              </LinearGradient>
-            </TouchableOpacity>
-          </View>
-        </BlurView>
-      </View>
-    </Modal>
-  );
+            </LinearGradient>
+          </TouchableOpacity>
+        </View>
+      </BlurView>
+    </View>
+  </Modal>
+);
 };
 
 const HouseItem = ({ house, onToggle, isSelected, onPress }) => {
@@ -239,7 +239,7 @@ const GeofenceAlert = ({ house }) => (
         </Text>
         <Text style={styles.geofenceAddress}>{house.address}</Text>
       </View>
-    </View>
+  </View>
   </BlurView>
 );
 
@@ -254,7 +254,7 @@ const RouteScreen = ({ routeId }) => {
   const [showNotifications, setShowNotifications] = useState(true);
   const [loading, setLoading] = useState(true);
   
-  const { nearbyHouses, error } = useGeofencing(
+  const { nearbyHouses, approachingHouses, isTracking, error: geofencingError } = useGeofencing(
     route?.houses,
     true // Always track, notifications controlled separately
   );
@@ -346,14 +346,14 @@ const RouteScreen = ({ routeId }) => {
 
     // Only show phone notification if enabled
     if (phoneNotifications) {
-      Notifications.scheduleNotificationAsync({
-        content: {
-          title: 'WasteRoute Update',
-          body: message,
-          sound: true,
-        },
+    Notifications.scheduleNotificationAsync({
+      content: {
+        title: 'WasteRoute Update',
+        body: message,
+        sound: true,
+      },
         trigger: null,
-      });
+    });
     }
 
     // Auto-dismiss after 5 seconds
@@ -579,6 +579,153 @@ const RouteScreen = ({ routeId }) => {
     </View>
   );
 
+  // Add this near the top of the file after imports
+  const setupNotifications = async () => {
+    try {
+      // Request notification permissions
+      const { status: existingStatus } = await Notifications.getPermissionsAsync();
+      let finalStatus = existingStatus;
+      
+      if (existingStatus !== 'granted') {
+        const { status } = await Notifications.requestPermissionsAsync();
+        finalStatus = status;
+      }
+      
+      if (finalStatus !== 'granted') {
+        Alert.alert(
+          'Notifications Required',
+          'Route notifications are important for tracking skip houses and new customers. Please enable notifications in your settings.',
+          [
+            { text: 'Open Settings', onPress: () => Linking.openSettings() },
+            { text: 'Continue Without Notifications', style: 'cancel' }
+          ]
+        );
+        return false;
+      }
+
+      // Configure notification categories/actions
+      await Notifications.setNotificationCategoryAsync('route', [
+        {
+          identifier: 'mark_complete',
+          buttonTitle: 'Mark Complete',
+          options: {
+            isAuthenticationRequired: false,
+            isDestructive: false,
+          }
+        },
+        {
+          identifier: 'navigate',
+          buttonTitle: 'Navigate',
+          options: {
+            isAuthenticationRequired: false,
+            isDestructive: false,
+          }
+        }
+      ]);
+
+      return true;
+    } catch (error) {
+      console.error('Error setting up notifications:', error);
+      return false;
+    }
+  };
+
+  // Add this to the component
+  useEffect(() => {
+    setupNotifications();
+  }, []);
+
+  // Add notification response handler
+  useEffect(() => {
+    const subscription = Notifications.addNotificationResponseReceivedListener(response => {
+      const { houseId, status, lat, lng } = response.notification.request.content.data;
+      
+      // Handle notification action
+      switch (response.actionIdentifier) {
+        case 'mark_complete':
+          handleHouseComplete(houseId);
+          break;
+        case 'navigate':
+          const url = Platform.select({
+            ios: `maps://app?daddr=${lat},${lng}`,
+            android: `google.navigation:q=${lat},${lng}`
+          });
+          Linking.openURL(url);
+          break;
+        default:
+          // Open house details on notification tap
+          if (houseId) {
+            const house = route?.houses.find(h => h.id === houseId);
+            if (house) {
+              setSelectedHouse(house);
+            }
+          }
+      }
+    });
+
+    return () => subscription.remove();
+  }, [route?.houses]);
+
+  // Add status indicators for nearby houses
+  const getHouseStatus = useCallback((house) => {
+    const isNearby = nearbyHouses.find(h => h.id === house.id);
+    const isApproaching = approachingHouses.find(h => h.id === house.id);
+    
+    if (isNearby) {
+      return {
+        ...house,
+        proximityStatus: 'nearby',
+        distance: isNearby.distance
+      };
+    }
+    
+    if (isApproaching) {
+      return {
+        ...house,
+        proximityStatus: 'approaching',
+        distance: isApproaching.distance
+      };
+    }
+    
+    return house;
+  }, [nearbyHouses, approachingHouses]);
+
+  // Update house list rendering to include proximity status
+  const renderHouseItem = ({ item: house }) => {
+    const houseWithStatus = getHouseStatus(house);
+    const showDistance = houseWithStatus.proximityStatus && houseWithStatus.distance;
+    
+    return (
+      <TouchableOpacity 
+        style={[
+          styles.houseItem,
+          houseWithStatus.proximityStatus === 'nearby' && styles.houseItemNearby,
+          houseWithStatus.proximityStatus === 'approaching' && styles.houseItemApproaching,
+        ]}
+        onPress={() => setSelectedHouse(house)}
+      >
+        <View style={styles.houseInfo}>
+          <Text style={styles.houseAddress}>{house.address}</Text>
+          {showDistance && (
+            <Text style={styles.distanceText}>
+              {Math.round(houseWithStatus.distance)}m away
+            </Text>
+          )}
+          {house.notes && (
+            <Text style={styles.houseNotes}>{house.notes}</Text>
+          )}
+        </View>
+        <View style={styles.houseStatus}>
+          <View style={[
+            styles.statusIndicator,
+            { backgroundColor: getStatusColor(house.status) }
+          ]} />
+          <Text style={styles.statusText}>{house.status}</Text>
+        </View>
+      </TouchableOpacity>
+    );
+  };
+
   if (loading) {
     return (
       <View style={[styles.container, styles.centerContent]}>
@@ -620,24 +767,24 @@ const RouteScreen = ({ routeId }) => {
         <View style={styles.topSection}>
           <View style={styles.progressRow}>
             <View style={styles.progressSection}>
-              <View style={styles.progressContainer}>
-                <View style={styles.progressBar}>
-                  <View 
-                    style={[
-                      styles.progressFill,
+        <View style={styles.progressContainer}>
+          <View style={styles.progressBar}>
+            <View 
+              style={[
+                styles.progressFill,
                       { width: `${(selectedHouses.size / (route?.houses?.length || 1)) * 100}%` }
-                    ]} 
-                  />
-                </View>
+              ]} 
+            />
+          </View>
                 <Text style={styles.progressText}>
                   {selectedHouses.size}/{route?.houses?.length || 0} completed
-                </Text>
+          </Text>
               </View>
-            </View>
-
-            <TouchableOpacity
-              style={styles.checkAllButton}
-              onPress={toggleAll}
+        </View>
+        
+        <TouchableOpacity 
+          style={styles.checkAllButton}
+          onPress={toggleAll}
               disabled={loading || !route?.houses?.length}
             >
               <LinearGradient
@@ -652,16 +799,16 @@ const RouteScreen = ({ routeId }) => {
                   color="#fff" 
                 />
               </LinearGradient>
-            </TouchableOpacity>
+        </TouchableOpacity>
           </View>
-        </View>
+      </View>
 
         <View style={styles.notificationsSection}>
-          <ScrollView
+      <ScrollView 
             style={styles.notificationsScroll}
             contentContainerStyle={styles.notificationsScrollContent}
-            showsVerticalScrollIndicator={false}
-          >
+        showsVerticalScrollIndicator={false}
+      >
             <NotificationsSection />
             {nearbyHouses.map((house, index) => (
               <GeofenceAlert key={`${house.id}-${index}`} house={house} />
@@ -680,15 +827,15 @@ const RouteScreen = ({ routeId }) => {
           overScrollMode="always"
         >
           {route?.houses?.map(house => (
-            <HouseItem
-              key={house.id}
-              house={house}
-              onToggle={toggleHouse}
-              isSelected={selectedHouses.has(house.id)}
-              onPress={() => handleAddressPress(house)}
-            />
-          ))}
-        </ScrollView>
+          <HouseItem
+            key={house.id}
+            house={house}
+            onToggle={toggleHouse}
+            isSelected={selectedHouses.has(house.id)}
+            onPress={() => handleAddressPress(house)}
+          />
+        ))}
+      </ScrollView>
       </View>
 
       <BlurView intensity={80} style={styles.footer}>
@@ -719,12 +866,12 @@ const RouteScreen = ({ routeId }) => {
               </Text>
             </View>
           </View>
-          <TouchableOpacity
+        <TouchableOpacity 
             style={[
               styles.endRouteButton,
               selectedHouses.size === route?.houses?.length && styles.endRouteButtonComplete
             ]}
-            onPress={handleEndRoute}
+          onPress={handleEndRoute}
             activeOpacity={0.8}
           >
             <LinearGradient
@@ -745,8 +892,8 @@ const RouteScreen = ({ routeId }) => {
                 {selectedHouses.size === route?.houses?.length ? 'Complete Route' : 'End Route'}
               </Text>
             </LinearGradient>
-          </TouchableOpacity>
-        </View>
+        </TouchableOpacity>
+      </View>
       </BlurView>
 
       <AddressModal
@@ -756,6 +903,14 @@ const RouteScreen = ({ routeId }) => {
         onSaveNote={handleSaveNote}
         onNavigate={handleNavigate}
       />
+
+      {geofencingError && (
+        <View style={styles.errorBanner}>
+          <Text style={styles.errorText}>
+            Location tracking error: {geofencingError}
+          </Text>
+        </View>
+      )}
     </View>
   );
 };
@@ -1249,6 +1404,24 @@ const styles = StyleSheet.create({
     color: '#6B7280',
     fontSize: 14,
     fontStyle: 'italic',
+  },
+  houseItemNearby: {
+    borderLeftWidth: 4,
+    borderLeftColor: '#10B981', // green
+  },
+  houseItemApproaching: {
+    borderLeftWidth: 4,
+    borderLeftColor: '#3B82F6', // blue
+  },
+  distanceText: {
+    fontSize: 12,
+    color: '#6B7280',
+    marginTop: 2,
+  },
+  errorBanner: {
+    backgroundColor: '#EF4444',
+    padding: 8,
+    width: '100%',
   },
 });
 

@@ -68,81 +68,100 @@ const AddTeamMemberScreen = () => {
       // First check if user already exists
       const { data: existingUser, error: checkError } = await supabase
         .from('profiles')
-        .select('id')
+        .select('id, email')
         .eq('email', formData.email)
         .maybeSingle();
 
-      if (checkError) {
-        console.error('Check Error:', checkError);
-        throw new Error('Failed to check existing user');
-      }
+      if (checkError) throw new Error('Failed to check existing user: ' + checkError.message);
 
       if (existingUser) {
         Alert.alert('Error', 'A team member with this email already exists');
         return;
       }
 
-      // Create user with admin API
-      const initialPassword = Math.random().toString(36).slice(-12); // Store password to show later
-      const { data, error: signUpError } = await supabaseAdmin.auth.admin.createUser({
+      // Generate a secure random password
+      const initialPassword = Math.random().toString(36).slice(-12) + 
+                            Math.random().toString(36).slice(-12) +
+                            '!@#$';
+
+      // Create user first
+      const { data: userData, error: createError } = await supabaseAdmin.auth.admin.createUser({
         email: formData.email,
         password: initialPassword,
         email_confirm: true,
         user_metadata: {
           full_name: formData.fullName,
           role: formData.role,
-        },
+          temp_password: initialPassword
+        }
       });
 
-      if (signUpError) {
-        throw new Error('Failed to create user account: ' + signUpError.message);
+      if (createError) throw new Error('Failed to create user: ' + createError.message);
+
+      // Wait a moment for the user to be fully created
+      await new Promise(resolve => setTimeout(resolve, 1000));
+
+      // Now send the invite email separately
+      const { error: emailError } = await supabaseAdmin.auth.signInWithOtp({
+        email: formData.email,
+        options: {
+          data: {
+            full_name: formData.fullName,
+            role: formData.role,
+            temp_password: initialPassword,
+            type: 'invite'
+          },
+          emailRedirectTo: `${process.env.EXPO_PUBLIC_APP_URL}/auth/login`,
+          shouldCreateUser: false
+        }
+      });
+
+      if (emailError) {
+        console.warn('Failed to send welcome email:', emailError);
+        // Show credentials since email failed
+        Alert.alert(
+          'Partial Success',
+          `Team member account created with:\n\nEmail: ${formData.email}\nPassword: ${initialPassword}\n\nPlease share these credentials manually as the welcome email could not be sent.`,
+          [
+            {
+              text: 'Copy Credentials',
+              onPress: async () => {
+                const credentials = `Email: ${formData.email}\nPassword: ${initialPassword}`;
+                await Clipboard.setString(credentials);
+                Alert.alert('Copied', 'The credentials have been copied to your clipboard.');
+                router.back();
+              },
+            },
+            {
+              text: 'OK',
+              onPress: () => router.back()
+            }
+          ]
+        );
+        return;
       }
 
-      if (!data?.user) {
-        throw new Error('No user data returned');
-      }
-
-      // Create the profile using admin client
-      const { error: profileError } = await supabaseAdmin
-        .from('profiles')
-        .insert({
-          id: data.user.id,
-          full_name: formData.fullName,
-          email: formData.email,
-          phone: formData.phone || null,
-          role: formData.role,
-          status: 'active',
-          start_date: new Date()
-        });
-
-      if (profileError) {
-        console.error('Profile Error:', profileError);
-        // If profile creation fails, we should delete the user
-        await supabaseAdmin.auth.admin.deleteUser(data.user.id);
-        throw new Error('Failed to create team member profile: ' + profileError.message);
-      }
-
-      // Refresh the team members list
-      await fetchTeamMembers();
-
+      // Show success message with credentials as backup
       Alert.alert(
         'Team Member Added',
-        `Team member has been created successfully.\n\nLogin Credentials:\nEmail: ${formData.email}\nPassword: ${initialPassword}\n\nPlease securely share these credentials with the team member.`,
+        `Team member has been invited successfully.\n\nAs a backup, here are their credentials:\nEmail: ${formData.email}\nPassword: ${initialPassword}`,
         [
           {
-            text: 'Copy Password',
+            text: 'Copy Credentials',
             onPress: async () => {
-              await Clipboard.setString(initialPassword);
-              Alert.alert('Password Copied', 'The password has been copied to your clipboard.');
+              const credentials = `Email: ${formData.email}\nPassword: ${initialPassword}`;
+              await Clipboard.setString(credentials);
+              Alert.alert('Copied', 'The credentials have been copied to your clipboard.');
               router.back();
             },
           },
           {
             text: 'Done',
-            onPress: () => router.back(),
-          },
+            onPress: () => router.back()
+          }
         ]
       );
+
     } catch (error) {
       console.error('Error adding team member:', error);
       Alert.alert(

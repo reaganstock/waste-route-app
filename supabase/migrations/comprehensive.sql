@@ -425,18 +425,8 @@ GRANT ALL ON ALL SEQUENCES IN SCHEMA auth TO service_role;
 GRANT ALL ON ALL ROUTINES IN SCHEMA auth TO service_role;
 
 -- Grant specific permissions for auth.users
-GRANT SELECT, INSERT, UPDATE, DELETE ON auth.users TO service_role;
+GRANT SELECT ON auth.users TO service_role;
 GRANT SELECT ON auth.users TO authenticated;
-
--- Ensure RLS is enabled but allow service role access
-ALTER TABLE auth.users FORCE ROW LEVEL SECURITY;
-
--- Create policy for service role to access auth.users
-CREATE POLICY service_role_access_policy ON auth.users 
-    FOR ALL 
-    TO service_role 
-    USING (true)
-    WITH CHECK (true);
 
 -- Ensure RLS is enabled
 ALTER TABLE public.profiles FORCE ROW LEVEL SECURITY;

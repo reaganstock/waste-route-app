@@ -4,16 +4,21 @@ import * as Notifications from 'expo-notifications';
 import * as Location from 'expo-location';
 
 // Constants
-const GEOFENCE_RADIUS = 200; // meters
-const MIN_DISTANCE_THRESHOLD = 50; // meters
-const NOTIFICATION_COOLDOWN = 5 * 60 * 1000; // 5 minutes in milliseconds
+const GEOFENCE_SETTINGS = {
+  OUTER_RADIUS: 500, // meters - early warning
+  INNER_RADIUS: 200, // meters - immediate alert
+  MIN_DISTANCE_CHANGE: 50, // meters - minimum movement to trigger check
+  NOTIFICATION_COOLDOWN: 5 * 60 * 1000, // 5 minutes between repeat notifications
+};
 
 export const useGeofencing = (houses, enabled = false) => {
   const [nearbyHouses, setNearbyHouses] = useState([]);
+  const [approachingHouses, setApproachingHouses] = useState([]);
   const [isTracking, setIsTracking] = useState(false);
   const [error, setError] = useState(null);
   const lastNotifications = useRef(new Map());
   const locationSubscription = useRef(null);
+  const lastLocation = useRef(null);
 
   const calculateDistance = useCallback((lat1, lon1, lat2, lon2) => {
     return getDistance(
@@ -22,31 +27,48 @@ export const useGeofencing = (houses, enabled = false) => {
     );
   }, []);
 
-  const shouldNotify = useCallback((houseId) => {
-    const lastNotification = lastNotifications.current.get(houseId);
+  const shouldNotify = useCallback((houseId, notificationType) => {
+    const key = `${houseId}-${notificationType}`;
+    const lastNotification = lastNotifications.current.get(key);
     const now = Date.now();
-    return !lastNotification || (now - lastNotification) > NOTIFICATION_COOLDOWN;
+    return !lastNotification || (now - lastNotification) > GEOFENCE_SETTINGS.NOTIFICATION_COOLDOWN;
   }, []);
 
-  const showNotification = useCallback(async (house) => {
-    if (!shouldNotify(house.id)) return;
-
+  const showNotification = useCallback(async (house, distance) => {
     const isSkip = house.status === 'skip';
     const isNew = house.status === 'new customer';
+    const isApproaching = distance > GEOFENCE_SETTINGS.INNER_RADIUS;
+    const notificationType = isApproaching ? 'approaching' : 'arriving';
+    
+    if (!shouldNotify(house.id, notificationType)) return;
     
     try {
+      const title = isSkip ? '⚠️ Skip House' : 
+                   isNew ? '🆕 New Customer' : 
+                   '🏠 Regular House';
+                   
+      const body = `${isApproaching ? 'Approaching' : 'Arriving at'}: ${house.address}
+${Math.round(distance)}m away${house.notes ? `\nNote: ${house.notes}` : ''}`;
+
       await Notifications.scheduleNotificationAsync({
         content: {
-          title: isSkip ? '⚠️ Skip House Nearby' : isNew ? '🆕 New Customer Approaching' : '🏠 House Nearby',
-          body: `${house.address}${house.notes ? `\nNote: ${house.notes}` : ''}`,
-          data: { houseId: house.id, status: house.status },
-          sound: true,
-          priority: isSkip ? 'high' : 'default',
+          title,
+          body,
+          data: { 
+            houseId: house.id, 
+            status: house.status,
+            distance,
+            address: house.address,
+            lat: house.lat,
+            lng: house.lng
+          },
+          categoryIdentifier: 'route',
         },
         trigger: null,
       });
 
-      lastNotifications.current.set(house.id, Date.now());
+      const key = `${house.id}-${notificationType}`;
+      lastNotifications.current.set(key, Date.now());
     } catch (error) {
       console.error('Error showing notification:', error);
       setError('Failed to show notification');
@@ -57,9 +79,11 @@ export const useGeofencing = (houses, enabled = false) => {
     if (!houses || !enabled) return;
 
     try {
-      const nearby = houses.filter(house => {
-        if (!house.lat || !house.lng) return false;
-        if (house.status !== 'skip' && house.status !== 'new customer') return false;
+      const nearby = [];
+      const approaching = [];
+
+      houses.forEach(house => {
+        if (!house.lat || !house.lng) return;
 
         const distance = calculateDistance(
           location.latitude,
@@ -68,25 +92,50 @@ export const useGeofencing = (houses, enabled = false) => {
           parseFloat(house.lng)
         );
 
-        return distance <= GEOFENCE_RADIUS;
+        // Track houses within outer radius
+        if (distance <= GEOFENCE_SETTINGS.OUTER_RADIUS) {
+          const houseWithDistance = { ...house, distance };
+          
+          if (distance <= GEOFENCE_SETTINGS.INNER_RADIUS) {
+            nearby.push(houseWithDistance);
+          } else {
+            approaching.push(houseWithDistance);
+          }
+        }
       });
+
+      // Sort by distance
+      nearby.sort((a, b) => a.distance - b.distance);
+      approaching.sort((a, b) => a.distance - b.distance);
 
       // Find newly detected houses
       const newNearby = nearby.filter(house => 
         !nearbyHouses.find(h => h.id === house.id)
       );
 
-      // Show notifications for new nearby houses
+      const newApproaching = approaching.filter(house =>
+        !approachingHouses.find(h => h.id === house.id) &&
+        !nearby.find(h => h.id === house.id)
+      );
+
+      // Show notifications for new nearby and approaching houses
       for (const house of newNearby) {
-        await showNotification(house);
+        await showNotification(house, house.distance);
+      }
+
+      for (const house of newApproaching) {
+        if (house.status === 'skip' || house.status === 'new customer') {
+          await showNotification(house, house.distance);
+        }
       }
 
       setNearbyHouses(nearby);
+      setApproachingHouses(approaching);
     } catch (error) {
       console.error('Error checking nearby houses:', error);
       setError('Failed to check nearby houses');
     }
-  }, [houses, enabled, nearbyHouses, calculateDistance, showNotification]);
+  }, [houses, enabled, nearbyHouses, approachingHouses, calculateDistance, showNotification]);
 
   const startTracking = useCallback(async () => {
     if (isTracking || !enabled) return;
@@ -102,7 +151,7 @@ export const useGeofencing = (houses, enabled = false) => {
       locationSubscription.current = await Location.watchPositionAsync(
         {
           accuracy: Location.Accuracy.Balanced,
-          distanceInterval: MIN_DISTANCE_THRESHOLD,
+          distanceInterval: GEOFENCE_SETTINGS.MIN_DISTANCE_CHANGE,
           timeInterval: 10000, // 10 seconds
         },
         (location) => {
@@ -130,6 +179,7 @@ export const useGeofencing = (houses, enabled = false) => {
 
       setIsTracking(false);
       setNearbyHouses([]);
+      setApproachingHouses([]);
       setError(null);
     } catch (error) {
       console.error('Error stopping location tracking:', error);
@@ -152,6 +202,7 @@ export const useGeofencing = (houses, enabled = false) => {
 
   return {
     nearbyHouses,
+    approachingHouses,
     isTracking,
     error,
   };
