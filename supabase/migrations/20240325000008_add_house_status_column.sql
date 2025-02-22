@@ -1,0 +1,2 @@
+-- This migration is no longer needed as everything is handled in 20240325000007_update_house_status.sql
+-- Keeping this file empty to maintain migration sequence numbers 

@@ -10,7 +10,13 @@ export default function Signup() {
       <SignupScreen 
         navigation={{
           goBack: () => router.back(),
-          replace: (screen: string) => router.replace('/(tabs)')
+          replace: (screen: string) => {
+            // After successful signup, go to verify screen
+            router.push({
+              pathname: '/verify',
+              params: { type: 'signup' }
+            });
+          }
         }} 
       />
     </View>

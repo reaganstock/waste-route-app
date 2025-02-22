@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Dimensions, Alert, Platform } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Dimensions, Alert, Platform, ActivityIndicator, RefreshControl } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { mockRoutes, mockTeamMembers } from '../lib/mockData';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { BlurView } from 'expo-blur';
+import { supabase } from '../lib/supabase';
 
 const { width } = Dimensions.get('window');
 
@@ -167,6 +167,42 @@ const RouteCard = ({ route }) => {
   );
 };
 
+const calculateAnalytics = (routes) => {
+  const totalRoutes = routes.length;
+  const completedRoutes = routes.filter(r => r.status === 'completed').length;
+  const completionRate = totalRoutes > 0 ? Math.round((completedRoutes / totalRoutes) * 100) : 0;
+  
+  // Calculate total houses and special houses
+  const totalHouses = routes.reduce((sum, r) => sum + r.total_houses, 0);
+  const completedHouses = routes.reduce((sum, r) => sum + (r.completed_houses || 0), 0);
+  const housesPerHour = routes.reduce((sum, r) => {
+    if (r.duration && r.completed_houses) {
+      return sum + (r.completed_houses / r.duration);
+    }
+    return sum;
+  }, 0) / (completedRoutes || 1);
+
+  // Calculate efficiency
+  const efficiency = routes.reduce((sum, r) => {
+    if (r.completed_houses && r.total_houses) {
+      const routeCompletion = (r.completed_houses / r.total_houses) * 100;
+      const routeSpeed = r.duration ? Math.min((r.completed_houses / r.duration / 60) * 100, 100) : 0;
+      return sum + (routeCompletion * 0.6 + routeSpeed * 0.4);
+    }
+    return sum;
+  }, 0) / (completedRoutes || 1);
+
+  return {
+    totalRoutes,
+    completedRoutes,
+    completionRate,
+    totalHouses,
+    completedHouses,
+    housesPerHour: housesPerHour.toFixed(1),
+    efficiency: Math.round(efficiency),
+  };
+};
+
 const AnalyticsScreen = () => {
   const [startDate, setStartDate] = useState(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000));
   const [endDate, setEndDate] = useState(new Date());
@@ -174,132 +210,210 @@ const AnalyticsScreen = () => {
   const [showEndPicker, setShowEndPicker] = useState(false);
   const [analytics, setAnalytics] = useState({
     totalRoutes: 0,
+    completedRoutes: 0,
     completionRate: 0,
+    totalHouses: 0,
+    completedHouses: 0,
+    housesPerHour: 0,
     efficiency: 0,
-    specialHouses: 0,
-    topPerformers: []
   });
   const [recentRoutes, setRecentRoutes] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showAllPerformers, setShowAllPerformers] = useState(false);
+  const [allPerformers, setAllPerformers] = useState([]);
 
   const router = useRouter();
 
   useEffect(() => {
-    calculateAnalytics();
+    fetchAnalytics();
   }, [startDate, endDate]);
 
-  useEffect(() => {
-    // Filter completed routes and sort by date
-    const completed = mockRoutes
-      .filter(route => route.status === 'completed')
-      .sort((a, b) => new Date(b.date) - new Date(a.date))
-      .slice(0, 3); // Get only the 3 most recent
-    setRecentRoutes(completed);
-  }, []);
+  const fetchAnalytics = async () => {
+    try {
+      setLoading(true);
 
-  const calculateAnalytics = () => {
-    // Mock analytics calculation
-    const sortedMembers = [...mockTeamMembers].sort((a, b) => 
-      (b.completed_routes || 0) - (a.completed_routes || 0)
-    );
+      // Fetch routes within date range
+      const { data: routes, error: routesError } = await supabase
+        .from('routes')
+        .select(`
+          *,
+          houses (
+            id,
+            status
+          ),
+          driver:profiles(
+            id,
+            full_name,
+            role
+          )
+        `)
+        .gte('date', startDate.toISOString())
+        .lte('date', endDate.toISOString())
+        .order('date', { ascending: false });
 
-    setAnalytics({
-      totalRoutes: 156,
-      completionRate: 92,
-      efficiency: 88,
-      specialHouses: 45,
-      topPerformers: sortedMembers.slice(0, 3)
-    });
+      if (routesError) throw routesError;
+
+      // Fetch all team members
+      const { data: members, error: membersError } = await supabase
+        .from('profiles')
+        .select(`
+          id,
+          full_name,
+          role,
+          routes(
+            id,
+            status,
+            completed_houses,
+            total_houses
+          )
+        `)
+        .eq('status', 'active')
+        .order('role', { ascending: false });
+
+      if (membersError) throw membersError;
+
+      // Calculate member performance
+      const memberPerformance = members.map(member => {
+        const completedRoutes = member.routes?.filter(r => r.status === 'completed').length || 0;
+        const totalHouses = member.routes?.reduce((sum, r) => sum + (r.completed_houses || 0), 0) || 0;
+        const efficiency = member.routes?.length > 0 
+          ? Math.round((completedRoutes / member.routes.length) * 100) 
+          : 0;
+
+        return {
+          ...member,
+          completed_routes: completedRoutes,
+          total_houses: totalHouses,
+          efficiency
+        };
+      });
+
+      // Sort members by completed routes and efficiency
+      const sortedMembers = memberPerformance.sort((a, b) => {
+        if (b.completed_routes !== a.completed_routes) {
+          return b.completed_routes - a.completed_routes;
+        }
+        return b.efficiency - a.efficiency;
+      });
+
+      setAllPerformers(sortedMembers);
+      setRecentRoutes(routes?.slice(0, 3) || []);
+      setAnalytics(calculateAnalytics(routes || []));
+    } catch (error) {
+      console.error('Error fetching analytics:', error);
+      Alert.alert('Error', 'Failed to load analytics data');
+    } finally {
+      setLoading(false);
+    }
   };
+
+  if (loading) {
+    return (
+      <View style={[styles.container, styles.centerContent]}>
+        <ActivityIndicator size="large" color="#3B82F6" />
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
+      <LinearGradient
+        colors={['#1a1a1a', '#000000']}
+        style={StyleSheet.absoluteFill}
+      />
+      
       <BlurView intensity={80} style={styles.header}>
-        <Text style={styles.headerTitle}>Analytics</Text>
+        <Text style={styles.title}>Analytics</Text>
       </BlurView>
 
-      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-        <View style={styles.dateSelector}>
-          <TouchableOpacity 
-            style={styles.dateButton} 
-            onPress={() => setShowStartPicker(true)}
-          >
-            <Ionicons name="calendar-outline" size={20} color="#3B82F6" />
-            <Text style={styles.dateText}>
-              {startDate.toLocaleDateString()}
-            </Text>
-          </TouchableOpacity>
-          <Text style={styles.dateText}>to</Text>
-          <TouchableOpacity 
-            style={styles.dateButton} 
-            onPress={() => setShowEndPicker(true)}
-          >
-            <Ionicons name="calendar-outline" size={20} color="#3B82F6" />
-            <Text style={styles.dateText}>
-              {endDate.toLocaleDateString()}
-            </Text>
-          </TouchableOpacity>
-        </View>
-
-        {showStartPicker && (
-          <DateTimePicker
-            value={startDate}
-            mode="date"
-            display="default"
-            onChange={(event, selectedDate) => {
-              setShowStartPicker(false);
-              if (selectedDate) setStartDate(selectedDate);
-            }}
-          />
-        )}
-
-        {showEndPicker && (
-          <DateTimePicker
-            value={endDate}
-            mode="date"
-            display="default"
-            onChange={(event, selectedDate) => {
-              setShowEndPicker(false);
-              if (selectedDate) setEndDate(selectedDate);
-            }}
-          />
-        )}
-
+      <ScrollView 
+        style={styles.content}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={loading} onRefresh={fetchAnalytics} />
+        }
+      >
         <View style={styles.metricsGrid}>
           <MetricCard
-            icon="checkmark-circle"
-            title="Routes Completed"
-            value={analytics.totalRoutes}
-            color="#3B82F6"
-            trend={12}
+            icon="home-outline"
+            title="Total Houses"
+            value={analytics.totalHouses}
+            color="#6B7280"
+            showInfo
+            infoText="Total number of houses across all routes"
           />
           <MetricCard
-            icon="trending-up"
+            icon="checkmark-circle-outline"
+            title="Routes Completed"
+            value={analytics.completedRoutes}
+            color="#10B981"
+          />
+          <MetricCard
+            icon="pie-chart-outline"
             title="Completion Rate"
             value={`${analytics.completionRate}%`}
-            color="#10B981"
-            trend={5}
+            color="#3B82F6"
+            showInfo
+            infoText="Percentage of scheduled routes completed by their scheduled date"
           />
           <MetricCard
-            icon="flash"
-            title="Efficiency"
-            value={`${analytics.efficiency}%`}
-            color="#F59E0B"
-            trend={-3}
+            icon="alert-circle-outline"
+            title="Expired Routes"
+            value={analytics.totalRoutes - analytics.completedRoutes}
+            color="#EF4444"
+            showInfo
+            infoText="Routes not completed by their scheduled date"
           />
           <MetricCard
-            icon="alert-circle"
+            icon="flag-outline"
             title="Special Houses"
-            value={analytics.specialHouses}
+            value={analytics.totalHouses - analytics.completedHouses}
             color="#8B5CF6"
             showInfo
-            infoText="Houses marked as Skip, New Customer, or with Special Instructions"
+            infoText="Houses that were skipped or marked as new customers"
+          />
+          <MetricCard
+            icon="time-outline"
+            title="Hours Driven"
+            value={analytics.hoursDriven}
+            color="#14B8A6"
+            showInfo
+            infoText="Total hours spent on routes"
+          />
+          <MetricCard
+            icon="flash-outline"
+            title="Houses/Hr"
+            value={analytics.housesPerHour}
+            color="#F59E0B"
+            showInfo
+            infoText="Average number of houses serviced per hour"
+          />
+          <MetricCard
+            icon="trending-up-outline"
+            title="Efficiency"
+            value={`${analytics.efficiency}%`}
+            color="#8B5CF6"
+            showInfo
+            infoText="Based on 60% completion rate and 40% speed (target: 60 houses/hour)"
           />
         </View>
 
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Key Performers</Text>
-          <View style={styles.performersContainer}>
-            {analytics.topPerformers.map((member, index) => (
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Top Performers</Text>
+            {allPerformers.length > 3 && (
+              <TouchableOpacity 
+                style={styles.viewAllButton}
+                onPress={() => setShowAllPerformers(!showAllPerformers)}
+              >
+                <Text style={styles.viewAllButtonText}>
+                  {showAllPerformers ? 'Show Less' : 'Show All'}
+                </Text>
+              </TouchableOpacity>
+            )}
+          </View>
+          <View style={styles.performersGrid}>
+            {(showAllPerformers ? allPerformers : allPerformers.slice(0, 3)).map((member, index) => (
               <PerformerCard
                 key={member.id}
                 member={member}
@@ -312,16 +426,16 @@ const AnalyticsScreen = () => {
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>Recent Routes</Text>
-            <TouchableOpacity 
-              style={styles.viewAllButton}
-              onPress={() => router.push('/route/completed')}
-            >
-              <Text style={styles.viewAllText}>View All</Text>
-              <Ionicons name="arrow-forward" size={16} color="#3B82F6" />
-            </TouchableOpacity>
+            {recentRoutes.length > 0 && (
+              <TouchableOpacity 
+                style={styles.viewAllButton}
+                onPress={() => router.push('/completed-routes')}
+              >
+                <Text style={styles.viewAllButtonText}>View All</Text>
+              </TouchableOpacity>
+            )}
           </View>
-          
-          <View style={styles.routesContainer}>
+          <View style={styles.routesGrid}>
             {recentRoutes.map(route => (
               <RouteCard key={route.id} route={route} />
             ))}
@@ -342,34 +456,13 @@ const styles = StyleSheet.create({
     paddingTop: Platform.OS === 'ios' ? 60 : 20,
     backgroundColor: 'rgba(17, 24, 39, 0.8)',
   },
-  headerTitle: {
+  title: {
     fontSize: 28,
     fontWeight: '700',
     color: '#fff',
   },
   content: {
     flex: 1,
-  },
-  dateSelector: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 12,
-    padding: 20,
-  },
-  dateButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    backgroundColor: 'rgba(59,130,246,0.1)',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 8,
-  },
-  dateText: {
-    color: '#3B82F6',
-    fontSize: 14,
-    fontWeight: '500',
   },
   metricsGrid: {
     padding: 20,
@@ -429,15 +522,12 @@ const styles = StyleSheet.create({
     color: '#fff',
     marginBottom: 16,
   },
-  performersContainer: {
-    backgroundColor: 'rgba(31, 41, 55, 0.5)',
-    borderRadius: 16,
-    overflow: 'hidden',
+  performersGrid: {
+    gap: 12,
   },
   performerCard: {
     borderRadius: 16,
     overflow: 'hidden',
-    marginBottom: 16,
   },
   performerGradient: {
     padding: 16,
@@ -519,16 +609,17 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   viewAllButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: 'rgba(59, 130, 246, 0.1)',
   },
-  viewAllText: {
+  viewAllButtonText: {
     color: '#3B82F6',
     fontSize: 14,
     fontWeight: '500',
   },
-  routesContainer: {
+  routesGrid: {
     gap: 12,
   },
   routeCard: {
@@ -575,6 +666,10 @@ const styles = StyleSheet.create({
   routeStatText: {
     color: '#9CA3AF',
     fontSize: 14,
+  },
+  centerContent: {
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 });
 

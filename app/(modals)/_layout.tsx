@@ -5,13 +5,16 @@ export default function ModalLayout() {
     <Stack
       screenOptions={{
         headerShown: false,
-        presentation: 'modal',
-        animation: 'slide_from_bottom',
+        presentation: 'card',
+        animation: 'none',
+        gestureEnabled: false,
+        contentStyle: { backgroundColor: '#000' }
       }}
     >
       <Stack.Screen name="support" />
       <Stack.Screen name="updates" />
       <Stack.Screen name="profile-details" />
+      <Stack.Screen name="route-completion" />
     </Stack>
   );
 } 

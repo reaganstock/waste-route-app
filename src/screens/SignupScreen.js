@@ -47,17 +47,24 @@ export default function SignupScreen() {
     setLoading(true);
 
     try {
-      await signUp(
+      const { success, error, email } = await signUp(
         formData.email,
         formData.password,
         formData.fullName,
         formData.role
       );
-      Alert.alert(
-        'Success',
-        'Please check your email for verification instructions.',
-        [{ text: 'OK', onPress: () => router.push('/(auth)/sign-in') }]
-      );
+
+      if (success) {
+        router.push({
+          pathname: '/(auth)/verify',
+          params: { 
+            type: 'signup',
+            email: formData.email
+          }
+        });
+      } else {
+        Alert.alert('Error', error || 'Failed to create account');
+      }
     } catch (error) {
       Alert.alert('Error', error.message);
     } finally {

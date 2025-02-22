@@ -36,7 +36,7 @@ alter database postgres set timezone to 'UTC';
 
 -- Create custom types for status enums
 create type public.route_status as enum ('pending', 'in_progress', 'completed');
-create type public.house_status as enum ('pending', 'completed', 'skipped');
+create type public.house_status as enum ('pending', 'collect', 'skip', 'new customer');
 create type public.user_role as enum ('driver', 'admin');
 create type public.user_status as enum ('pending', 'active', 'inactive');
 
@@ -201,3 +201,106 @@ create trigger calculate_route_efficiency
     before insert or update of completed_houses, total_houses on public.routes
     for each row
     execute function public.calculate_route_efficiency();
+
+-- Add hours_driven column to profiles table
+ALTER TABLE public.profiles 
+ADD COLUMN IF NOT EXISTS hours_driven numeric(10,2) DEFAULT 0;
+
+-- Update any existing rows to have the default value
+UPDATE public.profiles 
+SET hours_driven = 0 
+WHERE hours_driven IS NULL;
+
+-- Drop existing policies
+DROP POLICY IF EXISTS "Profiles are viewable by authenticated users" ON public.profiles;
+DROP POLICY IF EXISTS "Users can update their own profile" ON public.profiles;
+DROP POLICY IF EXISTS "Admins can create profiles" ON public.profiles;
+DROP POLICY IF EXISTS "Admins can update any profile" ON public.profiles;
+DROP POLICY IF EXISTS "Enable insert for authentication users" ON public.profiles;
+DROP POLICY IF EXISTS "Enable select for authenticated users" ON public.profiles;
+DROP POLICY IF EXISTS "Enable update for users based on id" ON public.profiles;
+
+-- Temporarily disable RLS to clean up any inconsistencies
+ALTER TABLE public.profiles DISABLE ROW LEVEL SECURITY;
+
+-- Create new policies with more permissive signup
+CREATE POLICY "Enable read access for all users" ON public.profiles
+    FOR SELECT
+    USING (true);
+
+CREATE POLICY "Enable insert for users signing up" ON public.profiles
+    FOR INSERT
+    WITH CHECK (true);
+
+CREATE POLICY "Enable update for users based on id" ON public.profiles
+    FOR UPDATE
+    USING (
+        auth.uid() = id 
+        OR EXISTS (
+            SELECT 1 FROM profiles
+            WHERE id = auth.uid() AND role = 'admin'
+        )
+    );
+
+-- Re-enable RLS
+ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+
+-- Add notes column to routes table
+ALTER TABLE public.routes 
+ADD COLUMN IF NOT EXISTS notes text;
+
+-- Update any existing rows to have null notes
+UPDATE public.routes 
+SET notes = null 
+WHERE notes IS NULL;
+
+-- Safely handle the house_status enum and column
+DO $$ 
+BEGIN
+    -- Drop the existing enum type if it exists
+    IF EXISTS (SELECT 1 FROM pg_type WHERE typname = 'house_status') THEN
+        ALTER TABLE public.houses ALTER COLUMN status DROP DEFAULT;
+        ALTER TABLE public.houses ALTER COLUMN status TYPE text USING status::text;
+        DROP TYPE public.house_status;
+    END IF;
+
+    -- Create the new enum type
+    CREATE TYPE public.house_status AS ENUM ('pending', 'collect', 'skip', 'new customer');
+
+    -- Update the column type and set the default
+    ALTER TABLE public.houses 
+        ALTER COLUMN status TYPE house_status 
+        USING CASE 
+            WHEN status = 'completed' OR status = 'collect' THEN 'collect'::house_status
+            WHEN status = 'skipped' OR status = 'skip' THEN 'skip'::house_status
+            WHEN status = 'new' OR status = 'new customer' THEN 'new customer'::house_status
+            ELSE 'pending'::house_status
+        END;
+
+    -- Set the default value
+    ALTER TABLE public.houses 
+        ALTER COLUMN status SET DEFAULT 'pending'::house_status;
+
+END $$;
+
+-- Update any invalid status values
+UPDATE public.houses
+SET status = 'pending'
+WHERE status::text NOT IN ('pending', 'collect', 'skip', 'new customer');
+
+-- Add new columns for route metrics
+ALTER TABLE routes
+ADD COLUMN IF NOT EXISTS completion_rate DECIMAL(5,2),
+ADD COLUMN IF NOT EXISTS efficiency DECIMAL(5,2),
+ADD COLUMN IF NOT EXISTS special_houses INTEGER DEFAULT 0,
+ADD COLUMN IF NOT EXISTS houses_per_hour DECIMAL(5,2),
+ADD COLUMN IF NOT EXISTS start_time TIMESTAMP WITH TIME ZONE,
+ADD COLUMN IF NOT EXISTS end_time TIMESTAMP WITH TIME ZONE;
+
+-- Add comment to explain the metrics
+COMMENT ON COLUMN routes.completion_rate IS 'Percentage of houses completed on the route';
+COMMENT ON COLUMN routes.efficiency IS 'Overall route efficiency (60% completion, 40% speed)';
+COMMENT ON COLUMN routes.special_houses IS 'Count of houses with special notes or status';
+COMMENT ON COLUMN routes.houses_per_hour IS 'Average number of houses serviced per hour';
+COMMENT ON COLUMN routes.start_time IS 'When the route was started';
+COMMENT ON COLUMN routes.end_time IS 'When the route was completed'; 

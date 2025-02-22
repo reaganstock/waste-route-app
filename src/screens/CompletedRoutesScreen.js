@@ -6,22 +6,29 @@ import {
   ScrollView,
   TouchableOpacity,
   Platform,
+  ActivityIndicator,
+  Alert,
+  RefreshControl,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { mockRoutes } from '../lib/mockData';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
+import { supabase } from '../lib/supabase';
 import DateTimePicker from '@react-native-community/datetimepicker';
 
-const RouteCard = ({ route, onPress }) => {
+const RouteCard = ({ route }) => {
+  const router = useRouter();
   const date = new Date(route.date);
-  const efficiency = Math.round((route.completed_houses / route.houses.length) * 100);
-  const specialHouses = route.houses.filter(h => h.status === 'skip' || h.notes).length;
-  const duration = route.duration || '2.5'; // This would come from your backend
+  const efficiency = Math.round((route.completed_houses / route.total_houses) * 100);
+  const specialHouses = route.houses?.filter(h => h.notes || h.status === 'new customer' || h.status === 'skip')?.length || 0;
+  const duration = route.duration || '2.5';
 
   return (
-    <TouchableOpacity style={styles.routeCard} onPress={onPress}>
+    <TouchableOpacity 
+      style={styles.routeCard} 
+      onPress={() => router.push(`/route/${route.id}/details`)}
+    >
       <LinearGradient
         colors={['rgba(59, 130, 246, 0.1)', 'rgba(59, 130, 246, 0.05)']}
         style={styles.routeGradient}
@@ -50,7 +57,7 @@ const RouteCard = ({ route, onPress }) => {
           <View style={styles.routeStat}>
             <Ionicons name="home" size={16} color="#3B82F6" />
             <Text style={styles.routeStatText}>
-              {route.completed_houses}/{route.houses.length} Houses
+              {route.completed_houses}/{route.total_houses} Houses
             </Text>
           </View>
           {specialHouses > 0 && (
@@ -87,32 +94,98 @@ const RouteCard = ({ route, onPress }) => {
 
 const CompletedRoutesScreen = () => {
   const router = useRouter();
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [routes, setRoutes] = useState([]);
-  const [startDate, setStartDate] = useState(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)); // 30 days ago
-  const [endDate, setEndDate] = useState(new Date());
   const [showStartPicker, setShowStartPicker] = useState(false);
   const [showEndPicker, setShowEndPicker] = useState(false);
+  const [startDate, setStartDate] = useState(() => {
+    const date = new Date();
+    date.setDate(date.getDate() - 30); // Default to last 30 days
+    date.setHours(0, 0, 0, 0);
+    return date;
+  });
+  const [endDate, setEndDate] = useState(() => {
+    const date = new Date();
+    date.setHours(23, 59, 59, 999);
+    return date;
+  });
 
   useEffect(() => {
-    fetchRoutes();
+    fetchCompletedRoutes();
   }, [startDate, endDate]);
 
-  const fetchRoutes = () => {
-    // Filter routes by date range and completed status
-    const filteredRoutes = mockRoutes.filter(route => {
-      const routeDate = new Date(route.date);
-      return route.status === 'completed' && 
-             routeDate >= startDate && 
-             routeDate <= endDate;
-    });
-    
-    // Sort by date, newest first
-    filteredRoutes.sort((a, b) => new Date(b.date) - new Date(a.date));
-    setRoutes(filteredRoutes);
+  const onStartDateChange = (event, selectedDate) => {
+    setShowStartPicker(false);
+    if (selectedDate) {
+      selectedDate.setHours(0, 0, 0, 0);
+      setStartDate(selectedDate);
+    }
   };
+
+  const onEndDateChange = (event, selectedDate) => {
+    setShowEndPicker(false);
+    if (selectedDate) {
+      selectedDate.setHours(23, 59, 59, 999);
+      setEndDate(selectedDate);
+    }
+  };
+
+  const fetchCompletedRoutes = async () => {
+    try {
+      setLoading(true);
+
+      const { data, error } = await supabase
+        .from('routes')
+        .select(`
+          *,
+          houses (
+            id,
+            status,
+            notes
+          ),
+          driver:profiles (
+            id,
+            full_name,
+            role
+          )
+        `)
+        .eq('status', 'completed')
+        .gte('date', startDate.toISOString())
+        .lte('date', endDate.toISOString())
+        .order('date', { ascending: false });
+
+      if (error) throw error;
+      setRoutes(data || []);
+    } catch (error) {
+      console.error('Error fetching completed routes:', error);
+      Alert.alert('Error', 'Failed to load completed routes');
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+  const onRefresh = React.useCallback(() => {
+    setRefreshing(true);
+    fetchCompletedRoutes();
+  }, []);
+
+  if (loading) {
+    return (
+      <View style={[styles.container, styles.centerContent]}>
+        <ActivityIndicator size="large" color="#3B82F6" />
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
+      <LinearGradient
+        colors={['#1a1a1a', '#000000']}
+        style={StyleSheet.absoluteFill}
+      />
+      
       <BlurView intensity={80} style={styles.header}>
         <TouchableOpacity 
           onPress={() => router.back()}
@@ -124,70 +197,59 @@ const CompletedRoutesScreen = () => {
         <View style={styles.placeholder} />
       </BlurView>
 
-      <View style={styles.dateSelector}>
+      <View style={styles.datePickerContainer}>
         <TouchableOpacity 
           style={styles.dateButton} 
           onPress={() => setShowStartPicker(true)}
         >
           <Ionicons name="calendar-outline" size={20} color="#3B82F6" />
-          <Text style={styles.dateText}>
+          <Text style={styles.dateButtonText}>
             {startDate.toLocaleDateString()}
           </Text>
         </TouchableOpacity>
-        <Text style={styles.dateText}>to</Text>
+
+        <Text style={styles.dateSeperator}>to</Text>
+
         <TouchableOpacity 
           style={styles.dateButton} 
           onPress={() => setShowEndPicker(true)}
         >
           <Ionicons name="calendar-outline" size={20} color="#3B82F6" />
-          <Text style={styles.dateText}>
+          <Text style={styles.dateButtonText}>
             {endDate.toLocaleDateString()}
           </Text>
         </TouchableOpacity>
       </View>
 
-      {showStartPicker && (
+      {(showStartPicker || showEndPicker) && (
         <DateTimePicker
-          value={startDate}
+          value={showStartPicker ? startDate : endDate}
           mode="date"
           display="default"
-          onChange={(event, selectedDate) => {
-            setShowStartPicker(false);
-            if (selectedDate) setStartDate(selectedDate);
-          }}
-        />
-      )}
-
-      {showEndPicker && (
-        <DateTimePicker
-          value={endDate}
-          mode="date"
-          display="default"
-          onChange={(event, selectedDate) => {
-            setShowEndPicker(false);
-            if (selectedDate) setEndDate(selectedDate);
-          }}
+          onChange={showStartPicker ? onStartDateChange : onEndDateChange}
+          maximumDate={new Date()}
         />
       )}
 
       <ScrollView 
         style={styles.content}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }
       >
-        <View style={styles.routesList}>
-          {routes.map(route => (
-            <RouteCard
-              key={route.id}
-              route={route}
-              onPress={() => router.push(`/route/${route.id}/details`)}
-            />
-          ))}
-          {routes.length === 0 && (
-            <Text style={styles.noRoutesText}>
-              No completed routes found in this date range
-            </Text>
-          )}
-        </View>
+        {routes.length > 0 ? (
+          <View style={styles.routesGrid}>
+            {routes.map(route => (
+              <RouteCard key={route.id} route={route} />
+            ))}
+          </View>
+        ) : (
+          <View style={styles.emptyState}>
+            <Ionicons name="checkmark-circle-outline" size={48} color="#6B7280" />
+            <Text style={styles.emptyStateText}>No completed routes</Text>
+          </View>
+        )}
       </ScrollView>
     </View>
   );
@@ -221,27 +283,29 @@ const styles = StyleSheet.create({
   placeholder: {
     width: 40,
   },
-  dateSelector: {
+  datePickerContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 12,
-    padding: 20,
+    padding: 16,
     backgroundColor: 'rgba(17, 24, 39, 0.8)',
   },
   dateButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    backgroundColor: 'rgba(59,130,246,0.1)',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    backgroundColor: 'rgba(59, 130, 246, 0.1)',
+    padding: 8,
     borderRadius: 8,
+    gap: 8,
   },
-  dateText: {
+  dateButtonText: {
     color: '#3B82F6',
     fontSize: 14,
     fontWeight: '500',
+  },
+  dateSeperator: {
+    color: '#6B7280',
+    marginHorizontal: 12,
   },
   content: {
     flex: 1,
@@ -312,6 +376,27 @@ const styles = StyleSheet.create({
     fontSize: 16,
     textAlign: 'center',
     marginTop: 40,
+    fontStyle: 'italic',
+  },
+  centerContent: {
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  routesGrid: {
+    padding: 20,
+    gap: 16,
+  },
+  emptyState: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  emptyStateText: {
+    color: '#6B7280',
+    fontSize: 16,
+    textAlign: 'center',
+    marginTop: 16,
     fontStyle: 'italic',
   },
 });

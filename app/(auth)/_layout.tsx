@@ -22,6 +22,12 @@ export default function AuthLayout() {
         }}
       />
       <Stack.Screen 
+        name="verify"
+        options={{
+          animation: 'slide_from_right',
+        }}
+      />
+      <Stack.Screen 
         name="forgot-password"
         options={{
           presentation: 'modal',
