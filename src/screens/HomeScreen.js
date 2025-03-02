@@ -15,9 +15,16 @@ import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
-import { useRoutes } from '../hooks/useRoutes';
-import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
+import { useQuery, useMutation } from 'convex/react';
+import { api } from '../../convex/_generated/api';
+import { 
+  useCurrentUser,
+  useRoutes,
+  useUserRoutes,
+  useUpdateRouteStatus,
+  useTeam
+} from '../lib/convexHelpers';
 
 const { width } = Dimensions.get('window');
 
@@ -41,7 +48,11 @@ const QuickAction = ({ icon, title, color, onPress }) => (
 // RouteCard Component
 const RouteCard = ({ route, isActive, router }) => {
   const { user } = useAuth();
-  const isAssignedDriver = route.driver_id === user?.id;
+  const convexUser = useCurrentUser();
+  const updateRouteStatus = useUpdateRouteStatus();
+  
+  // Check if current user is the assigned driver
+  const isAssignedDriver = route.assignedTo === convexUser?._id;
 
   const handleStartRoute = async () => {
     try {
@@ -51,15 +62,22 @@ const RouteCard = ({ route, isActive, router }) => {
         return;
       }
 
-      const { error } = await supabase
-        .from('routes')
-        .update({ status: 'in_progress' })
-        .eq('id', route.id);
+      // Update route status if needed
+      if (route.status === 'pending') {
+        await updateRouteStatus({
+          routeId: route._id,
+          status: 'in_progress'
+        });
+      }
 
-      if (error) throw error;
-      router.push(`/route/${route.id}`);
+      // Navigate to route screen
+      router.push({
+        pathname: '/(main)/route',
+        params: { id: route._id }
+      });
     } catch (error) {
-      Alert.alert('Error', error.message);
+      console.error('Error starting route:', error);
+      Alert.alert('Error', 'Failed to start route');
     }
   };
 
@@ -80,10 +98,10 @@ const RouteCard = ({ route, isActive, router }) => {
                 <Text style={styles.routeMetaDivider}>•</Text>
                 <Text style={[
                   styles.routeDriver,
-                  route.driver_id === user?.id && styles.currentDriverText
+                  route.assignedTo === user?.id && styles.currentDriverText
                 ]}>
                   {route.driver.full_name}
-                  {route.driver_id === user?.id && ' (You)'}
+                  {route.assignedTo === user?.id && ' (You)'}
                 </Text>
               </>
             )}
@@ -134,7 +152,15 @@ const RouteCard = ({ route, isActive, router }) => {
 const HomeScreen = () => {
   const router = useRouter();
   const { user } = useAuth();
-  const { routes, loading, error, fetchRoutes } = useRoutes();
+  const convexUser = useCurrentUser();
+  const team = useTeam(convexUser?.teamId);
+  
+  // Get routes based on team or user ID
+  const isAdmin = convexUser?.role === 'admin';
+  const routes = isAdmin 
+    ? useRoutes(convexUser?.teamId)
+    : useUserRoutes(convexUser?._id);
+  
   const [refreshing, setRefreshing] = useState(false);
   const [metrics, setMetrics] = useState({
     todayHouses: 0,
@@ -143,53 +169,39 @@ const HomeScreen = () => {
     hoursDriven: 0
   });
 
-  const calculateMetrics = async () => {
+  // Get completed routes for efficiency calculations
+  const completedTeamRoutes = useQuery(api.routes.getCompletedTeamRoutes, 
+    convexUser?.teamId ? { teamId: convexUser.teamId } : "skip");
+  
+  const completedUserRoutes = useQuery(api.routes.getCompletedUserRoutes, 
+    convexUser?._id ? { userId: convexUser._id } : "skip");
+
+  const calculateMetrics = () => {
     try {
-      // Get today's date range
+      // Get today's date for filtering
       const today = new Date();
       const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-      const endOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59);
-
-      const isAdmin = user?.user_metadata?.role === 'admin';
-
-      // Get all non-completed routes for today
-      const { data: todayRoutes, error: routesError } = await supabase
-        .from('routes')
-        .select(`
-          id,
-          total_houses,
-          completed_houses,
-          driver_id,
-          status,
-          date,
-          driver:profiles(role)
-        `)
-        .gte('date', startOfDay.toISOString())
-        .lte('date', endOfDay.toISOString())
-        .neq('status', 'completed');
-
-      if (routesError) throw routesError;
+      
+      // Filter routes to only include today's routes
+      const todayRoutes = (routes || []).filter(route => {
+        const routeDate = new Date(route.date);
+        return routeDate >= startOfDay && route.status !== 'completed';
+      });
 
       // For admin, show team metrics
       if (isAdmin) {
         // Calculate total houses and routes for today (excluding completed)
-        const teamHouses = todayRoutes?.reduce((sum, route) => sum + (route.total_houses || 0), 0) || 0;
-        const teamRoutes = todayRoutes?.length || 0;
+        const teamHouses = todayRoutes.reduce((sum, route) => sum + (route.totalHouses || 0), 0);
+        const teamRoutes = todayRoutes.length;
 
-        // Calculate team efficiency from all completed routes (all time)
-        const { data: completedRoutes } = await supabase
-          .from('routes')
-          .select('completed_houses, total_houses, duration')
-          .eq('status', 'completed')
-          .gt('total_houses', 0);
-
+        // Calculate team efficiency from all completed routes
         let teamEfficiency = 0;
-        if (completedRoutes?.length > 0) {
-          const routeEfficiencies = completedRoutes
-            .filter(route => route.completed_houses && route.total_houses && route.duration)
+        if (completedTeamRoutes?.length > 0) {
+          const routeEfficiencies = completedTeamRoutes
+            .filter(route => route.completedHouses && route.totalHouses && route.duration)
             .map(route => {
-              const completionRate = route.completed_houses / route.total_houses;
-              const housesPerHour = (route.completed_houses / (route.duration / 60)) || 0;
+              const completionRate = route.completedHouses / route.totalHouses;
+              const housesPerHour = (route.completedHouses / (route.duration / 60)) || 0;
               const speedEfficiency = Math.min(housesPerHour / 60, 1); // Cap at 100%
               return (0.6 * completionRate + 0.4 * speedEfficiency) * 100;
             });
@@ -209,25 +221,18 @@ const HomeScreen = () => {
       // For drivers, show personal metrics
       else {
         // Filter routes for this driver (excluding completed)
-        const driverRoutes = todayRoutes?.filter(route => route.driver_id === user?.id) || [];
-        const driverHouses = driverRoutes.reduce((sum, route) => sum + (route.total_houses || 0), 0);
+        const driverRoutes = todayRoutes.filter(route => route.assignedTo === convexUser?._id);
+        const driverHouses = driverRoutes.reduce((sum, route) => sum + (route.totalHouses || 0), 0);
         const driverRoutesCount = driverRoutes.length;
 
-        // Calculate driver efficiency from all their completed routes (all time)
-        const { data: driverCompletedRoutes } = await supabase
-          .from('routes')
-          .select('completed_houses, total_houses, duration')
-          .eq('driver_id', user?.id)
-          .eq('status', 'completed')
-          .gt('total_houses', 0);
-
+        // Calculate driver efficiency from all their completed routes
         let driverEfficiency = 0;
-        if (driverCompletedRoutes?.length > 0) {
-          const routeEfficiencies = driverCompletedRoutes
-            .filter(route => route.completed_houses && route.total_houses && route.duration)
+        if (completedUserRoutes?.length > 0) {
+          const routeEfficiencies = completedUserRoutes
+            .filter(route => route.completedHouses && route.totalHouses && route.duration)
             .map(route => {
-              const completionRate = route.completed_houses / route.total_houses;
-              const housesPerHour = (route.completed_houses / (route.duration / 60)) || 0;
+              const completionRate = route.completedHouses / route.totalHouses;
+              const housesPerHour = (route.completedHouses / (route.duration / 60)) || 0;
               const speedEfficiency = Math.min(housesPerHour / 60, 1); // Cap at 100%
               return (0.6 * completionRate + 0.4 * speedEfficiency) * 100;
             });
@@ -249,18 +254,21 @@ const HomeScreen = () => {
     }
   };
 
-  // Update metrics whenever routes change
+  // Update metrics whenever routes or completed routes change
   React.useEffect(() => {
     calculateMetrics();
-  }, [routes]);
+  }, [routes, completedTeamRoutes, completedUserRoutes, convexUser]);
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await fetchRoutes();
-    setRefreshing(false);
+    // With Convex, we don't need to manually refresh as it will automatically update
+    // Just wait a bit to show the refresh indicator
+    setTimeout(() => {
+      setRefreshing(false);
+    }, 1000);
   };
 
-  if (loading && !refreshing) {
+  if (!routes && !refreshing) {
     return (
       <View style={[styles.container, styles.centerContent]}>
         <ActivityIndicator size="large" color="#3B82F6" />

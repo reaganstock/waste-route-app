@@ -138,30 +138,18 @@ const SettingsScreen = () => {
 
   const fetchProfile = async () => {
     try {
-      if (!user) return;
-
       const { data, error } = await supabase
         .from('profiles')
         .select('*')
         .eq('id', user.id)
-        .maybeSingle(); // Use maybeSingle() instead of single() to avoid error when no profile exists
+        .single();
 
       if (error) {
         console.error('Error fetching profile:', error);
         return;
       }
 
-      if (data) {
-        setProfile(data);
-      } else {
-        console.log('No profile found for user');
-        // Set default values when no profile exists
-        setProfile({
-          full_name: user.user_metadata?.full_name || 'Loading...',
-          email: user.email,
-          role: user.user_metadata?.role || 'driver'
-        });
-      }
+      setProfile(data);
     } catch (error) {
       console.error('Error fetching profile:', error);
     } finally {

@@ -1,3 +1,4 @@
+import React from 'react';
 import { Stack } from 'expo-router';
 
 export default function AuthLayout() {
@@ -5,33 +6,36 @@ export default function AuthLayout() {
     <Stack
       screenOptions={{
         headerShown: false,
-        presentation: 'modal',
-        animation: 'fade',
+        contentStyle: { backgroundColor: '#000' },
+        animation: 'slide_from_right',
       }}
     >
-      <Stack.Screen 
-        name="index" 
+      <Stack.Screen
+        name="sign-in"
         options={{
-          animation: 'fade',
+          title: 'Sign In',
+          animation: 'slide_from_right',
         }}
       />
-      <Stack.Screen 
+      <Stack.Screen
         name="signup"
         options={{
+          title: 'Sign Up',
           animation: 'slide_from_right',
         }}
       />
-      <Stack.Screen 
+      <Stack.Screen
         name="verify"
         options={{
+          title: 'Verify Email',
           animation: 'slide_from_right',
         }}
       />
-      <Stack.Screen 
+      <Stack.Screen
         name="forgot-password"
         options={{
-          presentation: 'modal',
-          animation: 'slide_from_bottom',
+          title: 'Forgot Password',
+          animation: 'slide_from_right',
         }}
       />
     </Stack>

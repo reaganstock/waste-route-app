@@ -1,80 +1,51 @@
+import React, { useEffect, useRef } from 'react';
 import { Stack } from 'expo-router';
+import { ClerkProvider, ClerkLoaded, useAuth as useClerkAuth } from '@clerk/clerk-expo';
+import { ConvexProviderWithClerk } from 'convex/react-clerk';
 import { StatusBar } from 'expo-status-bar';
-import { AuthProvider } from '../src/contexts/AuthContext';
-import { useAuth } from '../src/contexts/AuthContext';
-import { useEffect } from 'react';
 import { useRouter, useSegments } from 'expo-router';
+import { tokenCache } from '../src/lib/tokenCache';
+import { convex } from '../convex';
+import { AuthProvider, useAuth } from '../src/contexts/AuthContext';
+import { useUser } from '@clerk/clerk-expo';
+import { ActivityIndicator, View, Text } from 'react-native';
 
-function RootLayoutNav() {
-  const { user, loading } = useAuth();
-  const segments = useSegments();
-  const router = useRouter();
+// Get the Clerk publishable key from environment variables
+const CLERK_PUBLISHABLE_KEY = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY;
 
-  useEffect(() => {
-    if (loading) return;
+if (!CLERK_PUBLISHABLE_KEY) {
+  throw new Error('Missing EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY environment variable');
+}
 
-    const inAuthGroup = segments[0] === '(auth)';
-
-    if (!user && !inAuthGroup) {
-      // Redirect to the sign-in page.
-      router.replace('/(auth)/sign-in');
-    } else if (user && inAuthGroup) {
-      // Redirect away from the sign-in page.
-      router.replace('/(tabs)');
-    }
-  }, [user, loading, segments]);
-
+// Root layout component
+export default function RootLayout() {
+  console.log('Clerk publishable key:', CLERK_PUBLISHABLE_KEY);
+  
   return (
-    <>
-      <StatusBar style="light" />
-      <Stack
-        screenOptions={{
-          headerShown: false,
-          contentStyle: { backgroundColor: '#000' },
-          animation: 'slide_from_right',
-        }}
-      >
-        <Stack.Screen name="(tabs)" />
-        <Stack.Screen name="(auth)" />
-        <Stack.Screen 
-          name="active-routes" 
-          options={{ 
-            presentation: 'modal',
-            animation: 'slide_from_bottom'
-          }} 
-        />
-        <Stack.Screen 
-          name="upcoming-routes" 
-          options={{ 
-            presentation: 'modal',
-            animation: 'slide_from_bottom'
-          }} 
-        />
-        <Stack.Screen name="route" />
-        <Stack.Screen name="settings" />
-        <Stack.Screen name="support" />
-        <Stack.Screen name="updates" />
-        <Stack.Screen name="profile-details" />
-        <Stack.Screen name="route-create" />
-        <Stack.Screen name="map" />
-        <Stack.Screen name="route/[id]/completion" options={{ 
-          presentation: 'card',
-          gestureEnabled: false,
-          headerShown: false,
-          animation: 'none',
-          contentStyle: {
-            backgroundColor: '#000'
-          }
-        }} />
-      </Stack>
-    </>
+    <ClerkProvider 
+      publishableKey={CLERK_PUBLISHABLE_KEY}
+      tokenCache={tokenCache}
+    >
+      <ClerkLoaded>
+        <ConvexProviderWithClerk client={convex} useAuth={useClerkAuth}>
+          <AuthProvider>
+            <RootLayoutNav />
+          </AuthProvider>
+        </ConvexProviderWithClerk>
+      </ClerkLoaded>
+    </ClerkProvider>
   );
 }
 
-export default function RootLayout() {
+// Navigation component that handles authentication routing
+function RootLayoutNav() {
+  // Remove all the complex navigation logic that's causing loops
+  // Just render the Stack and let the individual layouts handle their own auth checks
+  
   return (
-    <AuthProvider>
-      <RootLayoutNav />
-    </AuthProvider>
+    <>
+      <StatusBar style="light" />
+      <Stack screenOptions={{ headerShown: false }} />
+    </>
   );
 }

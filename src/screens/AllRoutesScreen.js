@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
@@ -7,17 +7,18 @@ import {
   ScrollView,
   Platform,
   Dimensions,
+  ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
-import { mockRoutes } from '../lib/mockData';
+import { useCurrentUser, useRoutes } from '../lib/convexHelpers';
 
 const { width } = Dimensions.get('window');
 
 const RouteCard = ({ route, onPress }) => {
-  const completionRate = Math.round((route.completed_houses / route.total_houses) * 100) || 0;
+  const completionRate = Math.round((route.completedHouses || 0) / (route.totalHouses || 1) * 100) || 0;
   const formattedDate = new Date(route.date).toLocaleDateString('en-US', {
     weekday: 'short',
     month: 'short',
@@ -50,41 +51,40 @@ const RouteCard = ({ route, onPress }) => {
         <View style={styles.routeHeader}>
           <Text style={styles.routeName}>{route.name}</Text>
           <View style={[
-            styles.statusBadge,
-            { backgroundColor: `${getStatusColor(route.status)}20` }
+            styles.statusBadge, 
+            { backgroundColor: getStatusColor(route.status) }
           ]}>
-            <View style={[
-              styles.statusDot,
-              { backgroundColor: getStatusColor(route.status) }
-            ]} />
-            <Text style={[
-              styles.statusText,
-              { color: getStatusColor(route.status) }
-            ]}>
-              {route.status.replace('_', ' ').toUpperCase()}
+            <Text style={styles.statusText}>
+              {route.status === 'in_progress' ? 'Active' : 
+                route.status.charAt(0).toUpperCase() + route.status.slice(1)}
             </Text>
           </View>
         </View>
-
-        <View style={styles.routeStats}>
-          <View style={styles.statItem}>
-            <Ionicons name="home" size={16} color="#9CA3AF" />
-            <Text style={styles.statText}>
-              {route.completed_houses}/{route.total_houses} houses
+        
+        <View style={styles.routeInfo}>
+          <View style={styles.infoItem}>
+            <Ionicons name="calendar-outline" size={16} color="#9CA3AF" />
+            <Text style={styles.infoText}>{formattedDate}</Text>
+          </View>
+          
+          <View style={styles.infoItem}>
+            <Ionicons name="home-outline" size={16} color="#9CA3AF" />
+            <Text style={styles.infoText}>
+              {route.completedHouses || 0}/{route.totalHouses || 0} houses
             </Text>
           </View>
-          <View style={styles.statItem}>
-            <Ionicons name="time" size={16} color="#9CA3AF" />
-            <Text style={styles.statText}>{route.duration}h</Text>
-          </View>
-          <View style={styles.statItem}>
-            <Ionicons name="trending-up" size={16} color="#9CA3AF" />
-            <Text style={styles.statText}>{completionRate}%</Text>
-          </View>
         </View>
-
-        <View style={styles.routeFooter}>
-          <Text style={styles.routeDate}>{formattedDate}</Text>
+        
+        <View style={styles.progressContainer}>
+          <View style={styles.progressBar}>
+            <View 
+              style={[
+                styles.progressFill, 
+                { width: `${completionRate}%` }
+              ]} 
+            />
+          </View>
+          <Text style={styles.progressText}>{completionRate}%</Text>
         </View>
       </LinearGradient>
     </TouchableOpacity>
@@ -93,10 +93,13 @@ const RouteCard = ({ route, onPress }) => {
 
 const FilterButton = ({ label, isActive, onPress }) => (
   <TouchableOpacity
-    style={[styles.filterButton, isActive && styles.filterButtonActive]}
+    style={[styles.filterButton, isActive && styles.activeFilterButton]}
     onPress={onPress}
   >
-    <Text style={[styles.filterButtonText, isActive && styles.filterButtonTextActive]}>
+    <Text style={[
+      styles.filterButtonText,
+      isActive && styles.activeFilterButtonText
+    ]}>
       {label}
     </Text>
   </TouchableOpacity>
@@ -104,32 +107,39 @@ const FilterButton = ({ label, isActive, onPress }) => (
 
 const AllRoutesScreen = () => {
   const router = useRouter();
-  const [routes, setRoutes] = useState([]);
   const [filter, setFilter] = useState('all');
-
-  useEffect(() => {
-    loadRoutes();
-  }, [filter]);
-
-  const loadRoutes = () => {
-    let filteredRoutes = [...mockRoutes];
-
+  const currentUser = useCurrentUser();
+  const allRoutes = useRoutes(currentUser?.teamId);
+  
+  // Filter and sort routes based on the selected filter
+  const filteredRoutes = useMemo(() => {
+    if (!allRoutes) return [];
+    
+    let result = [...allRoutes];
+    
     switch (filter) {
       case 'completed':
-        filteredRoutes = filteredRoutes.filter(r => r.status === 'completed');
+        result = result.filter(r => r.status === 'completed');
         break;
       case 'in_progress':
-        filteredRoutes = filteredRoutes.filter(r => r.status === 'in_progress');
+        result = result.filter(r => r.status === 'in_progress');
         break;
       case 'pending':
-        filteredRoutes = filteredRoutes.filter(r => r.status === 'pending');
+        result = result.filter(r => r.status === 'pending');
         break;
     }
-
+    
     // Sort by date, most recent first
-    filteredRoutes.sort((a, b) => new Date(b.date) - new Date(a.date));
-    setRoutes(filteredRoutes);
-  };
+    return result.sort((a, b) => b.date - a.date);
+  }, [allRoutes, filter]);
+
+  if (!allRoutes) {
+    return (
+      <View style={[styles.container, styles.loadingContainer]}>
+        <ActivityIndicator size="large" color="#3B82F6" />
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -149,47 +159,62 @@ const AllRoutesScreen = () => {
         <View style={styles.placeholder} />
       </BlurView>
 
-      <View style={styles.filterContainer}>
+      <View style={styles.filtersContainer}>
         <ScrollView 
-          horizontal 
+          horizontal
           showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.filterScroll}
+          contentContainerStyle={styles.filtersScrollContent}
         >
-          <FilterButton
-            label="All Routes"
-            isActive={filter === 'all'}
+          <FilterButton 
+            label="All" 
+            isActive={filter === 'all'} 
             onPress={() => setFilter('all')}
           />
-          <FilterButton
-            label="Completed"
-            isActive={filter === 'completed'}
-            onPress={() => setFilter('completed')}
+          <FilterButton 
+            label="Pending" 
+            isActive={filter === 'pending'} 
+            onPress={() => setFilter('pending')}
           />
-          <FilterButton
-            label="In Progress"
-            isActive={filter === 'in_progress'}
+          <FilterButton 
+            label="Active" 
+            isActive={filter === 'in_progress'} 
             onPress={() => setFilter('in_progress')}
           />
-          <FilterButton
-            label="Pending"
-            isActive={filter === 'pending'}
-            onPress={() => setFilter('pending')}
+          <FilterButton 
+            label="Completed" 
+            isActive={filter === 'completed'} 
+            onPress={() => setFilter('completed')}
           />
         </ScrollView>
       </View>
 
       <ScrollView 
-        style={styles.content}
-        contentContainerStyle={styles.routesList}
+        style={styles.routesList}
+        contentContainerStyle={styles.routesContent}
         showsVerticalScrollIndicator={false}
       >
-        {routes.map(route => (
-          <RouteCard
-            key={route.id}
-            route={route}
-            onPress={() => router.push(`/route/${route.id}`)}
-          />
-        ))}
+        {filteredRoutes.length > 0 ? (
+          filteredRoutes.map(route => (
+            <RouteCard 
+              key={route._id} 
+              route={route} 
+              onPress={() => router.push({
+                pathname: '/(main)/route',
+                params: { id: route._id }
+              })}
+            />
+          ))
+        ) : (
+          <View style={styles.emptyState}>
+            <Ionicons name="document-outline" size={48} color="#6B7280" />
+            <Text style={styles.emptyStateText}>No routes found</Text>
+            <Text style={styles.emptyStateSubtext}>
+              {filter === 'all' 
+                ? 'Create a new route to get started' 
+                : `No ${filter === 'in_progress' ? 'active' : filter} routes`}
+            </Text>
+          </View>
+        )}
       </ScrollView>
     </View>
   );
@@ -223,12 +248,12 @@ const styles = StyleSheet.create({
   placeholder: {
     width: 40,
   },
-  filterContainer: {
+  filtersContainer: {
     paddingVertical: 12,
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(255,255,255,0.1)',
   },
-  filterScroll: {
+  filtersScrollContent: {
     paddingHorizontal: 20,
     gap: 12,
   },
@@ -240,7 +265,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.1)',
   },
-  filterButtonActive: {
+  activeFilterButton: {
     backgroundColor: '#3B82F6',
     borderColor: '#3B82F6',
   },
@@ -249,13 +274,14 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '500',
   },
-  filterButtonTextActive: {
+  activeFilterButtonText: {
     color: '#fff',
   },
-  content: {
-    flex: 1,
-  },
   routesList: {
+    padding: 20,
+    gap: 16,
+  },
+  routesContent: {
     padding: 20,
     gap: 16,
   },
@@ -284,38 +310,64 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderRadius: 12,
   },
-  statusDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    marginRight: 8,
-  },
   statusText: {
     fontSize: 12,
     fontWeight: '600',
   },
-  routeStats: {
+  routeInfo: {
     flexDirection: 'row',
     gap: 16,
     marginBottom: 16,
   },
-  statItem: {
+  infoItem: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
   },
-  statText: {
+  infoText: {
     color: '#9CA3AF',
     fontSize: 14,
   },
-  routeFooter: {
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(255,255,255,0.1)',
-    paddingTop: 12,
+  progressContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
   },
-  routeDate: {
-    color: '#6B7280',
+  progressBar: {
+    flex: 1,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+  },
+  progressFill: {
+    height: '100%',
+    borderRadius: 6,
+    backgroundColor: '#3B82F6',
+  },
+  progressText: {
+    color: '#9CA3AF',
     fontSize: 14,
+  },
+  loadingContainer: {
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  emptyState: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 40,
+  },
+  emptyStateText: {
+    color: '#E5E7EB',
+    fontSize: 18,
+    fontWeight: '600',
+    marginTop: 16,
+  },
+  emptyStateSubtext: {
+    color: '#9CA3AF',
+    fontSize: 14,
+    marginTop: 8,
+    textAlign: 'center',
   },
 });
 

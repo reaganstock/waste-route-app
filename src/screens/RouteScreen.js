@@ -57,17 +57,17 @@ const AddressModal = ({ visible, house, onClose, onSaveNote, onNavigate }) => {
   };
 
   return (
-  <Modal
-    visible={visible}
-    transparent
-    animationType="slide"
-    onRequestClose={onClose}
-  >
-    <View style={styles.modalContainer}>
-      <BlurView intensity={80} style={styles.modalContent}>
-        <View style={styles.modalHeader}>
+    <Modal
+      visible={visible}
+      transparent
+      animationType="slide"
+      onRequestClose={onClose}
+    >
+      <View style={styles.modalContainer}>
+        <BlurView intensity={80} style={styles.modalContent}>
+          <View style={styles.modalHeader}>
             <View style={styles.modalHeaderLeft}>
-          <Text style={styles.modalTitle}>House Details</Text>
+              <Text style={styles.modalTitle}>House Details</Text>
               <View style={[styles.statusBadge, { backgroundColor: `${getStatusColor(house?.status)}20` }]}>
                 <Text style={[styles.statusText, { color: getStatusColor(house?.status) }]}>
                   {house?.status?.charAt(0).toUpperCase() + house?.status?.slice(1)}
@@ -75,15 +75,15 @@ const AddressModal = ({ visible, house, onClose, onSaveNote, onNavigate }) => {
               </View>
             </View>
             <TouchableOpacity onPress={handleSaveAndClose} style={styles.closeButton}>
-            <Ionicons name="close" size={24} color="#fff" />
-          </TouchableOpacity>
-        </View>
-        <View style={styles.modalBody}>
-          <View style={styles.addressSection}>
-            <Text style={styles.addressLabel}>Address</Text>
-            <Text style={styles.addressText}>{house?.address}</Text>
+              <Ionicons name="close" size={24} color="#fff" />
+            </TouchableOpacity>
           </View>
-          <View style={styles.notesSection}>
+          <View style={styles.modalBody}>
+            <View style={styles.addressSection}>
+              <Text style={styles.addressLabel}>Address</Text>
+              <Text style={styles.addressText}>{house?.address}</Text>
+            </View>
+            <View style={styles.notesSection}>
               <Text style={styles.notesLabel}>Initial Notes</Text>
               {house?.notes ? (
                 <View style={styles.initialNotesContainer}>
@@ -95,39 +95,39 @@ const AddressModal = ({ visible, house, onClose, onSaveNote, onNavigate }) => {
               
               <Text style={[styles.notesLabel, { marginTop: 16 }]}>Add Notes</Text>
               <View style={styles.notesInputContainer}>
-            <TextInput
-              style={styles.notesInput}
-              multiline
-              numberOfLines={4}
+                <TextInput
+                  style={styles.notesInput}
+                  multiline
+                  numberOfLines={4}
                   value={additionalNotes}
                   onChangeText={setAdditionalNotes}
                   placeholder="Add additional notes..."
-              placeholderTextColor="#6B7280"
+                  placeholderTextColor="#6B7280"
                   autoCapitalize="sentences"
                   returnKeyType="done"
-            />
+                />
                 <View style={styles.notesInputBorder} />
               </View>
-          </View>
-          <TouchableOpacity 
-            style={styles.navigateButton}
-            onPress={onNavigate}
-          >
-            <LinearGradient
-              colors={['#3B82F6', '#2563EB']}
-              style={styles.navigateButtonGradient}
+            </View>
+            <TouchableOpacity 
+              style={styles.navigateButton}
+              onPress={onNavigate}
+            >
+              <LinearGradient
+                colors={['#3B82F6', '#2563EB']}
+                style={styles.navigateButtonGradient}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 1 }}
-            >
-              <Ionicons name="navigate" size={20} color="#fff" />
+              >
+                <Ionicons name="navigate" size={20} color="#fff" />
                 <Text style={styles.navigateButtonText}>Navigate to Address</Text>
-            </LinearGradient>
-          </TouchableOpacity>
-        </View>
-      </BlurView>
-    </View>
-  </Modal>
-);
+              </LinearGradient>
+            </TouchableOpacity>
+          </View>
+        </BlurView>
+      </View>
+    </Modal>
+  );
 };
 
 const HouseItem = ({ house, onToggle, isSelected, onPress }) => {
@@ -239,7 +239,7 @@ const GeofenceAlert = ({ house }) => (
         </Text>
         <Text style={styles.geofenceAddress}>{house.address}</Text>
       </View>
-  </View>
+    </View>
   </BlurView>
 );
 
@@ -346,14 +346,14 @@ const RouteScreen = ({ routeId }) => {
 
     // Only show phone notification if enabled
     if (phoneNotifications) {
-    Notifications.scheduleNotificationAsync({
-      content: {
-        title: 'WasteRoute Update',
-        body: message,
-        sound: true,
-      },
+      Notifications.scheduleNotificationAsync({
+        content: {
+          title: 'WasteRoute Update',
+          body: message,
+          sound: true,
+        },
         trigger: null,
-    });
+      });
     }
 
     // Auto-dismiss after 5 seconds
@@ -767,24 +767,24 @@ const RouteScreen = ({ routeId }) => {
         <View style={styles.topSection}>
           <View style={styles.progressRow}>
             <View style={styles.progressSection}>
-        <View style={styles.progressContainer}>
-          <View style={styles.progressBar}>
-            <View 
-              style={[
-                styles.progressFill,
+              <View style={styles.progressContainer}>
+                <View style={styles.progressBar}>
+                  <View 
+                    style={[
+                      styles.progressFill,
                       { width: `${(selectedHouses.size / (route?.houses?.length || 1)) * 100}%` }
-              ]} 
-            />
-          </View>
+                    ]} 
+                  />
+                </View>
                 <Text style={styles.progressText}>
                   {selectedHouses.size}/{route?.houses?.length || 0} completed
-          </Text>
+                </Text>
               </View>
-        </View>
-        
-        <TouchableOpacity 
-          style={styles.checkAllButton}
-          onPress={toggleAll}
+            </View>
+
+            <TouchableOpacity
+              style={styles.checkAllButton}
+              onPress={toggleAll}
               disabled={loading || !route?.houses?.length}
             >
               <LinearGradient
@@ -799,16 +799,16 @@ const RouteScreen = ({ routeId }) => {
                   color="#fff" 
                 />
               </LinearGradient>
-        </TouchableOpacity>
+            </TouchableOpacity>
           </View>
-      </View>
+        </View>
 
         <View style={styles.notificationsSection}>
-      <ScrollView 
+          <ScrollView
             style={styles.notificationsScroll}
             contentContainerStyle={styles.notificationsScrollContent}
-        showsVerticalScrollIndicator={false}
-      >
+            showsVerticalScrollIndicator={false}
+          >
             <NotificationsSection />
             {nearbyHouses.map((house, index) => (
               <GeofenceAlert key={`${house.id}-${index}`} house={house} />
@@ -827,15 +827,15 @@ const RouteScreen = ({ routeId }) => {
           overScrollMode="always"
         >
           {route?.houses?.map(house => (
-          <HouseItem
-            key={house.id}
-            house={house}
-            onToggle={toggleHouse}
-            isSelected={selectedHouses.has(house.id)}
-            onPress={() => handleAddressPress(house)}
-          />
-        ))}
-      </ScrollView>
+            <HouseItem
+              key={house.id}
+              house={house}
+              onToggle={toggleHouse}
+              isSelected={selectedHouses.has(house.id)}
+              onPress={() => handleAddressPress(house)}
+            />
+          ))}
+        </ScrollView>
       </View>
 
       <BlurView intensity={80} style={styles.footer}>
@@ -866,12 +866,12 @@ const RouteScreen = ({ routeId }) => {
               </Text>
             </View>
           </View>
-        <TouchableOpacity 
+          <TouchableOpacity
             style={[
               styles.endRouteButton,
               selectedHouses.size === route?.houses?.length && styles.endRouteButtonComplete
             ]}
-          onPress={handleEndRoute}
+            onPress={handleEndRoute}
             activeOpacity={0.8}
           >
             <LinearGradient
@@ -892,8 +892,8 @@ const RouteScreen = ({ routeId }) => {
                 {selectedHouses.size === route?.houses?.length ? 'Complete Route' : 'End Route'}
               </Text>
             </LinearGradient>
-        </TouchableOpacity>
-      </View>
+          </TouchableOpacity>
+        </View>
       </BlurView>
 
       <AddressModal

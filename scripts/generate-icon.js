@@ -6,7 +6,7 @@ const svgContent = `
     <rect width="1024" height="1024" rx="256" fill="#3B82F6"/>
     
     <!-- Map icon design -->
-    <g transform="translate(344, 312) scale(1.75)">
+    <g transform="translate(256, 256) scale(2)">
         <!-- Base map shape -->
         <path d="M168 72L84 120L84 408L168 360L252 408L336 360V72L252 120L168 72Z" 
               fill="white" fillRule="evenodd"/>

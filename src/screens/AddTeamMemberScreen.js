@@ -14,10 +14,10 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
-import { supabase } from '../lib/supabase';
-import { useTeamMembers } from '../hooks/useTeamMembers';
-import { supabaseAdmin } from '../lib/supabaseAdmin';
 import * as Clipboard from 'expo-clipboard';
+import { useCurrentUser, useTeamMembers, useAddUserToTeam } from '../lib/convexHelpers'; 
+import { useMutation } from 'convex/react';
+import { api } from '../../convex/_generated/api';
 
 const InputField = ({ label, value, onChangeText, placeholder, keyboardType = 'default', icon, required = false }) => (
   <View style={styles.inputContainer}>
@@ -42,7 +42,11 @@ const InputField = ({ label, value, onChangeText, placeholder, keyboardType = 'd
 
 const AddTeamMemberScreen = () => {
   const router = useRouter();
-  const { createTeamMember, fetchTeamMembers } = useTeamMembers();
+  const currentUser = useCurrentUser();
+  const teamMembers = useTeamMembers(currentUser?.teamId);
+  const addUserToTeam = useAddUserToTeam();
+  const createUser = useMutation(api.users.createUser);
+  
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
     fullName: '',
@@ -65,103 +69,65 @@ const AddTeamMemberScreen = () => {
     try {
       setLoading(true);
 
-      // First check if user already exists
-      const { data: existingUser, error: checkError } = await supabase
-        .from('profiles')
-        .select('id, email')
-        .eq('email', formData.email)
-        .maybeSingle();
+      // Check if a team ID exists
+      if (!currentUser?.teamId) {
+        throw new Error('No team ID found. Please create a team first.');
+      }
 
-      if (checkError) throw new Error('Failed to check existing user: ' + checkError.message);
+      // Check if user with this email already exists
+      const emailExists = teamMembers?.find(member => 
+        member.email.toLowerCase() === formData.email.toLowerCase()
+      );
 
-      if (existingUser) {
+      if (emailExists) {
         Alert.alert('Error', 'A team member with this email already exists');
+        setLoading(false);
         return;
       }
 
-      // Generate a secure random password
-      const initialPassword = Math.random().toString(36).slice(-12) + 
-                            Math.random().toString(36).slice(-12) +
-                            '!@#$';
-
-      // Create user first
-      const { data: userData, error: createError } = await supabaseAdmin.auth.admin.createUser({
+      // Generate a temporary password for the user
+      const initialPassword = Math.random().toString(36).slice(-12);
+      
+      // In a real implementation, you would use Clerk's API to create a user
+      // For now, we'll just create a user in Convex
+      // Note: In a production app, you would integrate with Clerk's API to send invites
+      
+      // Create user in Convex
+      const userId = await createUser({
+        name: formData.fullName,
         email: formData.email,
-        password: initialPassword,
-        email_confirm: true,
-        user_metadata: {
-          full_name: formData.fullName,
-          role: formData.role,
-          temp_password: initialPassword
-        }
+        role: formData.role,
+        clerkId: `mock-clerk-id-${Date.now()}`, // In a real app, this would come from Clerk
       });
-
-      if (createError) throw new Error('Failed to create user: ' + createError.message);
-
-      // Wait a moment for the user to be fully created
-      await new Promise(resolve => setTimeout(resolve, 1000));
-
-      // Now send the invite email separately
-      const { error: emailError } = await supabaseAdmin.auth.signInWithOtp({
-        email: formData.email,
-        options: {
-          data: {
-            full_name: formData.fullName,
-            role: formData.role,
-            temp_password: initialPassword,
-            type: 'invite'
-          },
-          emailRedirectTo: `${process.env.EXPO_PUBLIC_APP_URL}/auth/login`,
-          shouldCreateUser: false
-        }
-      });
-
-      if (emailError) {
-        console.warn('Failed to send welcome email:', emailError);
-        // Show credentials since email failed
-        Alert.alert(
-          'Partial Success',
-          `Team member account created with:\n\nEmail: ${formData.email}\nPassword: ${initialPassword}\n\nPlease share these credentials manually as the welcome email could not be sent.`,
-          [
-            {
-              text: 'Copy Credentials',
-              onPress: async () => {
-                const credentials = `Email: ${formData.email}\nPassword: ${initialPassword}`;
-                await Clipboard.setString(credentials);
-                Alert.alert('Copied', 'The credentials have been copied to your clipboard.');
-                router.back();
-              },
-            },
-            {
-              text: 'OK',
-              onPress: () => router.back()
-            }
-          ]
-        );
-        return;
+      
+      if (!userId) {
+        throw new Error('Failed to create user');
       }
+      
+      // Add user to team
+      await addUserToTeam({
+        userId,
+        teamId: currentUser.teamId,
+      });
 
-      // Show success message with credentials as backup
       Alert.alert(
         'Team Member Added',
-        `Team member has been invited successfully.\n\nAs a backup, here are their credentials:\nEmail: ${formData.email}\nPassword: ${initialPassword}`,
+        `Team member has been added successfully.\n\nIn a production app, an invite email would be sent to ${formData.email}.\n\nTemporary Password: ${initialPassword}`,
         [
           {
-            text: 'Copy Credentials',
+            text: 'Copy Password',
             onPress: async () => {
-              const credentials = `Email: ${formData.email}\nPassword: ${initialPassword}`;
-              await Clipboard.setString(credentials);
-              Alert.alert('Copied', 'The credentials have been copied to your clipboard.');
+              await Clipboard.setString(initialPassword);
+              Alert.alert('Password Copied', 'The password has been copied to your clipboard.');
               router.back();
             },
           },
           {
             text: 'Done',
-            onPress: () => router.back()
-          }
+            onPress: () => router.back(),
+          },
         ]
       );
-
     } catch (error) {
       console.error('Error adding team member:', error);
       Alert.alert(

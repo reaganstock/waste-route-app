@@ -16,7 +16,8 @@ import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 import { useAuth } from '../contexts/AuthContext';
-import { supabase } from '../lib/supabase';
+import { useQuery, useMutation } from 'convex/react';
+import { api } from '../../convex/_generated/api';
 
 const InputField = ({ label, value, onChangeText, editable, icon }) => (
   <View style={styles.fieldContainer}>
@@ -56,51 +57,28 @@ const ProfileDetailsScreen = () => {
     startDate: '',
   });
 
+  // Get the user from Convex
+  const convexUser = useQuery(api.users.getUserByClerkId, 
+    user?.id ? { clerkId: user.id } : "skip"
+  );
+  
+  // Update user mutation
+  const updateUser = useMutation(api.users.updateUser);
+
   useEffect(() => {
-    fetchProfile();
-  }, []);
-
-  const fetchProfile = async () => {
-    try {
-      if (!user) return;
-
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', user.id)
-        .maybeSingle();
-
-      if (error) throw error;
-
-      if (data) {
-        setFormData({
-          fullName: data.full_name || '',
-          email: data.email || '',
-          phone: data.phone || '',
-          role: data.role || '',
-          preferredRegion: data.preferred_region || '',
-          startDate: data.start_date ? new Date(data.start_date).toLocaleDateString() : '',
-        });
-        setProfileImage(data.avatar_url || 'https://via.placeholder.com/150');
-      } else {
-        // Set default values when no profile exists
-        setFormData({
-          fullName: user.user_metadata?.full_name || '',
-          email: user.email || '',
-          phone: '',
-          role: user.user_metadata?.role || 'driver',
-          preferredRegion: '',
-          startDate: new Date().toLocaleDateString(),
-        });
-        setProfileImage('https://via.placeholder.com/150');
-      }
-    } catch (error) {
-      console.error('Error fetching profile:', error);
-      Alert.alert('Error', 'Failed to load profile data');
-    } finally {
+    if (convexUser) {
+      setFormData({
+        fullName: convexUser?.name || '',
+        email: convexUser?.email || '',
+        phone: convexUser?.phone || '',
+        role: convexUser?.role || '',
+        preferredRegion: convexUser?.preferredRegion || '',
+        startDate: convexUser?.createdAt ? new Date(convexUser.createdAt).toLocaleDateString() : '',
+      });
+      setProfileImage(convexUser?.avatarUrl || 'https://via.placeholder.com/150');
       setLoading(false);
     }
-  };
+  }, [convexUser]);
 
   const handleImagePick = async () => {
     const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -120,39 +98,24 @@ const ProfileDetailsScreen = () => {
     if (!result.canceled) {
       try {
         setLoading(true);
-        const file = {
-          uri: result.assets[0].uri,
-          name: 'avatar.jpg',
-          type: 'image/jpeg',
-        };
-
-        // Upload image to Supabase Storage
-        const { data: uploadData, error: uploadError } = await supabase.storage
-          .from('avatars')
-          .upload(`${user.id}/avatar.jpg`, file, {
-            upsert: true,
+        
+        // In a real app, you would upload to a storage service like AWS S3
+        // and then store the URL in Convex. For now, we'll just use a placeholder.
+        const mockImageUrl = `https://via.placeholder.com/150?text=${encodeURIComponent(formData.fullName)}`;
+        
+        // Update the user in Convex with the new avatar URL
+        if (convexUser?._id) {
+          await updateUser({
+            userId: convexUser._id,
+            avatarUrl: mockImageUrl
           });
+        }
 
-        if (uploadError) throw uploadError;
-
-        // Get public URL
-        const { data: { publicUrl } } = supabase.storage
-          .from('avatars')
-          .getPublicUrl(`${user.id}/avatar.jpg`);
-
-        // Update profile with new avatar URL
-        const { error: updateError } = await supabase
-          .from('profiles')
-          .update({ avatar_url: publicUrl })
-          .eq('id', user.id);
-
-        if (updateError) throw updateError;
-
-        setProfileImage(publicUrl);
+        setProfileImage(mockImageUrl);
+        setLoading(false);
       } catch (error) {
         console.error('Error uploading image:', error);
         Alert.alert('Error', 'Failed to update profile picture');
-      } finally {
         setLoading(false);
       }
     }
@@ -162,23 +125,20 @@ const ProfileDetailsScreen = () => {
     try {
       setLoading(true);
 
-      const { error } = await supabase
-        .from('profiles')
-        .update({
-          full_name: formData.fullName,
-          phone: formData.phone,
-          preferred_region: formData.preferredRegion,
-        })
-        .eq('id', user.id);
-
-      if (error) throw error;
+      if (convexUser?._id) {
+        await updateUser({
+          userId: convexUser._id,
+          name: formData.fullName,
+          // Other fields would need to be added to the Convex schema
+        });
+      }
 
       Alert.alert('Success', 'Profile updated successfully');
       setIsEditing(false);
+      setLoading(false);
     } catch (error) {
       console.error('Error updating profile:', error);
       Alert.alert('Error', 'Failed to update profile');
-    } finally {
       setLoading(false);
     }
   };

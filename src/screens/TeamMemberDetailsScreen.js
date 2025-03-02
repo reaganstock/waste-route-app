@@ -66,14 +66,9 @@ const TeamMemberDetailsScreen = () => {
           )
         `)
         .eq('id', id)
-        .maybeSingle();
+        .single();
 
       if (memberError) throw memberError;
-
-      if (!memberData) {
-        setError('Member not found');
-        return;
-      }
 
       // Get all completed routes
       const completedRoutes = memberData.routes?.filter(r => r.status === 'completed') || [];

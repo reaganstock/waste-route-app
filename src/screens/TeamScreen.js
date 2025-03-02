@@ -13,84 +13,70 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import { useRouter } from 'expo-router';
-import { mockTeamMembers } from '../lib/mockData';
 import { LinearGradient } from 'expo-linear-gradient';
-import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
+import { useQuery } from 'convex/react';
+import { api } from '../../convex/_generated/api';
+import { useCurrentUser, useTeamMembers } from '../lib/convexHelpers';
 
 const TeamScreen = () => {
   const router = useRouter();
   const { user } = useAuth();
-  const [members, setMembers] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const convexUser = useCurrentUser();
+  
+  // Get team members using helper
+  const teamMembers = useTeamMembers(convexUser?.teamId);
+  
+  // Get all routes to calculate metrics for each member
+  const allRoutes = useQuery(api.routes.getAllTeamRoutes, 
+    convexUser?.teamId ? { teamId: convexUser.teamId } : "skip");
+  
   const [refreshing, setRefreshing] = useState(false);
 
-  const fetchTeamMembers = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select(`
-          id,
-          full_name,
-          email,
-          role,
-          status,
-          avatar_url,
-          routes(
-            id,
-            status,
-            completed_houses,
-            total_houses,
-            duration,
-            date
-          )
-        `)
-        .in('role', ['driver', 'admin']) // Include both drivers and admins
-        .order('role', { ascending: false }) // Show admins first
-        .order('full_name');
+  // Process members with their metrics
+  const membersWithMetrics = React.useMemo(() => {
+    if (!teamMembers || !allRoutes) return [];
+    
+    return teamMembers.map(member => {
+      // Get member's routes
+      const memberRoutes = allRoutes.filter(route => route.driverId === member._id);
+      
+      // Get all completed routes (all-time)
+      const completedRoutes = memberRoutes.filter(r => r.status === 'completed').length || 0;
+      
+      // Calculate total hours driven from all completed routes (all-time)
+      const totalHoursDriven = memberRoutes
+        .filter(r => r.status === 'completed')
+        .reduce((sum, route) => sum + (route.duration || 0), 0) || 0;
 
-      if (error) throw error;
+      // Get active route if exists
+      const activeRoute = memberRoutes.find(r => r.status === 'in_progress');
 
-      // Calculate metrics for each member
-      const membersWithMetrics = data.map(member => {
-        // Get all completed routes (all-time)
-        const completedRoutes = member.routes?.filter(r => r.status === 'completed').length || 0;
-        
-        // Calculate total hours driven from all completed routes (all-time)
-        const totalHoursDriven = member.routes
-          ?.filter(r => r.status === 'completed')
-          .reduce((sum, route) => sum + (route.duration || 0), 0) || 0;
-
-        // Get active route if exists
-        const activeRoute = member.routes?.find(r => r.status === 'in_progress');
-
-        return {
-          ...member,
-          metrics: {
-            completedRoutes,
-            totalHoursDriven: Number((totalHoursDriven / 60).toFixed(1)), // Convert minutes to hours with 1 decimal
-            activeRoute
-          }
-        };
-      });
-
-      setMembers(membersWithMetrics);
-    } catch (error) {
-      console.error('Error fetching team members:', error);
-      Alert.alert('Error', 'Failed to load team members');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchTeamMembers();
-  }, []);
+      return {
+        ...member,
+        routes: memberRoutes,
+        metrics: {
+          completedRoutes,
+          totalHoursDriven: Number((totalHoursDriven / 60).toFixed(1)), // Convert minutes to hours with 1 decimal
+          activeRoute
+        }
+      };
+    }).sort((a, b) => {
+      // Sort by role first (admin first)
+      if (a.role === 'admin' && b.role !== 'admin') return -1;
+      if (a.role !== 'admin' && b.role === 'admin') return 1;
+      // Then sort by name
+      return a.name.localeCompare(b.name);
+    });
+  }, [teamMembers, allRoutes]);
 
   const onRefresh = () => {
     setRefreshing(true);
-    fetchTeamMembers();
-    setRefreshing(false);
+    // With Convex, we don't need to manually refresh as it will automatically update
+    // Just wait a bit to show the refresh indicator
+    setTimeout(() => {
+      setRefreshing(false);
+    }, 1000);
   };
 
   const MemberCard = ({ member }) => {
@@ -99,7 +85,10 @@ const TeamScreen = () => {
     return (
       <TouchableOpacity 
         style={styles.memberCard}
-        onPress={() => router.push(`/team/${member.id}`)}
+        onPress={() => router.push({
+          pathname: '/(main)/team/member',
+          params: { id: member._id }
+        })}
         activeOpacity={0.7}
       >
         <LinearGradient
@@ -181,10 +170,10 @@ const TeamScreen = () => {
     }
   };
 
-  if (loading) {
+  if (membersWithMetrics.length === 0) {
     return (
       <View style={[styles.container, styles.centerContent]}>
-        <ActivityIndicator size="large" color="#3B82F6" />
+        <Text style={styles.noMembersText}>No team members found</Text>
       </View>
     );
   }
@@ -219,8 +208,8 @@ const TeamScreen = () => {
         }
         showsVerticalScrollIndicator={false}
       >
-        {members.map(member => (
-          <MemberCard key={member.id} member={member} />
+        {membersWithMetrics.map(member => (
+          <MemberCard key={member._id} member={member} />
         ))}
       </ScrollView>
     </View>
@@ -365,6 +354,11 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: 4,
     marginLeft: 8,
+  },
+  noMembersText: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: '600',
   },
 });
 

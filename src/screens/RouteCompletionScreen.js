@@ -438,6 +438,7 @@ const styles = StyleSheet.create({
   },
 });
 
+export { RouteCompletionScreen };
 export default RouteCompletionScreen; 
  
  

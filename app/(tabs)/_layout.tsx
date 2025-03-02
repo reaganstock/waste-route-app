@@ -1,27 +1,8 @@
-import { Tabs, Stack } from 'expo-router';
+import React from 'react';
+import { Tabs } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { View } from 'react-native';
-import { useAuth } from '../../src/contexts/AuthContext';
 
 export default function TabLayout() {
-  const { user } = useAuth();
-  const userRole = user?.user_metadata?.role || 'driver';
-  const isAdmin = userRole === 'admin';
-
-  // Drivers get a simple stack navigation without bottom tabs
-  if (!isAdmin) {
-    return (
-      <Stack
-        screenOptions={{
-          headerShown: false,
-        }}
-      >
-        <Stack.Screen name="index" />
-      </Stack>
-    );
-  }
-
-  // Admins get the full tab navigation with Home, Team, and Analytics
   return (
     <Tabs
       screenOptions={{
@@ -29,9 +10,15 @@ export default function TabLayout() {
         tabBarStyle: {
           backgroundColor: '#111',
           borderTopColor: 'rgba(255,255,255,0.1)',
+          paddingBottom: 8,
+          height: 60,
         },
         tabBarActiveTintColor: '#3B82F6',
         tabBarInactiveTintColor: '#6B7280',
+        tabBarLabelStyle: {
+          fontSize: 12,
+          marginTop: -4,
+        },
       }}
     >
       <Tabs.Screen
@@ -40,6 +27,24 @@ export default function TabLayout() {
           title: 'Home',
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="home-outline" size={size} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="active-routes"
+        options={{
+          title: 'Active',
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="map-outline" size={size} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="upcoming-routes"
+        options={{
+          title: 'Upcoming',
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="calendar-outline" size={size} color={color} />
           ),
         }}
       />
@@ -53,11 +58,11 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
-        name="analytics"
+        name="settings"
         options={{
-          title: 'Analytics',
+          title: 'Settings',
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="stats-chart-outline" size={size} color={color} />
+            <Ionicons name="settings-outline" size={size} color={color} />
           ),
         }}
       />
