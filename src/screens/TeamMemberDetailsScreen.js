@@ -61,8 +61,15 @@ const TeamMemberDetailsScreen = () => {
       // Calculate stats
       const completedRoutes = memberData.routes?.filter(r => r.status === 'completed') || [];
       const completedRoutesCount = completedRoutes.length || 0;
-      const housesServiced = memberData.routes?.reduce((sum, route) => sum + (route.completed_houses || 0), 0) || 0;
-      const stopsPerRoute = completedRoutesCount > 0 ? Math.round(housesServiced / completedRoutesCount) : 0;
+      
+      // Calculate total houses serviced (completed houses)
+      const housesServiced = completedRoutes.reduce((sum, route) => sum + (route.completed_houses || 0), 0) || 0;
+      
+      // Calculate total houses in all completed routes
+      const totalHousesInCompletedRoutes = completedRoutes.reduce((sum, route) => sum + (route.total_houses || 0), 0) || 0;
+      
+      // Calculate stops per route (total houses / number of routes) for consistency with PerformanceScreen
+      const stopsPerRoute = completedRoutesCount > 0 ? Math.round(totalHousesInCompletedRoutes / completedRoutesCount) : 0;
       
       setMember({
         ...memberData,

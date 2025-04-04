@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback, memo } from 'react';
+import React, { useState, useEffect, useRef, useCallback, memo, useMemo } from 'react';
 import { View, StyleSheet, TouchableOpacity, Text, Dimensions, Animated, Alert, Platform, Linking } from 'react-native';
 import MapView, { Marker, Polyline } from 'react-native-maps';
 import { Ionicons } from '@expo/vector-icons';
@@ -188,7 +188,8 @@ const Map = React.forwardRef(({
   requestLocationPermission,
   style,
   activeHouseId,
-  onActiveHouseChange
+  onActiveHouseChange,
+  screenContext = 'default'
 }, ref) => {
   const mapRef = useRef(null);
   const { location } = useLocation();
@@ -541,6 +542,33 @@ const Map = React.forwardRef(({
     }
   }, [fitMapToMarkers]);
 
+  // Get the appropriate control style based on screenContext
+  const getControlStyle = useCallback(() => {
+    let baseStyle;
+    let smallScreenStyle;
+    
+    switch(screenContext) {
+      case 'routeCreate':
+        baseStyle = styles.routeCreateControls;
+        smallScreenStyle = styles.routeCreateControlsSmall;
+        break;
+      case 'completedRoute':
+        baseStyle = styles.completedRouteControls;
+        smallScreenStyle = styles.completedRouteControlsSmall;
+        break;
+      default:
+        baseStyle = styles.controls;
+        smallScreenStyle = styles.controlsSmall;
+    }
+    
+    // Apply small screen styles if needed
+    if (isSmallScreen) {
+      return [baseStyle, smallScreenStyle];
+    }
+    
+    return baseStyle;
+  }, [screenContext, isSmallScreen]);
+
   // Forward the ref to the internal mapRef
   useEffect(() => {
     if (ref) {
@@ -627,13 +655,13 @@ const Map = React.forwardRef(({
       )}
 
       {/* Map Controls */}
-      <View style={[styles.controls, isSmallScreen && styles.controlsSmall]}>
+      <View style={getControlStyle()}>
         <TouchableOpacity 
           style={styles.controlButton}
           onPress={toggleMapType}
         >
           <Ionicons 
-            name={mapType === 'standard' ? 'map' : 'map-outline'} 
+            name={mapType === 'standard' ? 'earth' : 'map'} 
             size={28} 
             color="#fff" 
           />
@@ -813,6 +841,36 @@ const styles = StyleSheet.create({
   },
   controlsSmall: {
     top: 130,
+    bottom: 'auto',
+    right: 10,
+    gap: 8,
+  },
+  routeCreateControls: {
+    position: 'absolute',
+    top: 80, // Higher position for RouteCreateScreen
+    bottom: 'auto',
+    right: 12,
+    alignItems: 'center',
+    gap: 12,
+    zIndex: 10,
+  },
+  completedRouteControls: {
+    position: 'absolute',
+    top: 100, // Different position for CompletedRouteDetailsScreen
+    bottom: 'auto',
+    right: 12,
+    alignItems: 'center',
+    gap: 12,
+    zIndex: 10,
+  },
+  routeCreateControlsSmall: {
+    top: 60,
+    bottom: 'auto',
+    right: 10,
+    gap: 8,
+  },
+  completedRouteControlsSmall: {
+    top: 80,
     bottom: 'auto',
     right: 10,
     gap: 8,

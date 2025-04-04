@@ -390,13 +390,13 @@ const RouteScreen = ({ routeId }) => {
         
         if (status === 'granted') {
           await Notifications.scheduleNotificationAsync({
-            content: {
-              title: 'WasteRoute Update',
-              body: message,
-              sound: true,
-            },
-            trigger: null,
-          });
+      content: {
+        title: 'WasteRoute Update',
+        body: message,
+        sound: true,
+      },
+        trigger: null,
+    });
         }
       } catch (error) {
         console.error('Error showing notification:', error);
@@ -589,28 +589,28 @@ const RouteScreen = ({ routeId }) => {
     let notificationLabel = phoneNotifications ? 'Notifications' : 'Off';
     
     return (
-      <View style={styles.headerActions}>
-        <TouchableOpacity 
-          style={[
-            styles.notificationToggle,
-            { backgroundColor: phoneNotifications ? '#3B82F620' : '#6B728020' }
-          ]}
-          onPress={toggleNotifications}
-        >
-          <Ionicons 
-            name={phoneNotifications ? "notifications" : "notifications-off-outline"} 
-            size={20} 
-            color={phoneNotifications ? "#3B82F6" : "#6B7280"} 
-          />
-          <Text style={[
-            styles.notificationText,
-            { color: phoneNotifications ? "#3B82F6" : "#6B7280" }
-          ]}>
+    <View style={styles.headerActions}>
+      <TouchableOpacity 
+        style={[
+          styles.notificationToggle,
+          { backgroundColor: phoneNotifications ? '#3B82F620' : '#6B728020' }
+        ]}
+        onPress={toggleNotifications}
+      >
+        <Ionicons 
+          name={phoneNotifications ? "notifications" : "notifications-off-outline"} 
+          size={20} 
+          color={phoneNotifications ? "#3B82F6" : "#6B7280"} 
+        />
+        <Text style={[
+          styles.notificationText,
+          { color: phoneNotifications ? "#3B82F6" : "#6B7280" }
+        ]}>
             {notificationLabel}
-          </Text>
-        </TouchableOpacity>
-      </View>
-    );
+        </Text>
+      </TouchableOpacity>
+    </View>
+  );
   };
 
   // Add this near the top of the file after imports

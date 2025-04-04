@@ -110,14 +110,19 @@ const PerformanceScreen = () => {
 
       // Get only completed routes
       const completedRoutes = periodRoutes.filter(r => r.status === 'completed');
+      
+      // Calculate completed houses
       const totalHousesServiced = completedRoutes.reduce((sum, r) => sum + (r.completed_houses || 0), 0);
+      
+      // Calculate total houses in all completed routes
       const totalHouses = completedRoutes.reduce((sum, r) => sum + (r.total_houses || 0), 0);
 
       // Calculate real completion percentage based on total completed houses divided by total houses
       const avgCompletion = totalHouses > 0 ? (totalHousesServiced / totalHouses) * 100 : 0;
 
+      // Calculate stops per route based on total houses (not completed) for consistency
       const stopsPerRoute = completedRoutes.length > 0
-        ? Math.round(totalHousesServiced / completedRoutes.length)
+        ? Math.round(totalHouses / completedRoutes.length)
         : 0;
 
       setMember(memberData);

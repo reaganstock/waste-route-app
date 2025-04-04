@@ -141,7 +141,14 @@ const CompletedRouteDetailsScreen = () => {
   const skippedHouses = route.houses?.filter(h => h.status?.toLowerCase() === 'skipped' || h.status?.toLowerCase() === 'skip').length || 0;
   const newCustomerHouses = route.houses?.filter(h => h.status?.toLowerCase() === 'new customer').length || 0;
 
-  const housesToDisplay = showAllHouses ? route.houses : route.houses;
+  // Filter houses for display on the map based on the toggle
+  const housesToDisplay = !showAllHouses 
+    ? route.houses 
+    : route.houses?.filter(h => 
+        h.status?.toLowerCase() === 'completed' || 
+        h.status?.toLowerCase() === 'collect' ||
+        h.status?.toLowerCase() === 'new customer'
+      );
 
   return (
     <View style={styles.container}>
@@ -168,9 +175,10 @@ const CompletedRouteDetailsScreen = () => {
 
       <View style={styles.mapContainer}>
         <Map
-          houses={route.houses || []}
+          houses={housesToDisplay || []}
           onHousePress={handleHousePress}
           style={styles.map}
+          screenContext="completedRoute"
         />
         
         <View style={styles.mapControls}>
@@ -178,9 +186,13 @@ const CompletedRouteDetailsScreen = () => {
             style={styles.mapControlButton}
             onPress={handleToggleHouseView}
           >
-            <Ionicons name={showAllHouses ? "filter" : "filter-outline"} size={22} color="#fff" />
+            <Ionicons 
+              name={showAllHouses ? "eye-outline" : "filter-outline"} 
+              size={22} 
+              color="#fff" 
+            />
             <Text style={styles.mapControlText}>
-              {showAllHouses ? "Show Collected" : "Show All"}
+              {showAllHouses ? "All Houses" : "Collected Only"}
             </Text>
           </TouchableOpacity>
         </View>
@@ -189,17 +201,17 @@ const CompletedRouteDetailsScreen = () => {
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.routeInfoCard}>
           <View style={styles.routeHeader}>
-            <Text style={styles.routeName}>{route.name}</Text>
-            <Text style={styles.routeDate}>
+          <Text style={styles.routeName}>{route.name}</Text>
+          <Text style={styles.routeDate}>
               {new Date(route.date).toLocaleDateString(undefined, { 
                 year: 'numeric', 
                 month: 'short', 
                 day: 'numeric' 
               })}
-            </Text>
-          </View>
+          </Text>
+        </View>
 
-          <View style={styles.metricsGrid}>
+        <View style={styles.metricsGrid}>
             <View style={styles.metricItem}>
               <View style={[styles.metricIcon, {backgroundColor: 'rgba(59, 130, 246, 0.15)'}]}>
                 <Ionicons name="home" size={24} color="#3B82F6" />
@@ -219,9 +231,9 @@ const CompletedRouteDetailsScreen = () => {
                 <Text style={styles.metricLabel}>Collected</Text>
               </View>
             </View>
-          </View>
+        </View>
 
-          <View style={styles.metricsGrid}>
+        <View style={styles.metricsGrid}>
             <View style={styles.metricItem}>
               <View style={[styles.metricIcon, {backgroundColor: 'rgba(239, 68, 68, 0.15)'}]}>
                 <Ionicons name="close-circle" size={24} color="#EF4444" />
@@ -230,8 +242,8 @@ const CompletedRouteDetailsScreen = () => {
                 <Text style={styles.metricValue}>{skippedHouses}</Text>
                 <Text style={styles.metricLabel}>Skipped</Text>
               </View>
-            </View>
-            
+        </View>
+
             <View style={styles.metricItem}>
               <View style={[styles.metricIcon, {backgroundColor: 'rgba(16, 185, 129, 0.15)'}]}>
                 <Ionicons name="person-add" size={24} color="#10B981" />
@@ -345,20 +357,24 @@ const styles = StyleSheet.create({
   mapControls: {
     position: 'absolute',
     bottom: 16,
-    right: 16,
+    left: 16,
     zIndex: 5,
   },
   mapControlButton: {
     backgroundColor: 'rgba(0, 0, 0, 0.7)',
     borderRadius: 8,
-    padding: 8,
+    padding: 10,
+    paddingHorizontal: 12,
     flexDirection: 'row',
     alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
   },
   mapControlText: {
     color: '#fff',
-    marginLeft: 4,
-    fontSize: 12,
+    marginLeft: 8,
+    fontSize: 14,
+    fontWeight: '500',
   },
   content: {
     flex: 1,

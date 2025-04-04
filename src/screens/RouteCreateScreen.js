@@ -1146,6 +1146,7 @@ const RouteCreateScreen = React.forwardRef(({ isEditing = false, existingRoute =
                           );
                         }}
                         style={styles.map}
+                        screenContext="routeCreate"
                       />
                     </View>
                   </>
