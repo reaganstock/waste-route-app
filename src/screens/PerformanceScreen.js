@@ -53,8 +53,8 @@ const PerformanceScreen = () => {
   const [metrics, setMetrics] = useState({
     routesCompleted: 0,
     housesServiced: 0,
-    efficiency: 0,
-    hoursDriven: 0,
+    completion: 0,
+    stopsPerRoute: 0,
   });
   const [recentRoutes, setRecentRoutes] = useState([]);
 
@@ -94,7 +94,7 @@ const PerformanceScreen = () => {
             status,
             completed_houses,
             total_houses,
-            efficiency,
+            completion,
             duration
           )
         `)
@@ -110,17 +110,19 @@ const PerformanceScreen = () => {
 
       const completedRoutes = periodRoutes.filter(r => r.status === 'completed');
       const totalHousesServiced = completedRoutes.reduce((sum, r) => sum + (r.completed_houses || 0), 0);
-      const avgEfficiency = completedRoutes.length > 0
+      const avgCompletion = completedRoutes.length > 0
         ? completedRoutes.reduce((sum, r) => sum + (r.efficiency || 0), 0) / completedRoutes.length
         : 0;
-      const totalHours = completedRoutes.reduce((sum, r) => sum + (r.duration || 0), 0);
+      const stopsPerRoute = completedRoutes.length > 0
+        ? Math.round(totalHousesServiced / completedRoutes.length)
+        : 0;
 
       setMember(memberData);
       setMetrics({
         routesCompleted: completedRoutes.length,
         housesServiced: totalHousesServiced,
-        efficiency: Math.round(avgEfficiency),
-        hoursDriven: Math.round(totalHours),
+        completion: Math.round(avgCompletion),
+        stopsPerRoute: stopsPerRoute,
       });
 
       // Get recent routes
@@ -238,14 +240,14 @@ const PerformanceScreen = () => {
             icon="home-outline"
           />
           <MetricCard
-            title="Hours Driven"
-            value={metrics.hoursDriven}
-            icon="time-outline"
+            title="Completion"
+            value={`${metrics.completion}%`}
+            icon="trending-up-outline"
           />
           <MetricCard
-            title="Efficiency"
-            value={`${metrics.efficiency}%`}
-            icon="trending-up-outline"
+            title="Stops Per Route"
+            value={metrics.stopsPerRoute}
+            icon="location-outline"
           />
         </View>
 
@@ -274,7 +276,7 @@ const PerformanceScreen = () => {
                     {new Date(route.date).toLocaleDateString()}
                   </Text>
                   <Text style={styles.timelineMetrics}>
-                    {route.completed_houses} of {route.total_houses} houses • {Math.round(route.efficiency)}% efficiency
+                    {route.completed_houses} of {route.total_houses} houses • {Math.round(route.completion)}% completion
                   </Text>
                 </View>
               </TouchableOpacity>
@@ -293,7 +295,13 @@ const PerformanceScreen = () => {
           <View style={styles.insightCard}>
             <Ionicons name="star" size={24} color="#F59E0B" />
             <Text style={styles.insightText}>
-              Average efficiency of {metrics.efficiency}% across all routes
+              Average completion of {metrics.completion}% across all routes
+            </Text>
+          </View>
+          <View style={styles.insightCard}>
+            <Ionicons name="location" size={24} color="#3B82F6" />
+            <Text style={styles.insightText}>
+              Average {metrics.stopsPerRoute} stops serviced per route
             </Text>
           </View>
         </View>

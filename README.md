@@ -9,7 +9,7 @@ A mobile application for waste management companies to efficiently manage collec
 - **Route Planning**: Create optimized collection routes with GPS navigation
 - **Real-time Geofencing**: Get alerts when approaching collection points
 - **Team Management**: Assign routes to team members and track performance
-- **Analytics Dashboard**: Track efficiency metrics and route statistics
+- **Analytics Dashboard**: Track completion metrics and route statistics
 - **Offline Support**: Continue working even with limited connectivity
 
 ## Technologies

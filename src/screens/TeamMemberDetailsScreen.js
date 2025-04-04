@@ -59,13 +59,16 @@ const TeamMemberDetailsScreen = () => {
       if (memberError) throw memberError;
 
       // Calculate stats
-      const completedRoutes = memberData.routes?.filter(r => r.status === 'completed')?.length || 0;
+      const completedRoutes = memberData.routes?.filter(r => r.status === 'completed') || [];
+      const completedRoutesCount = completedRoutes.length || 0;
       const housesServiced = memberData.routes?.reduce((sum, route) => sum + (route.completed_houses || 0), 0) || 0;
+      const stopsPerRoute = completedRoutesCount > 0 ? Math.round(housesServiced / completedRoutesCount) : 0;
       
       setMember({
         ...memberData,
-        completed_routes: completedRoutes,
+        completed_routes: completedRoutesCount,
         houses_serviced: housesServiced,
+        stops_per_route: stopsPerRoute
       });
     } catch (error) {
       console.error('Error fetching member details:', error);
@@ -161,9 +164,9 @@ const TeamMemberDetailsScreen = () => {
             icon="home-outline"
           />
           <StatCard 
-            label="Hours Driven"
-            value={member.hours_driven || 0}
-            icon="time-outline"
+            label="Stops Per Route"
+            value={member.stops_per_route || 0}
+            icon="location-outline"
           />
           <StatCard 
             label="Routes Completed"

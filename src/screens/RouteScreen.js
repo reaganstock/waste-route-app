@@ -262,17 +262,31 @@ const RouteScreen = ({ routeId }) => {
   // Add allSelected calculation
   const allSelected = route?.houses && selectedHouses.size === route.houses.length;
 
-  // Update toggleNotifications function to handle only notification permissions
+  // Update toggleNotifications function to handle route-specific notifications independently of system permissions
   const toggleNotifications = async () => {
     try {
-      if (!phoneNotifications) {
-        const { status: notificationStatus } = await Notifications.requestPermissionsAsync();
-        if (notificationStatus !== 'granted') {
-          Alert.alert('Permission Denied', 'Notification permission is required for alerts.');
+      // Check the current notification permission status
+      const { status: notificationStatus } = await Notifications.getPermissionsAsync();
+      
+      // If toggling ON and permissions aren't granted, request them
+      if (!phoneNotifications && notificationStatus !== 'granted') {
+        const { status } = await Notifications.requestPermissionsAsync();
+        if (status !== 'granted') {
+          // Still allow toggling the in-app preference even if system permission is denied
+          setPhoneNotifications(true); // Toggle the in-app setting
+          Alert.alert(
+            'Limited Notifications',
+            'System notifications are disabled, but in-app alerts will still show. Enable system notifications in Settings for full features.',
+            [
+              { text: 'Continue', style: 'cancel' },
+              { text: 'Open Settings', onPress: () => Linking.openSettings() }
+            ]
+          );
           return;
         }
       }
       
+      // Toggle in-app notification preference
       setPhoneNotifications(prev => !prev);
     } catch (error) {
       console.error('Error toggling notifications:', error);
@@ -283,6 +297,25 @@ const RouteScreen = ({ routeId }) => {
   useEffect(() => {
     fetchRouteData();
   }, [routeId]);
+
+  // Add this to the component to check notification permissions on mount and set the toggle accordingly
+  useEffect(() => {
+    const checkNotificationPermissions = async () => {
+      try {
+        const { status } = await Notifications.getPermissionsAsync();
+        // Only update the UI toggle if permissions are denied
+        // This allows users to still toggle the in-app preference even if system permissions are off
+        if (status !== 'granted') {
+          setPhoneNotifications(false);
+        }
+      } catch (error) {
+        console.error('Error checking notification permissions:', error);
+      }
+    };
+    
+    checkNotificationPermissions();
+    setupNotifications();
+  }, []);
 
   const fetchRouteData = async () => {
     try {
@@ -333,13 +366,8 @@ const RouteScreen = ({ routeId }) => {
         }
 
         setRoute(routeData);
-        // Set selected houses based on their current status
-        const selectedHouseIds = new Set(
-          routeData.houses
-            .filter(h => h.status === 'collect')
-            .map(h => h.id)
-        );
-        setSelectedHouses(selectedHouseIds);
+        // Initialize with an empty selection set instead of preselecting "collect" houses
+        setSelectedHouses(new Set());
       }
     } catch (error) {
       console.error('Error fetching route:', error);
@@ -349,21 +377,30 @@ const RouteScreen = ({ routeId }) => {
     }
   };
 
-  // Update showNotification to respect phoneNotifications setting
-  const showNotification = (message) => {
-    // Always add to on-screen notifications
+  // Update showNotification to respect phoneNotifications setting and check system permissions
+  const showNotification = async (message) => {
+    // Always add to on-screen notifications regardless of system permissions
     setNotifications(prev => [...prev, { id: Date.now(), message }]);
 
-    // Only show phone notification if enabled
+    // Only show phone notification if in-app setting is enabled AND system permissions are granted
     if (phoneNotifications) {
-    Notifications.scheduleNotificationAsync({
-      content: {
-        title: 'WasteRoute Update',
-        body: message,
-        sound: true,
-      },
-        trigger: null,
-    });
+      try {
+        // Check current system permission status
+        const { status } = await Notifications.getPermissionsAsync();
+        
+        if (status === 'granted') {
+          await Notifications.scheduleNotificationAsync({
+            content: {
+              title: 'WasteRoute Update',
+              body: message,
+              sound: true,
+            },
+            trigger: null,
+          });
+        }
+      } catch (error) {
+        console.error('Error showing notification:', error);
+      }
     }
 
     // Auto-dismiss after 5 seconds
@@ -543,29 +580,34 @@ const RouteScreen = ({ routeId }) => {
   };
 
   // Update the header actions section
-  const renderHeaderActions = () => (
-    <View style={styles.headerActions}>
-      <TouchableOpacity 
-        style={[
-          styles.notificationToggle,
-          { backgroundColor: phoneNotifications ? '#3B82F620' : '#6B728020' }
-        ]}
-        onPress={toggleNotifications}
-      >
-        <Ionicons 
-          name={phoneNotifications ? "notifications" : "notifications-off-outline"} 
-          size={20} 
-          color={phoneNotifications ? "#3B82F6" : "#6B7280"} 
-        />
-        <Text style={[
-          styles.notificationText,
-          { color: phoneNotifications ? "#3B82F6" : "#6B7280" }
-        ]}>
-          {phoneNotifications ? 'Notifications' : 'Off'}
-        </Text>
-      </TouchableOpacity>
-    </View>
-  );
+  const renderHeaderActions = () => {
+    // Check if notifications are actually possible (system permission granted)
+    let notificationLabel = phoneNotifications ? 'Notifications' : 'Off';
+    
+    return (
+      <View style={styles.headerActions}>
+        <TouchableOpacity 
+          style={[
+            styles.notificationToggle,
+            { backgroundColor: phoneNotifications ? '#3B82F620' : '#6B728020' }
+          ]}
+          onPress={toggleNotifications}
+        >
+          <Ionicons 
+            name={phoneNotifications ? "notifications" : "notifications-off-outline"} 
+            size={20} 
+            color={phoneNotifications ? "#3B82F6" : "#6B7280"} 
+          />
+          <Text style={[
+            styles.notificationText,
+            { color: phoneNotifications ? "#3B82F6" : "#6B7280" }
+          ]}>
+            {notificationLabel}
+          </Text>
+        </TouchableOpacity>
+      </View>
+    );
+  };
 
   // Add this near the top of the file after imports
   const setupNotifications = async () => {
@@ -617,11 +659,6 @@ const RouteScreen = ({ routeId }) => {
       return false;
     }
   };
-
-  // Add this to the component
-  useEffect(() => {
-    setupNotifications();
-  }, []);
 
   // Add notification response handler
   useEffect(() => {
@@ -718,6 +755,62 @@ const RouteScreen = ({ routeId }) => {
     return (
       <View style={[styles.container, styles.centerContent]}>
         <ActivityIndicator size="large" color="#3B82F6" />
+      </View>
+    );
+  }
+
+  if (geofencingError === 'LOCATION_PERMISSION_DENIED') {
+    return (
+      <View style={[styles.container, styles.centerContent]}>
+        <LinearGradient
+          colors={['#1a1a1a', '#000000']}
+          style={StyleSheet.absoluteFill}
+        />
+        <View style={styles.permissionErrorContainer}>
+          <Ionicons name="navigate-circle-outline" size={64} color="#EF4444" />
+          <Text style={styles.errorTitle}>Location Access Required</Text>
+          <Text style={styles.errorText}>
+            We need location access to track your route progress and provide alerts for special pickups.
+          </Text>
+          <TouchableOpacity
+            style={styles.enablePermissionButton}
+            onPress={() => Linking.openSettings()}
+          >
+            <LinearGradient
+              colors={['#3B82F6', '#2563EB']}
+              style={styles.enablePermissionGradient}
+            >
+              <Text style={styles.enablePermissionText}>Open Settings</Text>
+            </LinearGradient>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  } else if (geofencingError) {
+    return (
+      <View style={[styles.container, styles.centerContent]}>
+        <LinearGradient
+          colors={['#1a1a1a', '#000000']}
+          style={StyleSheet.absoluteFill}
+        />
+        <View style={styles.permissionErrorContainer}>
+          <Ionicons name="warning-outline" size={64} color="#F59E0B" />
+          <Text style={styles.errorTitle}>Tracking Error</Text>
+          <Text style={styles.errorText}>
+            There was an error tracking your location. This may affect route notifications.
+          </Text>
+          <TouchableOpacity
+            style={styles.enablePermissionButton}
+            onPress={() => router.back()}
+          >
+            <LinearGradient
+              colors={['#3B82F6', '#2563EB']}
+              style={styles.enablePermissionGradient}
+            >
+              <Text style={styles.enablePermissionText}>Return to Home</Text>
+            </LinearGradient>
+          </TouchableOpacity>
+        </View>
       </View>
     );
   }
@@ -1417,6 +1510,50 @@ const styles = StyleSheet.create({
     backgroundColor: '#EF4444',
     padding: 8,
     width: '100%',
+  },
+  permissionErrorContainer: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+    width: '90%',
+    maxWidth: 400,
+    backgroundColor: 'rgba(17, 24, 39, 0.7)',
+    borderRadius: 20,
+    paddingVertical: 40,
+  },
+  errorTitle: {
+    color: '#fff',
+    fontSize: 22,
+    fontWeight: '600',
+    marginTop: 20,
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  errorText: {
+    color: '#D1D5DB',
+    fontSize: 16,
+    textAlign: 'center',
+    marginBottom: 30,
+    lineHeight: 22,
+    paddingHorizontal: 20,
+  },
+  enablePermissionButton: {
+    overflow: 'hidden',
+    borderRadius: 12,
+    marginTop: 8,
+    width: '80%',
+  },
+  enablePermissionGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 15,
+    paddingHorizontal: 20,
+  },
+  enablePermissionText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
   },
 });
 

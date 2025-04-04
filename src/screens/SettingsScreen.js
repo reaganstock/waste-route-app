@@ -14,12 +14,15 @@ import {
   Modal,
   Pressable,
   ActivityIndicator,
+  Linking,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { BlurView } from 'expo-blur';
 import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import * as Location from 'expo-location';
+import * as Notifications from 'expo-notifications';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
 
@@ -31,7 +34,7 @@ const mockProfile = {
 };
 
 // SettingItem Component with animation
-const SettingItem = ({ icon, title, description, value, onValueChange }) => {
+const SettingItem = ({ icon, title, description, value, onValueChange, isDisabled }) => {
   const scaleValue = new Animated.Value(1);
 
   const handlePressIn = () => {
@@ -52,7 +55,8 @@ const SettingItem = ({ icon, title, description, value, onValueChange }) => {
     <Animated.View
       style={[
         styles.settingItem,
-        { transform: [{ scale: scaleValue }] }
+        { transform: [{ scale: scaleValue }] },
+        isDisabled && styles.settingItemDisabled
       ]}
     >
       <View style={styles.settingInfo}>
@@ -72,6 +76,7 @@ const SettingItem = ({ icon, title, description, value, onValueChange }) => {
         ios_backgroundColor="#374151"
         onTouchStart={handlePressIn}
         onTouchEnd={handlePressOut}
+        disabled={isDisabled}
       />
     </Animated.View>
   );
@@ -128,12 +133,13 @@ const SettingsScreen = () => {
   const [deleteModalVisible, setDeleteModalVisible] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
   const [isDeleting, setIsDeleting] = useState(false);
+  const [permissionsLoading, setPermissionsLoading] = useState(true);
   const [settings, setSettings] = useState({
-    notifications: true,
-    darkMode: true,
-    locationTracking: true,
+    notifications: false,
+    locationTracking: false,
     autoNavigation: true,
     soundEffects: true,
+    tracking: false,
   });
 
   useEffect(() => {
@@ -141,7 +147,44 @@ const SettingsScreen = () => {
     if (user) {
       fetchProfile();
     }
+    checkPermissions();
   }, [user]);
+
+  const checkPermissions = async () => {
+    setPermissionsLoading(true);
+    try {
+      // Check notification permissions
+      const { status: notificationStatus } = await Notifications.getPermissionsAsync();
+      
+      // Check location permissions
+      const { status: locationStatus } = await Location.getForegroundPermissionsAsync();
+      
+      // Check tracking permissions
+      let trackingStatus = false;
+      if (Platform.OS === 'ios') {
+        try {
+          const { ATTrackingManager } = require('react-native-tracking-transparency');
+          if (ATTrackingManager && ATTrackingManager.getTrackingPermissionStatus) {
+            const status = await ATTrackingManager.getTrackingPermissionStatus();
+            trackingStatus = status === 'authorized';
+          }
+        } catch (e) {
+          console.log('Error checking tracking permission:', e);
+        }
+      }
+      
+      setSettings(prev => ({
+        ...prev,
+        notifications: notificationStatus === 'granted',
+        locationTracking: locationStatus === 'granted',
+        tracking: trackingStatus
+      }));
+    } catch (error) {
+      console.error('Error checking permissions:', error);
+    } finally {
+      setPermissionsLoading(false);
+    }
+  };
 
   const fetchProfile = async () => {
     try {
@@ -168,7 +211,12 @@ const SettingsScreen = () => {
     try {
       const savedSettings = await AsyncStorage.getItem('userSettings');
       if (savedSettings) {
-        setSettings(JSON.parse(savedSettings));
+        const parsedSettings = JSON.parse(savedSettings);
+        setSettings(prev => ({
+          ...prev,
+          autoNavigation: parsedSettings.autoNavigation !== undefined ? parsedSettings.autoNavigation : true,
+          soundEffects: parsedSettings.soundEffects !== undefined ? parsedSettings.soundEffects : true,
+        }));
       }
     } catch (error) {
       console.error('Error loading settings:', error);
@@ -177,9 +225,112 @@ const SettingsScreen = () => {
 
   const handleSettingChange = async (key, value) => {
     try {
-      const newSettings = { ...settings, [key]: value };
-      setSettings(newSettings);
-      await AsyncStorage.setItem('userSettings', JSON.stringify(newSettings));
+      let newValue = value;
+      
+      if (key === 'notifications') {
+        if (value) {
+          const { status } = await Notifications.requestPermissionsAsync();
+          newValue = status === 'granted';
+          
+          if (!newValue) {
+            Alert.alert(
+              'Permission Required',
+              'Notifications are needed for route alerts and updates. Please enable them in your device settings.',
+              [
+                { text: 'Cancel', style: 'cancel' },
+                { text: 'Open Settings', onPress: () => Linking.openSettings() }
+              ]
+            );
+          }
+        } else {
+          Alert.alert(
+            'Disable Notifications',
+            'To disable notifications, please go to your device settings.',
+            [
+              { text: 'Cancel', style: 'cancel' },
+              { text: 'Open Settings', onPress: () => Linking.openSettings() }
+            ]
+          );
+          return; // Don't update the setting since it can only be changed in Settings
+        }
+      }
+      
+      if (key === 'locationTracking') {
+        if (value) {
+          const { status } = await Location.requestForegroundPermissionsAsync();
+          newValue = status === 'granted';
+          
+          if (!newValue) {
+            Alert.alert(
+              'Permission Required',
+              'Location permissions are needed for navigation and route tracking. Please enable them in your device settings.',
+              [
+                { text: 'Cancel', style: 'cancel' },
+                { text: 'Open Settings', onPress: () => Linking.openSettings() }
+              ]
+            );
+          }
+        } else {
+          Alert.alert(
+            'Disable Location Tracking',
+            'To disable location tracking, please go to your device settings.',
+            [
+              { text: 'Cancel', style: 'cancel' },
+              { text: 'Open Settings', onPress: () => Linking.openSettings() }
+            ]
+          );
+          return; // Don't update the setting since it can only be changed in Settings
+        }
+      }
+
+      if (key === 'tracking') {
+        if (Platform.OS === 'ios') {
+          try {
+            const { ATTrackingManager } = require('react-native-tracking-transparency');
+            if (value) {
+              if (ATTrackingManager && ATTrackingManager.requestTrackingPermission) {
+                const status = await ATTrackingManager.requestTrackingPermission();
+                newValue = status === 'authorized';
+                
+                if (!newValue) {
+                  Alert.alert(
+                    'Permission Denied',
+                    'Tracking permission helps us optimize route planning based on usage patterns. You can change this in your device settings.',
+                    [
+                      { text: 'Cancel', style: 'cancel' },
+                      { text: 'Open Settings', onPress: () => Linking.openSettings() }
+                    ]
+                  );
+                }
+              }
+            } else {
+              Alert.alert(
+                'Disable App Tracking',
+                'To disable app tracking, please go to your device settings.',
+                [
+                  { text: 'Cancel', style: 'cancel' },
+                  { text: 'Open Settings', onPress: () => Linking.openSettings() }
+                ]
+              );
+              return; // Don't update the setting since it can only be changed in Settings
+            }
+          } catch (e) {
+            console.log('Error with tracking permission:', e);
+          }
+        }
+      }
+
+      // Only save certain settings to AsyncStorage
+      if (['autoNavigation', 'soundEffects'].includes(key)) {
+        const updatedSettings = { ...settings, [key]: newValue };
+        await AsyncStorage.setItem('userSettings', JSON.stringify({
+          autoNavigation: updatedSettings.autoNavigation,
+          soundEffects: updatedSettings.soundEffects
+        }));
+      }
+
+      // Update the state
+      setSettings(prev => ({ ...prev, [key]: newValue }));
     } catch (error) {
       console.error('Error saving setting:', error);
       Alert.alert('Error', 'Failed to save setting');
@@ -279,9 +430,10 @@ const SettingsScreen = () => {
           <SettingItem
             icon="notifications-outline"
             title="Push Notifications"
-            description="Receive alerts about route updates"
+            description="Receive alerts about route updates and collection stops"
             value={settings.notifications}
             onValueChange={(value) => handleSettingChange('notifications', value)}
+            isDisabled={permissionsLoading}
           />
 
           <SettingItem
@@ -290,7 +442,19 @@ const SettingsScreen = () => {
             description="Allow app to track your location during routes"
             value={settings.locationTracking}
             onValueChange={(value) => handleSettingChange('locationTracking', value)}
+            isDisabled={permissionsLoading}
           />
+
+          {Platform.OS === 'ios' && (
+            <SettingItem
+              icon="analytics-outline"
+              title="App Tracking"
+              description="Optimize routes based on usage patterns"
+              value={settings.tracking}
+              onValueChange={(value) => handleSettingChange('tracking', value)}
+              isDisabled={permissionsLoading}
+            />
+          )}
 
           <SettingItem
             icon="navigate-outline"
@@ -738,6 +902,9 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: '#fff',
+  },
+  settingItemDisabled: {
+    opacity: 0.5,
   },
 });
 

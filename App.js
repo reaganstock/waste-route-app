@@ -13,6 +13,7 @@ import { LogBox } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import Constants from 'expo-constants';
 import * as Device from 'expo-device';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Import screens
 import HomeScreen from './src/screens/HomeScreen';
@@ -219,6 +220,23 @@ const requestTrackingPermission = async () => {
       if (ATTrackingManager && ATTrackingManager.requestTrackingPermission) {
         const status = await ATTrackingManager.requestTrackingPermission();
         console.log('Tracking permission status:', status);
+        
+        // Store the tracking permission status for later use
+        await AsyncStorage.setItem('trackingPermissionStatus', status);
+        
+        // Log specific outcomes for debugging and app review
+        if (status === 'authorized') {
+          console.log('User allowed tracking');
+          // You could potentially initialize analytics here
+        } else if (status === 'denied') {
+          console.log('User denied tracking');
+          // Respect user's choice by not tracking
+        } else if (status === 'not-determined') {
+          console.log('User has not been asked for tracking permission yet');
+        } else if (status === 'restricted') {
+          console.log('Tracking restricted by device settings');
+        }
+        
         return status;
       } else {
         console.log('Tracking permission API not available');

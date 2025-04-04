@@ -287,6 +287,9 @@ const TeamScreen = () => {
     const routes = member.routes || [];
     const activeRoute = routes.find(r => r?.status === 'in_progress');
     const completedRoutes = routes.filter(r => r?.status === 'completed').length || 0;
+    const housesServiced = routes.reduce((total, route) => {
+      return total + (route?.completed_houses || 0);
+    }, 0);
     
     return (
       <TouchableOpacity 
@@ -361,9 +364,9 @@ const TeamScreen = () => {
               </View>
               <View style={styles.statDivider} />
               <View style={styles.statItem}>
-                <Ionicons name="time-outline" size={16} color="#3B82F6" />
-                <Text style={styles.statValue}>{member.hours_driven || 0}</Text>
-                <Text style={styles.statLabel}>Hours</Text>
+                <Ionicons name="home-outline" size={16} color="#3B82F6" />
+                <Text style={styles.statValue}>{housesServiced}</Text>
+                <Text style={styles.statLabel}>Houses</Text>
               </View>
             </View>
           </View>

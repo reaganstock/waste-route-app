@@ -209,7 +209,7 @@ ${Math.round(distance)}m away${house.notes ? `\nNote: ${house.notes}` : ''}`;
       // Request permissions
       const { status: foregroundStatus } = await Location.requestForegroundPermissionsAsync();
       if (foregroundStatus !== 'granted') {
-        throw new Error('Foreground location permission denied');
+        throw new Error('LOCATION_PERMISSION_DENIED');
       }
       
       // Try to get background permission for better tracking
@@ -244,7 +244,14 @@ ${Math.round(distance)}m away${house.notes ? `\nNote: ${house.notes}` : ''}`;
       setError(null);
     } catch (error) {
       console.error('Error starting location tracking:', error);
-      setError(error.message);
+      
+      // Provide a more specific error message for location permission denied
+      if (error.message === 'LOCATION_PERMISSION_DENIED') {
+        setError('LOCATION_PERMISSION_DENIED');
+      } else {
+        setError('Failed to start location tracking: ' + error.message);
+      }
+      
       setIsTracking(false);
     }
   }, [isTracking, checkNearbyHouses]);

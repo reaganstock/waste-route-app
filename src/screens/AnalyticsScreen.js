@@ -60,7 +60,7 @@ const MetricCard = ({ icon, title, value, color, showInfo, infoText, trend }) =>
 const PerformerCard = ({ member, position }) => {
   const router = useRouter();
   const routesCompleted = member.completed_routes || 0;
-  const efficiency = Math.round((routesCompleted / (routesCompleted + 2)) * 100);
+  const completion = Math.round((routesCompleted / (routesCompleted + 2)) * 100);
 
   const getPositionColor = (pos) => {
     switch (pos) {
@@ -113,8 +113,8 @@ const PerformerCard = ({ member, position }) => {
           </View>
           <View style={[styles.statBadge, { backgroundColor: `${primaryColor}20` }]}>
             <Ionicons name="flash" size={16} color={primaryColor} />
-            <Text style={[styles.statValue, { color: primaryColor }]}>{efficiency}%</Text>
-            <Text style={[styles.statLabel, { color: primaryColor }]}>Efficiency</Text>
+            <Text style={[styles.statValue, { color: primaryColor }]}>{completion}%</Text>
+            <Text style={[styles.statLabel, { color: primaryColor }]}>Completion</Text>
           </View>
         </View>
       </LinearGradient>
@@ -124,7 +124,7 @@ const PerformerCard = ({ member, position }) => {
 
 const RouteCard = ({ route }) => {
   const router = useRouter();
-  const efficiency = Math.round((route.completed_houses / route.houses.length) * 100);
+  const completion = Math.round((route.completed_houses / route.houses.length) * 100);
   const date = new Date(route.date);
 
   return (
@@ -139,16 +139,16 @@ const RouteCard = ({ route }) => {
       >
         <View style={styles.routeHeader}>
           <Text style={styles.routeName}>{route.name}</Text>
-          <View style={[styles.efficiencyBadge, { 
-            backgroundColor: efficiency >= 90 ? '#10B98120' : 
-                           efficiency >= 70 ? '#F59E0B20' : 
+          <View style={[styles.completionBadge, { 
+            backgroundColor: completion >= 90 ? '#10B98120' : 
+                           completion >= 70 ? '#F59E0B20' : 
                            '#EF444420'
           }]}>
-            <Text style={[styles.efficiencyText, {
-              color: efficiency >= 90 ? '#10B981' : 
-                     efficiency >= 70 ? '#F59E0B' : 
+            <Text style={[styles.completionText, {
+              color: completion >= 90 ? '#10B981' : 
+                     completion >= 70 ? '#F59E0B' : 
                      '#EF4444'
-            }]}>{efficiency}% Efficient</Text>
+            }]}>{completion}% Complete</Text>
           </View>
         </View>
         <Text style={styles.routeDate}>
@@ -281,7 +281,7 @@ const AnalyticsScreen = () => {
           />
           <MetricCard
             icon="flash"
-            title="Efficiency"
+            title="Completion"
             value={`${analytics.efficiency}%`}
             color="#F59E0B"
             trend={-3}
@@ -554,12 +554,12 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginBottom: 12,
   },
-  efficiencyBadge: {
+  completionBadge: {
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 12,
   },
-  efficiencyText: {
+  completionText: {
     fontSize: 12,
     fontWeight: '500',
   },

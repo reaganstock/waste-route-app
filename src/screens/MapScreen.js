@@ -74,7 +74,7 @@ const RouteMapCard = ({ route, activeRouteId, onSelect }) => {
 };
 
 const MapScreen = ({ navigation }) => {
-  const { location } = useLocation();
+  const { location, errorMsg, permissionStatus, requestLocationPermission } = useLocation();
   const { routes, loading, error, fetchRoutes } = useRoutes();
   const { user } = useAuth();
   const [selectedRoute, setSelectedRoute] = useState(null);
@@ -167,6 +167,11 @@ const MapScreen = ({ navigation }) => {
     setMapReady(true);
   }, []);
 
+  // Add a function to handle permission request - this will be passed to the Map component
+  const handleRequestLocationPermission = useCallback(async () => {
+    return await requestLocationPermission();
+  }, [requestLocationPermission]);
+
   if (loading && !mapReady) {
     return (
       <View style={[styles.container, styles.centerContent]}>
@@ -198,10 +203,11 @@ const MapScreen = ({ navigation }) => {
         initialRegion={location ? {
           latitude: location.coords.latitude,
           longitude: location.coords.longitude,
-          latitudeDelta: 0.02,
-          longitudeDelta: 0.02
-        } : undefined}
+          latitudeDelta: 0.0922,
+          longitudeDelta: 0.0421,
+        } : null}
         onMapReady={handleMapReady}
+        requestLocationPermission={handleRequestLocationPermission}
       />
 
       {/* Top Navigation Bar */}
@@ -479,6 +485,31 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontWeight: 'bold',
     fontSize: 14,
+  },
+  errorTitle: {
+    fontSize: 20,
+    fontWeight: '600',
+    color: '#fff',
+    marginTop: 20,
+    marginBottom: 10,
+    textAlign: 'center',
+  },
+  permissionButton: {
+    marginTop: 20,
+    overflow: 'hidden',
+    borderRadius: 12,
+    width: '80%',
+    maxWidth: 300,
+  },
+  permissionButtonGradient: {
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    alignItems: 'center',
+  },
+  permissionButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
   },
 });
 

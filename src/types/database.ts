@@ -61,7 +61,7 @@ export interface Database {
           duration: number
           completed_houses: number
           total_houses: number
-          efficiency: number
+          completion: number
           driver_id?: string | null
         }
         Insert: {
@@ -74,7 +74,7 @@ export interface Database {
           duration?: number
           completed_houses?: number
           total_houses: number
-          efficiency?: number
+          completion?: number
           driver_id?: string | null
         }
         Update: {
@@ -87,7 +87,7 @@ export interface Database {
           duration?: number
           completed_houses?: number
           total_houses?: number
-          efficiency?: number
+          completion?: number
           driver_id?: string | null
         }
       }

@@ -28,7 +28,7 @@ import { useNavigation } from '@react-navigation/native';
 const { width, height } = Dimensions.get('window');
 
 // Stats Card Component
-const StatsCard = ({ icon, title, value, color }) => (
+const StatsCard = ({ icon, title, value, color, showHouseIcon }) => (
   <View style={styles.statsCard}>
     <LinearGradient
       colors={['rgba(30, 41, 59, 0.8)', 'rgba(15, 23, 42, 0.6)']}
@@ -39,8 +39,21 @@ const StatsCard = ({ icon, title, value, color }) => (
       <View style={[styles.statsIconContainer, { backgroundColor: color + '15' }]}>
         <Ionicons name={icon} size={22} color={color} />
       </View>
-      <Text style={styles.statsValue}>{value}</Text>
-      <Text style={styles.statsTitle}>{title}</Text>
+      <View style={styles.statsValueContainer}>
+        <Text style={styles.statsValue}>{value}</Text>
+        {showHouseIcon && (
+          <>
+            <Ionicons name="home" size={16} color="#94A3B8" style={styles.statsValueIcon} />
+            <Text style={styles.statsValueSuffix}>'s</Text>
+          </>
+        )}
+      </View>
+      <Text style={[
+        styles.statsTitle, 
+        title === "Today's" && styles.todayHousesTitle
+      ]}>
+        {title}
+      </Text>
     </LinearGradient>
   </View>
 );
@@ -270,9 +283,10 @@ const HomeScreen = () => {
   // Set greeting based on time of day
   useEffect(() => {
     const hour = new Date().getHours();
-    if (hour < 12) setUserGreeting('Good Morning');
-    else if (hour < 18) setUserGreeting('Good Afternoon');
-    else setUserGreeting('Good Evening');
+    if (hour >= 5 && hour < 12) setUserGreeting('Good Morning');
+    else if (hour >= 12 && hour < 18) setUserGreeting('Good Afternoon');
+    else if (hour >= 18 && hour < 22) setUserGreeting('Good Evening');
+    else setUserGreeting('Good Night');
   }, []);
 
   // Filter routes based on user role and assignment
@@ -332,7 +346,7 @@ const HomeScreen = () => {
   const stats = {
     todayHouses: todayTotalHouses,
     completedRoutes: completedRoutes.length,
-    efficiency: completedRoutes.length > 0
+    completion: completedRoutes.length > 0
       ? Math.round(completedRoutes.reduce((acc, route) => acc + (route.efficiency || 0), 0) / completedRoutes.length)
       : 0
   };
@@ -412,9 +426,10 @@ const HomeScreen = () => {
         <View style={styles.statsContainer}>
           <StatsCard 
             icon="today-outline" 
-            title="Today's Houses" 
+            title="Today" 
             value={stats.todayHouses} 
-            color="#3B82F6" 
+            color="#3B82F6"
+            showHouseIcon={true}
           />
           <StatsCard 
             icon="checkmark-done-outline" 
@@ -424,8 +439,8 @@ const HomeScreen = () => {
           />
           <StatsCard 
             icon="speedometer-outline" 
-            title="Efficiency" 
-            value={`${stats.efficiency}%`} 
+            title="Completion" 
+            value={`${stats.completion}%`} 
             color="#F59E0B" 
           />
         </View>
@@ -638,9 +653,26 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     marginVertical: 4,
   },
+  statsValueContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  statsValueIcon: {
+    marginLeft: 5,
+  },
+  statsValueSuffix: {
+    fontSize: 12,
+    color: '#94A3B8',
+    marginTop: -2,
+  },
   statsTitle: {
     fontSize: 13,
     color: '#94A3B8',
+  },
+  todayHousesTitle: {
+    fontSize: 11,
+    lineHeight: 13,
+    flexWrap: 'wrap',
   },
   actionsContainer: {
     flexDirection: 'row',

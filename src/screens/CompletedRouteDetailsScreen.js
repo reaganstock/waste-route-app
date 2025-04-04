@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -6,111 +6,151 @@ import {
   ScrollView,
   TouchableOpacity,
   Platform,
-  Dimensions,
   Alert,
+  ActivityIndicator,
+  Dimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
-import { mockRoutes } from '../lib/mockData';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
-import MapView, { Marker } from 'react-native-maps';
+import { supabase } from '../lib/supabase';
+import Map from '../components/Map';
 
 const { width } = Dimensions.get('window');
-
-const MetricCard = ({ icon, title, value, subtitle, color, showInfo, infoText }) => (
-  <View style={[styles.metricCard, { borderColor: color }]}>
-    <View style={styles.metricHeader}>
-      <View style={[styles.metricIcon, { backgroundColor: `${color}20` }]}>
-        <Ionicons name={icon} size={24} color={color} />
-      </View>
-      {showInfo && (
-        <TouchableOpacity 
-          onPress={() => Alert.alert(title, infoText)}
-          style={styles.infoButton}
-        >
-          <Ionicons name="information-circle" size={20} color={color} />
-        </TouchableOpacity>
-      )}
-    </View>
-    <Text style={styles.metricValue}>{value}</Text>
-    <Text style={styles.metricTitle}>{title}</Text>
-    {subtitle && <Text style={styles.metricSubtitle}>{subtitle}</Text>}
-  </View>
-);
-
-const AddressItem = ({ house }) => (
-  <View style={styles.addressItem}>
-    <View style={styles.addressHeader}>
-      <View style={[
-        styles.statusBadge,
-        { backgroundColor: getStatusColor(house.status) }
-      ]}>
-        <Text style={styles.statusText}>{house.status}</Text>
-      </View>
-      {house.isNewCustomer && (
-        <View style={[styles.statusBadge, { backgroundColor: '#8B5CF6' }]}>
-          <Text style={styles.statusText}>New Customer</Text>
-        </View>
-      )}
-      {house.notes && (
-        <View style={styles.notesBadge}>
-          <Ionicons name="document-text" size={12} color="#3B82F6" />
-          <Text style={styles.notesText}>Has Notes</Text>
-        </View>
-      )}
-    </View>
-    <Text style={styles.addressText}>{house.address}</Text>
-    {house.notes && (
-      <Text style={styles.notesContent}>{house.notes}</Text>
-    )}
-  </View>
-);
 
 const getStatusColor = (status) => {
   switch (status?.toLowerCase()) {
     case 'completed':
     case 'collect':
-      return '#10B981';
+      return '#6B7280'; // grey
     case 'skipped':
     case 'skip':
-      return '#F59E0B';
-    case 'failed':
-      return '#EF4444';
-    case 'new':
-      return '#8B5CF6';
+      return '#EF4444'; // red
+    case 'new customer':
+      return '#10B981'; // green
     default:
-      return '#6B7280';
+      return '#3B82F6'; // blue for pending/other
   }
 };
 
-const CompletedRouteDetailsScreen = ({ routeId }) => {
+const CompletedRouteDetailsScreen = () => {
   const router = useRouter();
-  const route = mockRoutes.find(r => r.id === routeId);
+  const { id: routeId } = useLocalSearchParams();
+  const [route, setRoute] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [selectedHouse, setSelectedHouse] = useState(null);
+  const [showAllHouses, setShowAllHouses] = useState(false);
+  const mapRef = useRef(null);
+
+  useEffect(() => {
+    fetchRouteDetails();
+  }, [routeId]);
+
+  const fetchRouteDetails = async () => {
+    try {
+      setLoading(true);
+      
+      if (!routeId) {
+        Alert.alert("Error", "Route ID is missing");
+        return;
+      }
+      
+      const { data, error } = await supabase
+        .from('routes')
+        .select(`
+          *,
+          houses:houses(*)
+        `)
+        .eq('id', routeId)
+        .single();
+      
+      if (error) {
+        console.error('Error fetching route details:', error);
+        Alert.alert('Error', 'Failed to load route details');
+        return;
+      }
+      
+      // Process houses to ensure they have proper status format
+      if (data.houses) {
+        data.houses = data.houses.map(house => ({
+          ...house,
+          status: house.status || 'pending'
+        }));
+      }
+      
+      setRoute(data);
+    } catch (error) {
+      console.error('Error in fetchRouteDetails:', error);
+      Alert.alert('Error', 'An unexpected error occurred');
+    } finally {
+      setLoading(false);
+    }
+  };
+  
+  const handleReuseRoute = () => {
+    Alert.alert(
+      "Reuse Route",
+      "Would you like to reuse this route for a future date?",
+      [
+        { text: "Cancel", style: "cancel" },
+        { 
+          text: "Continue", 
+          onPress: () => {
+            router.push({
+              pathname: '/routes/create',
+              params: { 
+                reusing: 'true',
+                route_id: routeId
+              }
+            });
+          }
+        }
+      ]
+    );
+  };
+
+  const handleHousePress = (house) => {
+    setSelectedHouse(house);
+  };
+
+  const handleToggleHouseView = () => {
+    setShowAllHouses(!showAllHouses);
+  };
+
+  if (loading) {
+    return (
+      <View style={[styles.container, styles.centerContent]}>
+        <ActivityIndicator size="large" color="#3B82F6" />
+      </View>
+    );
+  }
 
   if (!route) {
     return (
-      <View style={styles.container}>
+      <View style={[styles.container, styles.centerContent]}>
         <Text style={styles.errorText}>Route not found</Text>
       </View>
     );
   }
 
-  const completionRate = Math.round((route.completed_houses / route.houses.length) * 100);
-  const duration = route.duration || '2.5'; // hours
-  const collectedHouses = route.houses.filter(h => h.status === 'collect' || h.status === 'completed').length;
-  const specialHouses = route.houses.filter(h => h.notes || h.isNewCustomer).length;
-  const binsPerHour = Math.round(collectedHouses / parseFloat(duration));
+  const completionRate = route.total_houses > 0 
+    ? Math.round((route.completed_houses / route.total_houses) * 100) 
+    : 0;
+  
+  const collectHouses = route.houses?.filter(h => h.status?.toLowerCase() === 'completed' || h.status?.toLowerCase() === 'collect').length || 0;
+  const skippedHouses = route.houses?.filter(h => h.status?.toLowerCase() === 'skipped' || h.status?.toLowerCase() === 'skip').length || 0;
+  const newCustomerHouses = route.houses?.filter(h => h.status?.toLowerCase() === 'new customer').length || 0;
 
-  const initialRegion = {
-    latitude: parseFloat(route.houses[0]?.lat || '37.7749'),
-    longitude: parseFloat(route.houses[0]?.lng || '-122.4194'),
-    latitudeDelta: 0.0922,
-    longitudeDelta: 0.0421,
-  };
+  const housesToDisplay = showAllHouses ? route.houses : route.houses;
 
   return (
     <View style={styles.container}>
+      <LinearGradient
+        colors={['#121212', '#000000']}
+        style={StyleSheet.absoluteFill}
+      />
+      
       <BlurView intensity={80} style={styles.header}>
         <TouchableOpacity 
           onPress={() => router.back()}
@@ -119,86 +159,146 @@ const CompletedRouteDetailsScreen = ({ routeId }) => {
           <Ionicons name="arrow-back" size={24} color="#fff" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Route Details</Text>
-        <View style={styles.placeholder} />
+        <TouchableOpacity 
+          onPress={handleReuseRoute}
+          style={styles.reuseButton}
+        >
+          <Ionicons name="repeat" size={22} color="#10B981" />
+        </TouchableOpacity>
       </BlurView>
 
-      <ScrollView style={styles.content}>
-        <View style={styles.routeInfo}>
-          <Text style={styles.routeName}>{route.name}</Text>
-          <Text style={styles.routeDate}>
-            {new Date(route.date).toLocaleDateString()}
-          </Text>
-        </View>
-
-        <View style={styles.metricsGrid}>
-          <MetricCard
-            icon="home"
-            title="Total Houses"
-            value={route.houses.length}
-            color="#6B7280"
-          />
-          <MetricCard
-            icon="checkmark-circle"
-            title="Collected Houses"
-            value={collectedHouses}
-            color="#10B981"
-          />
-          <MetricCard
-            icon="alert-circle"
-            title="Special Houses"
-            value={specialHouses}
-            color="#8B5CF6"
-            showInfo
-            infoText="Houses with notifications to skip, special notes, or new customers that required additional attention"
-          />
-        </View>
-
-        <View style={styles.metricsGrid}>
-          <MetricCard
-            icon="stats-chart"
-            title="Efficiency"
-            value={`${completionRate}%`}
-            color="#3B82F6"
-          />
-          <MetricCard
-            icon="time"
-            title="Duration"
-            value={duration}
-            subtitle="hours"
-            color="#F59E0B"
-          />
-          <MetricCard
-            icon="speedometer"
-            title="Bins/Hour"
-            value={binsPerHour}
-            color="#EF4444"
-          />
-        </View>
-
-        <View style={styles.mapContainer}>
-          <MapView
-            style={styles.map}
-            initialRegion={initialRegion}
+      <View style={styles.mapContainer}>
+        <Map
+          ref={mapRef}
+          houses={route.houses || []}
+          onHousePress={handleHousePress}
+          style={styles.map}
+        />
+        
+        <View style={styles.mapControls}>
+          <TouchableOpacity 
+            style={styles.mapControlButton}
+            onPress={handleToggleHouseView}
           >
-            {route.houses.map((house, index) => (
-              <Marker
-                key={house.id}
-                coordinate={{
-                  latitude: parseFloat(house.lat),
-                  longitude: parseFloat(house.lng),
-                }}
-                title={house.address}
-                description={house.notes || (house.isNewCustomer ? 'New Customer' : '')}
+            <Ionicons name={showAllHouses ? "filter" : "filter-outline"} size={22} color="#fff" />
+            <Text style={styles.mapControlText}>
+              {showAllHouses ? "Show Collected" : "Show All"}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+        <View style={styles.routeInfoCard}>
+          <View style={styles.routeHeader}>
+            <Text style={styles.routeName}>{route.name}</Text>
+            <Text style={styles.routeDate}>
+              {new Date(route.date).toLocaleDateString(undefined, { 
+                year: 'numeric', 
+                month: 'short', 
+                day: 'numeric' 
+              })}
+            </Text>
+          </View>
+
+          <View style={styles.metricsGrid}>
+            <View style={styles.metricItem}>
+              <View style={[styles.metricIcon, {backgroundColor: 'rgba(59, 130, 246, 0.15)'}]}>
+                <Ionicons name="home" size={24} color="#3B82F6" />
+              </View>
+              <View style={styles.metricContent}>
+                <Text style={styles.metricValue}>{route.total_houses || 0}</Text>
+                <Text style={styles.metricLabel}>Total Houses</Text>
+              </View>
+            </View>
+            
+            <View style={styles.metricItem}>
+              <View style={[styles.metricIcon, {backgroundColor: 'rgba(107, 114, 128, 0.15)'}]}>
+                <Ionicons name="checkmark-circle" size={24} color="#6B7280" />
+              </View>
+              <View style={styles.metricContent}>
+                <Text style={styles.metricValue}>{collectHouses}</Text>
+                <Text style={styles.metricLabel}>Collected</Text>
+              </View>
+            </View>
+          </View>
+
+          <View style={styles.metricsGrid}>
+            <View style={styles.metricItem}>
+              <View style={[styles.metricIcon, {backgroundColor: 'rgba(239, 68, 68, 0.15)'}]}>
+                <Ionicons name="close-circle" size={24} color="#EF4444" />
+              </View>
+              <View style={styles.metricContent}>
+                <Text style={styles.metricValue}>{skippedHouses}</Text>
+                <Text style={styles.metricLabel}>Skipped</Text>
+              </View>
+            </View>
+            
+            <View style={styles.metricItem}>
+              <View style={[styles.metricIcon, {backgroundColor: 'rgba(16, 185, 129, 0.15)'}]}>
+                <Ionicons name="person-add" size={24} color="#10B981" />
+              </View>
+              <View style={styles.metricContent}>
+                <Text style={styles.metricValue}>{newCustomerHouses}</Text>
+                <Text style={styles.metricLabel}>New Customers</Text>
+              </View>
+            </View>
+          </View>
+
+          <View style={styles.completionSection}>
+            <View style={styles.completionHeader}>
+              <Text style={styles.completionLabel}>Completion</Text>
+              <Text style={styles.completionValue}>{completionRate}%</Text>
+            </View>
+            <View style={styles.progressBarContainer}>
+              <View 
+                style={[
+                  styles.progressBar, 
+                  { width: `${completionRate}%` }
+                ]} 
               />
-            ))}
-          </MapView>
+            </View>
+          </View>
         </View>
 
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Addresses</Text>
-          {route.houses.map((house) => (
-            <AddressItem key={house.id} house={house} />
-          ))}
+        <View style={styles.housesContainer}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Houses</Text>
+          </View>
+
+          {housesToDisplay && housesToDisplay.length > 0 ? (
+            housesToDisplay.map((house) => (
+              <TouchableOpacity 
+                key={house.id} 
+                style={styles.houseItem}
+                onPress={() => handleHousePress(house)}
+              >
+                <View style={styles.houseItemContent}>
+                  <Text style={styles.addressText}>{house.address}</Text>
+                  <View style={[
+                    styles.statusBadge,
+                    { backgroundColor: getStatusColor(house.status) }
+                  ]}>
+                    <Text style={styles.statusText}>
+                      {house.status?.toLowerCase() === 'completed' ? 'Collect' : 
+                        house.status?.toLowerCase() === 'collect' ? 'Collect' : 
+                        house.status?.toLowerCase() === 'skipped' ? 'Skip' : 
+                        house.status?.toLowerCase() === 'skip' ? 'Skip' : 
+                        house.status}
+                    </Text>
+                  </View>
+                </View>
+                {house.notes && (
+                  <View style={styles.notesContainer}>
+                    <Ionicons name="document-text-outline" size={14} color="#999" />
+                    <Text style={styles.notesText}>{house.notes}</Text>
+                  </View>
+                )}
+              </TouchableOpacity>
+            ))
+          ) : (
+            <Text style={styles.emptyText}>No houses to display</Text>
+          )}
         </View>
       </ScrollView>
     </View>
@@ -210,164 +310,220 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#000',
   },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 20,
-    paddingTop: Platform.OS === 'ios' ? 60 : 20,
-    backgroundColor: 'rgba(17, 24, 39, 0.8)',
-  },
-  backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+  centerContent: {
     justifyContent: 'center',
     alignItems: 'center',
   },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingTop: Platform.OS === 'ios' ? 48 : 16,
+    paddingBottom: 16,
+    zIndex: 10,
+  },
   headerTitle: {
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: '600',
     color: '#fff',
   },
-  placeholder: {
-    width: 40,
+  backButton: {
+    padding: 8,
   },
-  content: {
-    flex: 1,
-  },
-  routeInfo: {
-    padding: 20,
-  },
-  routeName: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: '#fff',
-    marginBottom: 8,
-  },
-  routeDate: {
-    fontSize: 16,
-    color: '#9CA3AF',
-  },
-  metricsGrid: {
-    flexDirection: 'row',
-    paddingHorizontal: 20,
-    paddingBottom: 12,
-    gap: 12,
-  },
-  metricCard: {
-    flex: 1,
-    backgroundColor: 'rgba(31, 41, 55, 0.5)',
-    borderRadius: 12,
-    padding: 16,
-    alignItems: 'center',
-    borderWidth: 1,
-  },
-  metricIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  metricValue: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: '#fff',
-    marginBottom: 4,
-  },
-  metricTitle: {
-    fontSize: 14,
-    color: '#9CA3AF',
-    marginBottom: 4,
-  },
-  metricSubtitle: {
-    fontSize: 12,
-    color: '#6B7280',
+  reuseButton: {
+    padding: 8,
   },
   mapContainer: {
-    margin: 20,
     height: 300,
+    width: '100%',
+    position: 'relative',
     borderRadius: 12,
     overflow: 'hidden',
   },
   map: {
-    width: '100%',
-    height: '100%',
+    ...StyleSheet.absoluteFillObject,
   },
-  section: {
-    padding: 20,
+  mapControls: {
+    position: 'absolute',
+    bottom: 16,
+    right: 16,
+    zIndex: 5,
   },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: '600',
+  mapControlButton: {
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    borderRadius: 8,
+    padding: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  mapControlText: {
     color: '#fff',
+    marginLeft: 4,
+    fontSize: 12,
+  },
+  content: {
+    flex: 1,
+    paddingHorizontal: 16,
+  },
+  routeInfoCard: {
+    backgroundColor: '#1a1a1a',
+    borderRadius: 16,
+    padding: 20,
+    marginTop: 16,
+    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 5,
+    elevation: 6,
+  },
+  routeHeader: {
+    marginBottom: 24,
+  },
+  routeName: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#fff',
+    marginBottom: 4,
+  },
+  routeDate: {
+    fontSize: 14,
+    color: '#aaa',
+  },
+  metricsGrid: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     marginBottom: 16,
   },
-  addressItem: {
-    backgroundColor: 'rgba(31, 41, 55, 0.5)',
+  metricItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    width: '48%',
+    backgroundColor: '#242424',
+    borderRadius: 12,
+    padding: 12,
+  },
+  metricIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  metricContent: {
+    flex: 1,
+  },
+  metricValue: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#fff',
+  },
+  metricLabel: {
+    fontSize: 12,
+    color: '#aaa',
+    marginTop: 2,
+  },
+  completionSection: {
+    marginTop: 16,
+    backgroundColor: '#242424',
+    borderRadius: 12,
+    padding: 16,
+  },
+  completionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  completionLabel: {
+    fontSize: 14,
+    color: '#fff',
+    fontWeight: '500',
+  },
+  completionValue: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#3B82F6',
+  },
+  progressBarContainer: {
+    height: 8,
+    backgroundColor: '#333',
+    borderRadius: 4,
+    overflow: 'hidden',
+  },
+  progressBar: {
+    height: '100%',
+    backgroundColor: '#3B82F6',
+    borderRadius: 4,
+  },
+  housesContainer: {
+    marginBottom: 24,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  sectionTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#fff',
+  },
+  houseItem: {
+    backgroundColor: '#1a1a1a',
     borderRadius: 12,
     padding: 16,
     marginBottom: 12,
   },
-  addressHeader: {
+  houseItemContent: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    gap: 8,
-    marginBottom: 8,
-    flexWrap: 'wrap',
   },
   statusBadge: {
-    paddingHorizontal: 8,
+    paddingHorizontal: 10,
     paddingVertical: 4,
-    borderRadius: 12,
+    borderRadius: 6,
+    marginLeft: 8,
+    alignSelf: 'flex-start',
   },
   statusText: {
-    color: '#fff',
     fontSize: 12,
-    fontWeight: '500',
+    color: '#fff',
+    fontWeight: '600',
     textTransform: 'capitalize',
   },
-  notesBadge: {
+  addressText: {
+    fontSize: 15,
+    color: '#fff',
+    flex: 1,
+  },
+  notesContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    backgroundColor: 'rgba(59,130,246,0.1)',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
+    marginTop: 8,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#333',
   },
   notesText: {
-    color: '#3B82F6',
-    fontSize: 12,
-    fontWeight: '500',
+    fontSize: 13,
+    color: '#aaa',
+    marginLeft: 6,
+    flex: 1,
   },
-  addressText: {
-    color: '#fff',
-    fontSize: 16,
-    marginBottom: 8,
-  },
-  notesContent: {
-    color: '#9CA3AF',
-    fontSize: 14,
+  emptyText: {
+    color: '#999',
+    textAlign: 'center',
+    marginTop: 24,
     fontStyle: 'italic',
   },
   errorText: {
     color: '#EF4444',
     fontSize: 16,
-    textAlign: 'center',
-    marginTop: 20,
-  },
-  metricHeader: {
-    width: '100%',
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: 8,
-  },
-  infoButton: {
-    padding: 4,
   },
 });
 

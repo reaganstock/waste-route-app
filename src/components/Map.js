@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, memo } from 'react';
-import { View, StyleSheet, TouchableOpacity, Text, Dimensions, Animated, Alert, Platform } from 'react-native';
+import { View, StyleSheet, TouchableOpacity, Text, Dimensions, Animated, Alert, Platform, Linking } from 'react-native';
 import MapView, { Marker, Polyline } from 'react-native-maps';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocation } from '../hooks/useLocation';
@@ -184,7 +184,11 @@ const Map = ({
   showStreetView = false,
   selectedRoute = null,
   initialRegion = null,
-  onMapReady = () => {}
+  onMapReady = () => {},
+  requestLocationPermission,
+  style,
+  activeHouseId,
+  onActiveHouseChange
 }) => {
   const mapRef = useRef(null);
   const { location } = useLocation();
@@ -198,6 +202,10 @@ const Map = ({
   const [followUser, setFollowUser] = useState(false);
   const [processedHouses, setProcessedHouses] = useState([]);
   const [routePath, setRoutePath] = useState([]);
+  
+  // Get screen dimensions for responsive layout
+  const { width: SCREEN_WIDTH } = Dimensions.get('window');
+  const isSmallScreen = SCREEN_WIDTH < 360;
   
   // Process houses when they change
   useEffect(() => {
@@ -460,15 +468,10 @@ const Map = ({
   // Toggle follow user mode
   const toggleFollowUser = useCallback(async () => {
     try {
-      // First, check and request location permission if needed
-      const { status } = await Location.requestForegroundPermissionsAsync();
+      // Use the passed requestLocationPermission function that handles all alerts
+      const permissionGranted = await requestLocationPermission();
       
-      if (status !== 'granted') {
-        Alert.alert(
-          'Permission Denied',
-          'Location permission is required to use this feature',
-          [{ text: 'OK' }]
-        );
+      if (!permissionGranted) {
         return;
       }
       
@@ -497,7 +500,7 @@ const Map = ({
       console.log('Error toggling follow mode:', error);
       Alert.alert('Error', 'Could not access your location');
     }
-  }, [followUser]);
+  }, [followUser, requestLocationPermission]);
 
   // Handle marker press - set as active but don't navigate away from map
   const handleMarkerPress = useCallback((house) => {
@@ -581,13 +584,13 @@ const Map = ({
       {/* Navigation Controls */}
       {processedHouses.length > 0 && (
         <View style={styles.navigationControls}>
-          <BlurView intensity={80} style={styles.navigationPanel}>
+          <BlurView intensity={80} style={[styles.navigationPanel, isSmallScreen && styles.navigationPanelSmall]}>
             <TouchableOpacity 
               style={[styles.navButton, activeHouseIndex <= 0 && styles.navButtonDisabled]}
               onPress={goToPreviousHouse}
               disabled={activeHouseIndex <= 0}
             >
-              <Ionicons name="chevron-back" size={24} color="#fff" />
+              <Ionicons name="chevron-back" size={20} color="#fff" />
             </TouchableOpacity>
             
             <View style={styles.navStatusContainer}>
@@ -610,21 +613,21 @@ const Map = ({
               onPress={goToNextHouse}
               disabled={activeHouseIndex >= processedHouses.length - 1}
             >
-              <Ionicons name="chevron-forward" size={24} color="#fff" />
+              <Ionicons name="chevron-forward" size={20} color="#fff" />
             </TouchableOpacity>
           </BlurView>
         </View>
       )}
 
       {/* Map Controls */}
-      <View style={styles.controls}>
+      <View style={[styles.controls, isSmallScreen && styles.controlsSmall]}>
         <TouchableOpacity 
           style={styles.controlButton}
           onPress={toggleMapType}
         >
           <Ionicons 
             name={mapType === 'standard' ? 'map' : 'map-outline'} 
-            size={24} 
+            size={20} 
             color="#fff" 
           />
         </TouchableOpacity>
@@ -633,14 +636,14 @@ const Map = ({
           style={styles.controlButton}
           onPress={handleOverview}
         >
-          <Ionicons name="expand-outline" size={24} color="#fff" />
+          <Ionicons name="expand-outline" size={20} color="#fff" />
         </TouchableOpacity>
         
         <TouchableOpacity 
           style={[styles.controlButton, followUser && styles.activeControlButton]}
           onPress={toggleFollowUser}
         >
-          <Ionicons name="locate-outline" size={24} color="#fff" />
+          <Ionicons name="locate-outline" size={20} color="#fff" />
         </TouchableOpacity>
       </View>
     </View>
@@ -698,16 +701,16 @@ const styles = StyleSheet.create({
   },
   controls: {
     position: 'absolute',
-    top: 120,
-    right: 20,
+    top: 20,
+    right: 12,
     alignItems: 'center',
-    gap: 10,
+    gap: 8,
   },
   controlButton: {
     backgroundColor: 'rgba(31, 41, 55, 0.8)',
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     justifyContent: 'center',
     alignItems: 'center',
     shadowColor: '#000',
@@ -727,7 +730,7 @@ const styles = StyleSheet.create({
   },
   navigationControls: {
     position: 'absolute',
-    bottom: 30,
+    bottom: 20,
     left: 0,
     right: 0,
     alignItems: 'center',
@@ -739,13 +742,13 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(31, 41, 55, 0.5)',
     borderRadius: 50,
     padding: 6,
-    width: '80%',
+    width: '85%',
     maxWidth: 400,
   },
   navButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     backgroundColor: 'rgba(59, 130, 246, 0.7)',
     justifyContent: 'center',
     alignItems: 'center',
@@ -761,18 +764,28 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
+    paddingHorizontal: 4,
   },
   navStatusText: {
     color: '#fff',
     fontWeight: 'bold',
-    fontSize: 14,
+    fontSize: 13,
   },
   navAddressText: {
     color: '#F3F4F6',
-    fontSize: 12,
+    fontSize: 11,
     marginTop: 2,
     opacity: 0.8,
     maxWidth: '90%',
+  },
+  controlsSmall: {
+    top: 10,
+    right: 10,
+    gap: 6,
+  },
+  navigationPanelSmall: {
+    width: '95%',
+    padding: 4,
   },
 });
 

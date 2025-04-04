@@ -84,8 +84,7 @@ const RouteCard = ({ route, onPress }) => {
         style={styles.routeContent}
         onPress={onPress}
         activeOpacity={0.7}
-        // Make completed routes not clickable
-        disabled={route.status === 'completed'}
+        // Make completed routes clickable
       >
         <LinearGradient
           colors={['rgba(31,41,55,0.8)', 'rgba(17,24,39,0.8)']}
@@ -217,7 +216,7 @@ const AllRoutesScreen = ({ initialFilter }) => {
           total_houses,
           completed_houses,
           duration,
-          efficiency,
+          completion,
           driver_id,
           driver:driver_id(id, full_name)
         `)
@@ -298,8 +297,8 @@ const AllRoutesScreen = ({ initialFilter }) => {
             onPress={() => {
               // Different navigation behavior based on route status
               if (route.status === 'completed') {
-                // No navigation for completed routes
-                return;
+                // Navigate to route details for completed routes
+                router.push(`/route/${route.id}/details`);
               } else if (route.status === 'in_progress') {
                 // In-progress routes go to the route screen
                 router.push(`/route/${route.id}`);

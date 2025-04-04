@@ -24,6 +24,7 @@ import { supabase } from '../lib/supabase';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import Papa from 'papaparse';
 import { useAuth } from '../contexts/AuthContext';
+import { LinearGradient } from 'expo-linear-gradient';
 
 const MAPBOX_ACCESS_TOKEN = "pk.eyJ1IjoicmVhZ2Fuc3RvY2siLCJhIjoiY204eHZ1bTQzMDdzOTJrcHRuY2l3em05NiJ9.yMm1TND_J6jZpYJlYmfhyQ";
 
@@ -221,7 +222,7 @@ const processHouseStatus = (status) => {
 const RouteCreateScreen = React.forwardRef(({ isEditing = false, existingRoute = null, hideHeader = false, onRouteChange }, ref) => {
   const router = useRouter();
   const { user } = useAuth();
-  const { driver_id } = useLocalSearchParams();
+  const { driver_id, reusing, route_id } = useLocalSearchParams();
   const [name, setName] = useState(existingRoute?.name || '');
   const [date, setDate] = useState(existingRoute?.date ? new Date(existingRoute.date) : new Date());
   const [showDatePicker, setShowDatePicker] = useState(false);
@@ -236,12 +237,24 @@ const RouteCreateScreen = React.forwardRef(({ isEditing = false, existingRoute =
   const isOwner = user?.user_metadata?.role === 'owner';
   const [notes, setNotes] = useState(existingRoute?.notes || '');
   const [showInfoModal, setShowInfoModal] = useState(false);
+  const [loadingReusedRoute, setLoadingReusedRoute] = useState(!!reusing);
+  
+  // Scheduling options
+  const [repeatFrequency, setRepeatFrequency] = useState('none');
+  const [endDate, setEndDate] = useState(null);
+  const [showEndDatePicker, setShowEndDatePicker] = useState(false);
+  const [showSchedulingOptions, setShowSchedulingOptions] = useState(false);
 
   useEffect(() => {
     fetchDrivers();
     // Check if this is the first time opening the screen
     checkFirstTimeUser();
-  }, []);
+    
+    // If reusing a route, load its data
+    if (reusing === 'true' && route_id) {
+      loadReusedRoute(route_id);
+    }
+  }, [reusing, route_id]);
 
   const checkFirstTimeUser = async () => {
     try {
@@ -502,6 +515,10 @@ const RouteCreateScreen = React.forwardRef(({ isEditing = false, existingRoute =
       Alert.alert('Error', 'Please add at least one house to the route.');
       return;
     }
+    if (repeatFrequency !== 'none' && !endDate) {
+      Alert.alert('Error', 'Please select an end date for recurring routes.');
+      return;
+    }
 
     // Get team_id from the logged-in user context
     let teamId = null;
@@ -527,81 +544,15 @@ const RouteCreateScreen = React.forwardRef(({ isEditing = false, existingRoute =
     try {
       setUploading(true);
 
-      // Format date in local timezone to prevent timezone offset issues
-      // Get YYYY-MM-DD format in local timezone
-      const localDate = new Date(date);
-      // Add one day to compensate for timezone issue
-      localDate.setDate(localDate.getDate() + 1);
-      const year = localDate.getFullYear();
-      const month = String(localDate.getMonth() + 1).padStart(2, '0');
-      const day = String(localDate.getDate()).padStart(2, '0');
-      const dateString = `${year}-${month}-${day}`;
-
-      // Create route first
-      console.log('Creating route with data:', {
-         name: name.trim(),
-         date: dateString, // Local date string with compensation for timezone
-         driver_id: selectedDriver,
-         status: 'pending',
-         // start_time: new Date().toISOString(), // Commented out - set when route starts
-         total_houses: houses.length,
-         completed_houses: 0,
-         team_id: teamId, // Include team_id
-         notes: notes.trim() // Include notes
-      });
-      const { data: route, error: routeError } = await supabase
-        .from('routes')
-        .insert({
-          name: name.trim(),
-          date: dateString, // Use local date string
-          driver_id: selectedDriver,
-          status: 'pending',
-          // start_time: new Date().toISOString(), // Set start_time when route actually begins
-          total_houses: houses.length,
-          completed_houses: 0,
-          team_id: teamId, // Include team_id
-          notes: notes.trim() // Include notes
-        })
-        .select('id') // Only select ID, other fields might not be immediately updated by triggers
-        .single();
-
-      if (routeError) {
-          console.error('Supabase route insert error:', routeError);
-          throw new Error(`Database error creating route: ${routeError.message}`); // Throw a more specific error
-      }
-      
-      if (!route || !route.id) {
-          throw new Error('Failed to get route ID after insert.');
+      if (repeatFrequency === 'none') {
+        // Standard single route creation
+        await createSingleRoute();
+      } else {
+        // Create recurring routes
+        await createRecurringRoutes();
       }
 
-      console.log('Route created with ID:', route.id);
-
-      // Process houses data
-      const housesData = houses.map((house, index) => ({
-        route_id: route.id,
-        address: house.address,
-        status: processHouseStatus(house.status),
-        notes: house.notes,
-        is_new_customer: house.status === 'new customer' || house.status === 'new',
-        lat: house.lat,
-        lng: house.lng
-      }));
-      
-      console.log(`Attempting to insert ${housesData.length} houses for route ${route.id}`);
-
-      // Insert houses
-      const { error: housesError } = await supabase
-        .from('houses')
-        .insert(housesData);
-
-      if (housesError) {
-          console.error('Supabase houses insert error:', housesError);
-          // Consider trying to delete the route if houses fail? Or notify user?
-          throw new Error(`Database error adding houses: ${housesError.message}`); // Throw a more specific error
-      }
-
-      console.log('Houses inserted successfully');
-      Alert.alert('Success', 'Route created successfully');
+      Alert.alert('Success', 'Route(s) created successfully');
       router.replace('/(tabs)'); // Use replace to prevent going back to create screen 
     } catch (error) {
       // Log the full error object
@@ -611,6 +562,226 @@ const RouteCreateScreen = React.forwardRef(({ isEditing = false, existingRoute =
       Alert.alert('Error Creating Route', errorMessage);
     } finally {
       setUploading(false);
+    }
+  };
+
+  const createSingleRoute = async () => {
+    // Format date in local timezone to prevent timezone offset issues
+    // Get YYYY-MM-DD format in local timezone
+    const localDate = new Date(date);
+    // Add one day to compensate for timezone issue
+    localDate.setDate(localDate.getDate() + 1);
+    const year = localDate.getFullYear();
+    const month = String(localDate.getMonth() + 1).padStart(2, '0');
+    const day = String(localDate.getDate()).padStart(2, '0');
+    const dateString = `${year}-${month}-${day}`;
+
+    // Get team ID
+    let teamId = user?.team_id || user?.profile?.team_id;
+
+    // Create route first
+    console.log('Creating route with data:', {
+      name: name.trim(),
+      date: dateString, // Local date string with compensation for timezone
+      driver_id: selectedDriver,
+      status: 'pending',
+      total_houses: houses.length,
+      completed_houses: 0,
+      team_id: teamId,
+      notes: notes.trim()
+    });
+    const { data: route, error: routeError } = await supabase
+      .from('routes')
+      .insert({
+        name: name.trim(),
+        date: dateString,
+        driver_id: selectedDriver,
+        status: 'pending',
+        total_houses: houses.length,
+        completed_houses: 0,
+        team_id: teamId,
+        notes: notes.trim()
+      })
+      .select('id')
+      .single();
+
+    if (routeError) {
+      console.error('Supabase route insert error:', routeError);
+      throw new Error(`Database error creating route: ${routeError.message}`);
+    }
+    
+    if (!route || !route.id) {
+      throw new Error('Failed to get route ID after insert.');
+    }
+
+    await insertHousesForRoute(route.id);
+  };
+
+  const createRecurringRoutes = async () => {
+    // Calculate all dates between start and end based on frequency
+    const routeDates = getAllRouteDates();
+    
+    if (routeDates.length === 0) {
+      throw new Error('No valid dates found for recurring routes');
+    }
+    
+    console.log(`Creating ${routeDates.length} recurring routes`);
+    
+    // Get team ID
+    let teamId = user?.team_id || user?.profile?.team_id;
+    
+    // Create base route data without specific dates
+    const baseRouteData = routeDates.map(routeDate => {
+      // Format each date in YYYY-MM-DD format
+      const year = routeDate.getFullYear();
+      const month = String(routeDate.getMonth() + 1).padStart(2, '0');
+      const day = String(routeDate.getDate()).padStart(2, '0');
+      const dateString = `${year}-${month}-${day}`;
+      
+      return {
+        name: name.trim(),
+        date: dateString,
+        driver_id: selectedDriver,
+        status: 'pending',
+        total_houses: houses.length,
+        completed_houses: 0,
+        team_id: teamId,
+        notes: notes.trim()
+      };
+    });
+    
+    // Create all routes
+    const { data: routes, error: routesError } = await supabase
+      .from('routes')
+      .insert(baseRouteData)
+      .select('id');
+      
+    if (routesError) {
+      console.error('Supabase routes insert error:', routesError);
+      throw new Error(`Database error creating recurring routes: ${routesError.message}`);
+    }
+    
+    if (!routes || routes.length === 0) {
+      throw new Error('Failed to create recurring routes');
+    }
+    
+    // Insert houses for each route
+    for (const route of routes) {
+      await insertHousesForRoute(route.id);
+    }
+  };
+  
+  const insertHousesForRoute = async (routeId) => {
+    // Process houses data
+    const housesData = houses.map((house) => ({
+      route_id: routeId,
+      address: house.address,
+      status: processHouseStatus(house.status),
+      notes: house.notes,
+      is_new_customer: house.status === 'new customer' || house.status === 'new',
+      lat: house.lat,
+      lng: house.lng
+    }));
+    
+    console.log(`Inserting ${housesData.length} houses for route ${routeId}`);
+    
+    // Insert houses
+    const { error: housesError } = await supabase
+      .from('houses')
+      .insert(housesData);
+    
+    if (housesError) {
+      console.error('Supabase houses insert error:', housesError);
+      throw new Error(`Database error adding houses: ${housesError.message}`);
+    }
+  };
+  
+  const getAllRouteDates = () => {
+    const dates = [];
+    let currentDate = new Date(date);
+    const endDateTime = endDate ? endDate.getTime() : null;
+    
+    // Safety check - limit to 100 routes max
+    const MAX_ROUTES = 100;
+    
+    while ((!endDateTime || currentDate.getTime() <= endDateTime) && dates.length < MAX_ROUTES) {
+      dates.push(new Date(currentDate));
+      
+      // Advance date based on frequency
+      switch (repeatFrequency) {
+        case 'daily':
+          currentDate.setDate(currentDate.getDate() + 1);
+          break;
+        case 'weekly':
+          currentDate.setDate(currentDate.getDate() + 7);
+          break;
+        case 'monthly':
+          currentDate.setMonth(currentDate.getMonth() + 1);
+          break;
+        default:
+          return dates; // Safety for unexpected frequency
+      }
+    }
+    
+    return dates;
+  };
+
+  const loadReusedRoute = async (routeId) => {
+    try {
+      setLoadingReusedRoute(true);
+      console.log("Loading route to reuse:", routeId);
+      
+      // Fetch the route and its houses
+      const { data: routeData, error: routeError } = await supabase
+        .from('routes')
+        .select(`
+          *,
+          houses:houses(*)
+        `)
+        .eq('id', routeId)
+        .single();
+      
+      if (routeError) {
+        console.error('Error loading route to reuse:', routeError);
+        Alert.alert('Error', 'Failed to load route data for reuse');
+        return;
+      }
+      
+      if (!routeData) {
+        Alert.alert('Error', 'Route not found');
+        return;
+      }
+      
+      // Use the existing route name with "Copy" appended
+      setName(`${routeData.name} (Copy)`);
+      
+      // Use the driver from the original route
+      setSelectedDriver(routeData.driver_id || user?.id);
+      
+      // Keep any notes
+      setNotes(routeData.notes || '');
+      
+      // Add houses but reset their status to 'pending'
+      if (routeData.houses && routeData.houses.length > 0) {
+        const reusedHouses = routeData.houses.map(house => ({
+          address: house.address,
+          lat: house.lat,
+          lng: house.lng,
+          status: house.is_new_customer ? 'new customer' : 'pending', // Keep new customer status but reset others
+          notes: house.notes || '',
+          sequence: house.sequence,
+          priority: house.priority || 0
+        }));
+        
+        setHouses(reusedHouses);
+      }
+      
+      console.log(`Loaded ${routeData.houses?.length || 0} houses from route ${routeId} for reuse`);
+    } catch (error) {
+      console.error('Error in loadReusedRoute:', error);
+      Alert.alert('Error', 'An unexpected error occurred while loading the route');
+    } finally {
+      setLoadingReusedRoute(false);
     }
   };
 
@@ -672,7 +843,7 @@ const RouteCreateScreen = React.forwardRef(({ isEditing = false, existingRoute =
               <Text style={styles.backButtonText}>Back</Text>
             </TouchableOpacity>
             <Text style={styles.headerTitle}>
-              {isEditing ? 'Edit Route' : 'Create Route'}
+              {isEditing ? 'Edit Route' : (reusing === 'true' ? 'Reuse Route' : 'Create Route')}
             </Text>
             <TouchableOpacity 
               style={[
@@ -680,7 +851,7 @@ const RouteCreateScreen = React.forwardRef(({ isEditing = false, existingRoute =
                 (!name || !selectedDriver || houses.length === 0) && styles.createButtonDisabled
               ]}
               onPress={handleCreateRoute}
-              disabled={!name || !selectedDriver || houses.length === 0 || uploading}
+              disabled={!name || !selectedDriver || houses.length === 0 || uploading || loadingReusedRoute}
             >
               {uploading ? (
                 <ActivityIndicator color="#fff" size="small" />
@@ -699,229 +870,317 @@ const RouteCreateScreen = React.forwardRef(({ isEditing = false, existingRoute =
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>Route Details</Text>
-
-            <View style={styles.inputContainer}>
-              <Ionicons name="map-outline" size={22} color="#3B82F6" />
-              <TextInput
-                style={styles.input}
-                placeholder="Route Name"
-                placeholderTextColor="#6B7280"
-                value={name}
-                onChangeText={setName}
-              />
+          {loadingReusedRoute ? (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="large" color="#3B82F6" />
+              <Text style={styles.loadingText}>Loading route data...</Text>
             </View>
+          ) : (
+            <>
+              <View style={styles.card}>
+                <Text style={styles.cardTitle}>Route Details</Text>
 
-            <TouchableOpacity 
-              style={styles.inputContainer}
-              onPress={() => setShowDatePicker(true)}
-            >
-              <Ionicons name="calendar-outline" size={22} color="#3B82F6" />
-              <Text style={styles.dateText}>
-                {date.toLocaleDateString()}
-              </Text>
-            </TouchableOpacity>
-
-            {showDatePicker && (
-              <DateTimePicker
-                value={date}
-                mode="date"
-                display="default"
-                onChange={(event, selectedDate) => {
-                  setShowDatePicker(false);
-                  if (selectedDate) {
-                    // Store the date as-is, the compensation happens when sending to API
-                    setDate(selectedDate);
-                    console.log("Selected date:", selectedDate.toISOString(), "- Will be adjusted when creating route");
-                  }
-                }}
-              />
-            )}
-          </View>
-          
-          {isOwner && (
-            <View style={styles.card}>
-              <Text style={styles.cardTitle}>Assign Driver</Text>
-              {drivers.length > 0 ? (
-                <ScrollView 
-                  horizontal 
-                  showsHorizontalScrollIndicator={false}
-                  style={styles.driverList}
-                >
-                  {drivers.map(driver => (
-                    <TouchableOpacity
-                      key={driver.id}
-                      style={[
-                        styles.driverCard,
-                        selectedDriver === driver.id && styles.driverCardSelected
-                      ]}
-                      onPress={() => setSelectedDriver(driver.id)}
-                    >
-                      {driver.avatar_url ? (
-                        <Image
-                          source={{ uri: driver.avatar_url }}
-                          style={styles.driverAvatar}
-                        />
-                      ) : (
-                        <View style={styles.driverAvatar}>
-                          <Text style={styles.driverInitials}>
-                            {driver.full_name.split(' ').map(n => n[0]).join('')}
-                          </Text>
-                        </View>
-                      )}
-                      <Text style={styles.driverName}>{driver.full_name}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </ScrollView>
-              ) : (
-                <View style={styles.noDriversContainer}>
-                  <Text style={styles.noDriversText}>
-                    No drivers available in your team. Add team members in the Team section.
-                  </Text>
-                  <TouchableOpacity 
-                    style={styles.addTeamMemberButton}
-                    onPress={() => router.navigate('/(tabs)/team')}
-                  >
-                    <Ionicons name="people-outline" size={16} color="#fff" />
-                    <Text style={styles.addTeamMemberButtonText}>Go to Team</Text>
-                  </TouchableOpacity>
-                </View>
-              )}
-            </View>
-          )}
-
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>Route Notes</Text>
-            <TextInput
-              style={styles.notesInput}
-              placeholder="Enter notes about this route here"
-              placeholderTextColor="#6B7280"
-              value={notes}
-              onChangeText={setNotes}
-              multiline
-              numberOfLines={4}
-              textAlignVertical="top"
-            />
-          </View>
-
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>Add Addresses</Text>
-            
-            <View style={styles.buttonRow}>
-              <TouchableOpacity 
-                style={styles.importButton}
-                onPress={handleGoogleSheetImport}
-                disabled={isLoadingGoogleSheet}
-              >
-                {isLoadingGoogleSheet ? (
-                  <ActivityIndicator color="#fff" size="small" />
-                ) : (
-                  <>
-                    <Ionicons name="logo-google" size={20} color="#fff" />
-                    <Text style={styles.importButtonText}>Google Sheet</Text>
-                  </>
-                )}
-              </TouchableOpacity>
-              <TouchableOpacity 
-                style={styles.importButton}
-                onPress={handleUploadCSV}
-                disabled={uploading}
-              >
-                {uploading ? (
-                  <ActivityIndicator color="#fff" size="small" />
-                ) : (
-                  <>
-                    <Ionicons name="document-text-outline" size={20} color="#fff" />
-                    <Text style={styles.importButtonText}>Upload CSV</Text>
-                  </>
-                )}
-              </TouchableOpacity>
-            </View>
-
-            <View style={styles.addressInputWrapper}>
-              <Text style={styles.inputLabel}>Enter addresses below (one per line)</Text>
-              <TextInput
-                style={styles.addressInput}
-                placeholder="123 Main St, Dallas, TX, 75201 [, status] [, notes]"
-                placeholderTextColor="#6B7280"
-                value={addressInput}
-                onChangeText={setAddressInput}
-                multiline
-                numberOfLines={6}
-                textAlignVertical="top"
-                autoCapitalize="none"
-              />
-              <TouchableOpacity
-                style={[
-                  styles.addButton,
-                  !addressInput.trim() && styles.addButtonDisabled
-                ]}
-                onPress={handleAddressPaste}
-                disabled={!addressInput.trim() || uploading}
-              >
-                {uploading ? (
-                  <ActivityIndicator color="#fff" size="small" />
-                ) : (
-                  <>
-                    <Ionicons name="add-circle-outline" size={20} color="#fff" />
-                    <Text style={styles.addButtonText}>Add Addresses</Text>
-                  </>
-                )}
-              </TouchableOpacity>
-              <Text style={styles.helperText}>
-                Format: Street, City, State, ZIP [, Status] [, Notes]{'\n'}
-                Status can be: collect, skip, or new customer
-              </Text>
-            </View>
-
-            {houses.length > 0 && (
-              <>
-                <Text style={[styles.cardTitle, {marginTop: 24}]}>Route Preview</Text>
-                <View style={styles.mapContainer}>
-                  <Map 
-                    houses={houses}
-                    onHousePress={(house) => {
-                      Alert.alert(
-                        house.address,
-                        house.notes || 'No additional notes',
-                        [{ text: 'OK' }]
-                      );
-                    }}
-                    style={styles.map}
+                <View style={styles.inputContainer}>
+                  <Ionicons name="map-outline" size={22} color="#3B82F6" />
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Route Name"
+                    placeholderTextColor="#6B7280"
+                    value={name}
+                    onChangeText={setName}
                   />
                 </View>
-              </>
-            )}
 
-            {houses.length > 0 && (
-              <View style={styles.houseListContainer}>
-                <Text style={styles.listTitle}>Added Addresses ({houses.length})</Text>
-                {houses.map((house, index) => (
-                  <View key={`house-${index}`} style={styles.houseItem}>
-                    <View style={styles.houseItemContent}>
-                      <Text style={styles.houseAddress}>{house.address}</Text>
-                      {house.notes && (
-                        <Text style={styles.houseNotes}>{house.notes}</Text>
-                      )}
-                      <View style={[styles.statusBadge, { backgroundColor: getStatusColor(house.status) + '20' }]}>
-                        <View style={[styles.statusDot, { backgroundColor: getStatusColor(house.status) }]} />
-                        <Text style={[styles.statusText, { color: getStatusColor(house.status) }]}>
-                          {house.status?.charAt(0).toUpperCase() + house.status?.slice(1)}
-                        </Text>
-                      </View>
-                    </View>
-                    <TouchableOpacity 
-                      style={styles.removeButton}
-                      onPress={() => removeHouse(index)}
-                    >
-                      <Ionicons name="close-circle" size={20} color="#EF4444" />
-                    </TouchableOpacity>
+                <TouchableOpacity 
+                  style={styles.inputContainer}
+                  onPress={() => setShowDatePicker(true)}
+                >
+                  <Ionicons name="calendar-outline" size={22} color="#3B82F6" />
+                  <Text style={styles.dateText}>
+                    {date.toLocaleDateString()}
+                  </Text>
+                </TouchableOpacity>
+
+                {showDatePicker && (
+                  <DateTimePicker
+                    value={date}
+                    mode="date"
+                    display="default"
+                    onChange={(event, selectedDate) => {
+                      setShowDatePicker(false);
+                      if (selectedDate) {
+                        // Store the date as-is, the compensation happens when sending to API
+                        setDate(selectedDate);
+                        console.log("Selected date:", selectedDate.toISOString(), "- Will be adjusted when creating route");
+                      }
+                    }}
+                  />
+                )}
+                
+                {/* Scheduling Options Toggle */}
+                <TouchableOpacity 
+                  style={styles.schedulingToggle}
+                  onPress={() => setShowSchedulingOptions(!showSchedulingOptions)}
+                >
+                  <View style={styles.schedulingToggleContent}>
+                    <Ionicons 
+                      name="repeat-outline" 
+                      size={22} 
+                      color="#3B82F6" 
+                    />
+                    <Text style={styles.schedulingToggleText}>
+                      {showSchedulingOptions ? 'Hide Scheduling Options' : 'Show Scheduling Options'}
+                    </Text>
                   </View>
-                ))}
+                  <Ionicons 
+                    name={showSchedulingOptions ? "chevron-up" : "chevron-down"} 
+                    size={22} 
+                    color="#6B7280" 
+                  />
+                </TouchableOpacity>
+                
+                {/* Scheduling Options */}
+                {showSchedulingOptions && (
+                  <View style={styles.schedulingOptions}>
+                    <Text style={styles.schedulingTitle}>Repeat Frequency</Text>
+                    
+                    <View style={styles.frequencyOptions}>
+                      {['none', 'daily', 'weekly', 'monthly'].map((frequency) => (
+                        <TouchableOpacity
+                          key={frequency}
+                          style={[
+                            styles.frequencyOption,
+                            repeatFrequency === frequency && styles.frequencyOptionSelected
+                          ]}
+                          onPress={() => setRepeatFrequency(frequency)}
+                        >
+                          <Text style={[
+                            styles.frequencyOptionText,
+                            repeatFrequency === frequency && styles.frequencyOptionTextSelected
+                          ]}>
+                            {frequency.charAt(0).toUpperCase() + frequency.slice(1)}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                    
+                    {repeatFrequency !== 'none' && (
+                      <>
+                        <Text style={styles.schedulingTitle}>End Date</Text>
+                        <TouchableOpacity 
+                          style={styles.inputContainer}
+                          onPress={() => setShowEndDatePicker(true)}
+                        >
+                          <Ionicons name="calendar-outline" size={22} color="#3B82F6" />
+                          <Text style={styles.dateText}>
+                            {endDate ? endDate.toLocaleDateString() : 'Select End Date'}
+                          </Text>
+                        </TouchableOpacity>
+                        
+                        {showEndDatePicker && (
+                          <DateTimePicker
+                            value={endDate || new Date(date.getTime() + 30 * 24 * 60 * 60 * 1000)} // Default to 30 days from start date
+                            minimumDate={new Date(date.getTime() + 24 * 60 * 60 * 1000)} // At least 1 day after start date
+                            mode="date"
+                            display="default"
+                            onChange={(event, selectedDate) => {
+                              setShowEndDatePicker(false);
+                              if (selectedDate) {
+                                setEndDate(selectedDate);
+                              }
+                            }}
+                          />
+                        )}
+                      </>
+                    )}
+                  </View>
+                )}
               </View>
-            )}
-          </View>
+              
+              {isOwner && (
+                <View style={styles.card}>
+                  <Text style={styles.cardTitle}>Assign Driver</Text>
+                  {drivers.length > 0 ? (
+                    <ScrollView 
+                      horizontal 
+                      showsHorizontalScrollIndicator={false}
+                      style={styles.driverList}
+                    >
+                      {drivers.map(driver => (
+                        <TouchableOpacity
+                          key={driver.id}
+                          style={[
+                            styles.driverCard,
+                            selectedDriver === driver.id && styles.driverCardSelected
+                          ]}
+                          onPress={() => setSelectedDriver(driver.id)}
+                        >
+                          {driver.avatar_url ? (
+                            <Image
+                              source={{ uri: driver.avatar_url }}
+                              style={styles.driverAvatar}
+                            />
+                          ) : (
+                            <View style={styles.driverAvatar}>
+                              <Text style={styles.driverInitials}>
+                                {driver.full_name.split(' ').map(n => n[0]).join('')}
+                              </Text>
+                            </View>
+                          )}
+                          <Text style={styles.driverName}>{driver.full_name}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </ScrollView>
+                  ) : (
+                    <View style={styles.noDriversContainer}>
+                      <Text style={styles.noDriversText}>
+                        No drivers available in your team. Add team members in the Team section.
+                      </Text>
+                      <TouchableOpacity 
+                        style={styles.addTeamMemberButton}
+                        onPress={() => router.navigate('/(tabs)/team')}
+                      >
+                        <Ionicons name="people-outline" size={16} color="#fff" />
+                        <Text style={styles.addTeamMemberButtonText}>Go to Team</Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                </View>
+              )}
+
+              <View style={styles.card}>
+                <Text style={styles.cardTitle}>Route Notes</Text>
+                <TextInput
+                  style={styles.notesInput}
+                  placeholder="Enter notes about this route here"
+                  placeholderTextColor="#6B7280"
+                  value={notes}
+                  onChangeText={setNotes}
+                  multiline
+                  numberOfLines={4}
+                  textAlignVertical="top"
+                />
+              </View>
+
+              <View style={styles.card}>
+                <Text style={styles.cardTitle}>Add Addresses</Text>
+                
+                <View style={styles.buttonRow}>
+                  <TouchableOpacity 
+                    style={styles.importButton}
+                    onPress={handleGoogleSheetImport}
+                    disabled={isLoadingGoogleSheet}
+                  >
+                    {isLoadingGoogleSheet ? (
+                      <ActivityIndicator color="#fff" size="small" />
+                    ) : (
+                      <>
+                        <Ionicons name="logo-google" size={20} color="#fff" />
+                        <Text style={styles.importButtonText}>Google Sheet</Text>
+                      </>
+                    )}
+                  </TouchableOpacity>
+                  <TouchableOpacity 
+                    style={styles.importButton}
+                    onPress={handleUploadCSV}
+                    disabled={uploading}
+                  >
+                    {uploading ? (
+                      <ActivityIndicator color="#fff" size="small" />
+                    ) : (
+                      <>
+                        <Ionicons name="document-text-outline" size={20} color="#fff" />
+                        <Text style={styles.importButtonText}>Upload CSV</Text>
+                      </>
+                    )}
+                  </TouchableOpacity>
+                </View>
+
+                <View style={styles.addressInputWrapper}>
+                  <Text style={styles.inputLabel}>Enter addresses below (one per line)</Text>
+                  <TextInput
+                    style={styles.addressInput}
+                    placeholder="123 Main St, Dallas, TX, 75201 [, status] [, notes]"
+                    placeholderTextColor="#6B7280"
+                    value={addressInput}
+                    onChangeText={setAddressInput}
+                    multiline
+                    numberOfLines={6}
+                    textAlignVertical="top"
+                    autoCapitalize="none"
+                  />
+                  <TouchableOpacity
+                    style={[
+                      styles.addButton,
+                      !addressInput.trim() && styles.addButtonDisabled
+                    ]}
+                    onPress={handleAddressPaste}
+                    disabled={!addressInput.trim() || uploading}
+                  >
+                    {uploading ? (
+                      <ActivityIndicator color="#fff" size="small" />
+                    ) : (
+                      <>
+                        <Ionicons name="add-circle-outline" size={20} color="#fff" />
+                        <Text style={styles.addButtonText}>Add Addresses</Text>
+                      </>
+                    )}
+                  </TouchableOpacity>
+                  <Text style={styles.helperText}>
+                    Format: Street, City, State, ZIP [, Status] [, Notes]{'\n'}
+                    Status can be: collect, skip, or new customer
+                  </Text>
+                </View>
+
+                {houses.length > 0 && (
+                  <>
+                    <Text style={[styles.cardTitle, {marginTop: 24}]}>Route Preview</Text>
+                    <View style={styles.mapContainer}>
+                      <Map 
+                        houses={houses}
+                        onHousePress={(house) => {
+                          Alert.alert(
+                            house.address,
+                            house.notes || 'No additional notes',
+                            [{ text: 'OK' }]
+                          );
+                        }}
+                        style={styles.map}
+                      />
+                    </View>
+                  </>
+                )}
+
+                {houses.length > 0 && (
+                  <View style={styles.houseListContainer}>
+                    <Text style={styles.listTitle}>Added Addresses ({houses.length})</Text>
+                    {houses.map((house, index) => (
+                      <View key={`house-${index}`} style={styles.houseItem}>
+                        <View style={styles.houseItemContent}>
+                          <Text style={styles.houseAddress}>{house.address}</Text>
+                          {house.notes && (
+                            <Text style={styles.houseNotes}>{house.notes}</Text>
+                          )}
+                          <View style={[styles.statusBadge, { backgroundColor: getStatusColor(house.status) + '20' }]}>
+                            <View style={[styles.statusDot, { backgroundColor: getStatusColor(house.status) }]} />
+                            <Text style={[styles.statusText, { color: getStatusColor(house.status) }]}>
+                              {house.status?.charAt(0).toUpperCase() + house.status?.slice(1)}
+                            </Text>
+                          </View>
+                        </View>
+                        <TouchableOpacity 
+                          style={styles.removeButton}
+                          onPress={() => removeHouse(index)}
+                        >
+                          <Ionicons name="close-circle" size={20} color="#EF4444" />
+                        </TouchableOpacity>
+                      </View>
+                    ))}
+                  </View>
+                )}
+              </View>
+            </>
+          )}
         </ScrollView>
       </View>
 
@@ -1184,10 +1443,11 @@ const styles = StyleSheet.create({
     fontStyle: 'italic',
   },
   mapContainer: {
-    height: 200,
+    height: 350,
     borderRadius: 12,
     overflow: 'hidden',
     marginTop: 8,
+    marginBottom: 16,
   },
   map: {
     flex: 1,
@@ -1385,5 +1645,65 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     fontWeight: '600',
+  },
+  schedulingToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 14,
+    backgroundColor: '#2D3748',
+    borderRadius: 12,
+    marginBottom: 16,
+  },
+  schedulingToggleContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  schedulingToggleText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  schedulingOptions: {
+    marginTop: 16,
+  },
+  schedulingTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#fff',
+    marginBottom: 8,
+  },
+  frequencyOptions: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+  },
+  frequencyOption: {
+    padding: 12,
+    backgroundColor: '#2D3748',
+    borderRadius: 8,
+  },
+  frequencyOptionSelected: {
+    backgroundColor: '#3B82F6',
+  },
+  frequencyOptionText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  frequencyOptionTextSelected: {
+    color: '#fff',
+    fontWeight: 'bold',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginTop: 16,
   },
 }); 

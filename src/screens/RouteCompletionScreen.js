@@ -42,7 +42,8 @@ const RouteCompletionScreen = () => {
   const defaultSummary = {
     total: 0,
     completed: 0,
-    route_name: "Route"
+    route_name: "Route",
+    route_id: null,
   };
 
   // Safely parse summary with fallback to default
@@ -60,7 +61,7 @@ const RouteCompletionScreen = () => {
   }
 
   // Calculate basic metrics from summary data
-  const efficiency = Math.round((summary.completed / (summary.total || 1)) * 100);
+  const completion = Math.round((summary.completed / (summary.total || 1)) * 100);
 
   const handleShare = async () => {
     try {
@@ -68,7 +69,7 @@ const RouteCompletionScreen = () => {
         `Route: ${summary.route_name}\n` +
         `Total Bins: ${summary.total}\n` +
         `Collected: ${summary.completed}\n` +
-        `Completion: ${efficiency}%`;
+        `Completion: ${completion}%`;
 
       const result = await Share.share({
         message,
@@ -77,6 +78,35 @@ const RouteCompletionScreen = () => {
     } catch (error) {
       console.error('Error sharing:', error);
     }
+  };
+  
+  const handleReuseRoute = () => {
+    if (!summary.route_id) {
+      Alert.alert("Error", "Route ID not available for reuse.");
+      return;
+    }
+    
+    // Ask for confirmation
+    Alert.alert(
+      "Reuse Route",
+      "Would you like to reuse this route for a future date?",
+      [
+        { text: "Cancel", style: "cancel" },
+        { 
+          text: "Continue", 
+          onPress: () => {
+            // Navigate to route creation screen with pre-filled data from this route
+            router.push({
+              pathname: '/routes/create',
+              params: { 
+                reusing: 'true',
+                route_id: summary.route_id
+              }
+            });
+          }
+        }
+      ]
+    );
   };
 
   return (
@@ -143,11 +173,21 @@ const RouteCompletionScreen = () => {
             <MetricCard
               icon="trending-up"
               title="Completion"
-              value={`${efficiency}%`}
+              value={`${completion}%`}
               borderColor="#8B5CF6"
             />
           </View>
         </View>
+        
+        {summary.route_id && (
+          <TouchableOpacity 
+            style={styles.reuseButton}
+            onPress={handleReuseRoute}
+          >
+            <Ionicons name="repeat" size={20} color="#fff" />
+            <Text style={styles.reuseButtonText}>Reuse This Route</Text>
+          </TouchableOpacity>
+        )}
 
         <TouchableOpacity 
           style={styles.newRouteButton}
@@ -338,28 +378,28 @@ const styles = StyleSheet.create({
     color: '#9CA3AF',
     fontSize: 11,
   },
-  efficiencyContainer: {
+  completionContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 8,
   },
-  efficiencyTitle: {
+  completionTitle: {
     color: '#fff',
     fontSize: 13,
   },
-  efficiencyValue: {
+  completionValue: {
     color: '#10B981',
     fontSize: 13,
     fontWeight: '600',
   },
-  efficiencyBar: {
+  completionBar: {
     height: 3,
     backgroundColor: 'rgba(255,255,255,0.1)',
     borderRadius: 1.5,
     overflow: 'hidden',
   },
-  efficiencyFill: {
+  completionFill: {
     height: '100%',
     backgroundColor: '#10B981',
     borderRadius: 1.5,
@@ -419,6 +459,24 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     fontWeight: '500',
+  },
+  reuseButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#3B82F6',
+    paddingVertical: 16,
+    paddingHorizontal: 24,
+    borderRadius: 12,
+    marginHorizontal: 20,
+    marginTop: 24,
+    marginBottom: 10,
+  },
+  reuseButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+    marginLeft: 10,
   },
 });
 
