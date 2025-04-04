@@ -11,6 +11,7 @@ import {
   ScrollView,
   StyleSheet,
 } from 'react-native';
+import * as Clipboard from 'expo-clipboard';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
@@ -20,15 +21,22 @@ export default function SignupScreen() {
   const router = useRouter();
   const { signUp } = useAuth();
   const [loading, setLoading] = useState(false);
+  const [success, setSuccess] = useState(false);
+  const [credentials, setCredentials] = useState(null);
+  const [role, setRole] = useState('owner');
   const [formData, setFormData] = useState({
+    businessName: '',
     fullName: '',
     email: '',
     password: '',
     confirmPassword: '',
-    role: 'driver',
   });
 
   const handleSignup = async () => {
+    if (role === 'owner' && !formData.businessName) {
+      Alert.alert('Error', 'Please enter your Business Name');
+      return;
+    }
     if (!formData.fullName || !formData.email || !formData.password || !formData.confirmPassword) {
       Alert.alert('Error', 'Please fill in all fields');
       return;
@@ -51,19 +59,81 @@ export default function SignupScreen() {
         formData.email,
         formData.password,
         formData.fullName,
-        formData.role
+        formData.businessName,
+        role
       );
-      Alert.alert(
-        'Success',
-        'Please check your email for verification instructions.',
-        [{ text: 'OK', onPress: () => router.push('/(auth)/sign-in') }]
-      );
+      
+      // Store credentials for sharing
+      setCredentials({
+        email: formData.email,
+        password: formData.password
+      });
+      
+      setSuccess(true);
     } catch (error) {
-      Alert.alert('Error', error.message);
+      console.error('Signup error:', error);
+      Alert.alert('Error', error.message || 'Failed to create account. Please try again.');
     } finally {
       setLoading(false);
     }
   };
+  
+  const copyToClipboard = async () => {
+    const text = `WasteRoute Login\nEmail: ${credentials.email}\nPassword: ${credentials.password}`;
+    await Clipboard.setStringAsync(text);
+    Alert.alert('Copied', 'Credentials copied to clipboard');
+  };
+  
+  const goToLogin = () => {
+    router.replace('/(auth)');
+  };
+
+  if (success) {
+    return (
+      <View style={styles.container}>
+        <View style={styles.successContainer}>
+          <View style={styles.successIconContainer}>
+            <Ionicons name="checkmark-circle" size={80} color="#10B981" />
+          </View>
+          <Text style={styles.successTitle}>Account Created!</Text>
+          <Text style={styles.successMessage}>
+            {role === 'owner'
+              ? 'Your business account has been created successfully. You can now log in.'
+              : 'Your account has been created successfully. Please ask your manager to add you to the team. You can log in once added.'}
+          </Text>
+          
+          <View style={styles.credentialsContainer}>
+            <Text style={styles.credentialsTitle}>Your Login Details</Text>
+            <View style={styles.credentialsBox}>
+              <View style={styles.credentialRow}>
+                <Text style={styles.credentialLabel}>Email:</Text>
+                <Text style={styles.credentialValue}>{credentials.email}</Text>
+              </View>
+              <View style={styles.credentialRow}>
+                <Text style={styles.credentialLabel}>Password:</Text>
+                <Text style={styles.credentialValue}>{credentials.password}</Text>
+              </View>
+            </View>
+            
+            <TouchableOpacity 
+              style={styles.copyButton}
+              onPress={copyToClipboard}
+            >
+              <Ionicons name="copy-outline" size={20} color="#fff" />
+              <Text style={styles.copyButtonText}>Copy to Clipboard</Text>
+            </TouchableOpacity>
+          </View>
+          
+          <TouchableOpacity 
+            style={styles.loginButton}
+            onPress={goToLogin}
+          >
+            <Text style={styles.loginButtonText}>Go to Login</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <KeyboardAvoidingView 
@@ -91,6 +161,19 @@ export default function SignupScreen() {
       </View>
 
       <ScrollView style={styles.form}>
+        {role === 'owner' && (
+          <View style={styles.inputContainer}>
+            <Ionicons name="business" size={20} color="#6B7280" style={styles.inputIcon} />
+            <TextInput
+              style={styles.input}
+              placeholder="Business Name"
+              placeholderTextColor="#6B7280"
+              value={formData.businessName}
+              onChangeText={(text) => setFormData({ ...formData, businessName: text })}
+            />
+          </View>
+        )}
+
         <View style={styles.inputContainer}>
           <Ionicons name="person" size={20} color="#6B7280" style={styles.inputIcon} />
           <TextInput
@@ -109,7 +192,7 @@ export default function SignupScreen() {
             placeholder="Email"
             placeholderTextColor="#6B7280"
             value={formData.email}
-            onChangeText={(text) => setFormData({ ...formData, email: text })}
+            onChangeText={(text) => setFormData({ ...formData, email: text.trim() })}
             autoCapitalize="none"
             keyboardType="email-address"
           />
@@ -139,46 +222,25 @@ export default function SignupScreen() {
           />
         </View>
 
-        <View style={styles.roleContainer}>
-          <Text style={styles.roleLabel}>Select Role</Text>
-          <View style={styles.roleButtons}>
-            <TouchableOpacity
-              style={[
-                styles.roleButton,
-                formData.role === 'driver' && styles.roleButtonActive,
-              ]}
-              onPress={() => setFormData({ ...formData, role: 'driver' })}
-            >
-              <Ionicons 
-                name="car" 
-                size={24} 
-                color={formData.role === 'driver' ? '#fff' : '#6B7280'} 
-              />
-              <Text style={[
-                styles.roleButtonText,
-                formData.role === 'driver' && styles.roleButtonTextActive,
-              ]}>Driver</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[
-                styles.roleButton,
-                formData.role === 'admin' && styles.roleButtonActive,
-              ]}
-              onPress={() => setFormData({ ...formData, role: 'admin' })}
-            >
-              <Ionicons 
-                name="shield" 
-                size={24} 
-                color={formData.role === 'admin' ? '#fff' : '#6B7280'} 
-              />
-              <Text style={[
-                styles.roleButtonText,
-                formData.role === 'admin' && styles.roleButtonTextActive,
-              ]}>Admin</Text>
-            </TouchableOpacity>
-          </View>
+        {/* --- Add Role Selection UI --- */}
+        <Text style={styles.roleLabel}>Select Account Type:</Text>
+        <View style={styles.roleSelectorContainer}>
+          <TouchableOpacity
+            style={[styles.roleButton, role === 'owner' && styles.roleButtonSelected]}
+            onPress={() => setRole('owner')}
+          >
+            <Ionicons name="briefcase" size={20} color={role === 'owner' ? '#fff' : '#6B7280'} style={styles.roleIcon} />
+            <Text style={[styles.roleButtonText, role === 'owner' && styles.roleButtonTextSelected]}>Business Owner</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.roleButton, role === 'driver' && styles.roleButtonSelected]}
+            onPress={() => setRole('driver')}
+          >
+            <Ionicons name="person" size={20} color={role === 'driver' ? '#fff' : '#6B7280'} style={styles.roleIcon} />
+            <Text style={[styles.roleButtonText, role === 'driver' && styles.roleButtonTextSelected]}>Employee / Driver</Text>
+          </TouchableOpacity>
         </View>
+        {/* --- End Role Selection UI --- */}
 
         <TouchableOpacity
           style={[styles.signupButton, loading && styles.signupButtonDisabled]}
@@ -192,14 +254,14 @@ export default function SignupScreen() {
             {loading ? (
               <ActivityIndicator color="#fff" />
             ) : (
-              <Text style={styles.signupButtonText}>Create Account</Text>
+              <Text style={styles.signupButtonText}>Create Business Account</Text>
             )}
           </LinearGradient>
         </TouchableOpacity>
 
         <TouchableOpacity 
-          style={styles.loginButton}
-          onPress={() => router.push('/(auth)/sign-in')}
+          style={styles.loginButtonLink}
+          onPress={() => router.push('/(auth)')}
         >
           <Text style={styles.loginText}>
             Already have an account? <Text style={styles.loginTextBold}>Log in</Text>
@@ -273,52 +335,16 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
   },
-  roleContainer: {
-    marginBottom: 24,
-  },
-  roleLabel: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#fff',
-    marginBottom: 12,
-  },
-  roleButtons: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  roleButton: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    padding: 16,
-    backgroundColor: '#1F2937',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: 'transparent',
-  },
-  roleButtonActive: {
-    backgroundColor: '#3B82F6',
-    borderColor: '#3B82F6',
-  },
-  roleButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#6B7280',
-  },
-  roleButtonTextActive: {
-    color: '#fff',
-  },
   signupButton: {
+    marginVertical: 24,
     borderRadius: 12,
     overflow: 'hidden',
-    marginTop: 8,
   },
   signupButtonDisabled: {
     opacity: 0.7,
   },
   signupButtonGradient: {
+    width: '100%',
     height: 56,
     justifyContent: 'center',
     alignItems: 'center',
@@ -328,10 +354,9 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
   },
-  loginButton: {
+  loginButtonLink: {
     alignItems: 'center',
-    marginTop: 16,
-    marginBottom: 32,
+    marginBottom: 40,
   },
   loginText: {
     color: '#6B7280',
@@ -341,4 +366,124 @@ const styles = StyleSheet.create({
     color: '#3B82F6',
     fontWeight: '600',
   },
+  // Success screen styles
+  successContainer: {
+    flex: 1,
+    padding: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  successIconContainer: {
+    marginBottom: 24,
+  },
+  successTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#fff',
+    marginBottom: 12,
+  },
+  successMessage: {
+    fontSize: 16,
+    color: '#9CA3AF',
+    textAlign: 'center',
+    marginBottom: 32,
+  },
+  credentialsContainer: {
+    width: '100%',
+    marginBottom: 32,
+  },
+  credentialsTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#fff',
+    marginBottom: 12,
+  },
+  credentialsBox: {
+    backgroundColor: '#1F2937',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+  },
+  credentialRow: {
+    flexDirection: 'row',
+    marginBottom: 8,
+  },
+  credentialLabel: {
+    fontSize: 16,
+    color: '#9CA3AF',
+    width: 90,
+  },
+  credentialValue: {
+    fontSize: 16,
+    color: '#fff',
+    flex: 1,
+  },
+  copyButton: {
+    flexDirection: 'row',
+    backgroundColor: '#3B82F6',
+    borderRadius: 12,
+    padding: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 8,
+  },
+  copyButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  loginButton: {
+    width: '100%',
+    backgroundColor: '#1F2937',
+    borderRadius: 12,
+    padding: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loginButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  // --- Add Role Selector Styles ---
+  roleLabel: {
+      fontSize: 14,
+      color: '#9CA3AF',
+      marginBottom: 8,
+      marginLeft: 4, // Align with inputs slightly
+  },
+  roleSelectorContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 20,
+  },
+  roleButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#1F2937',
+    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 10,
+    marginHorizontal: 4,
+    borderWidth: 1,
+    borderColor: '#1F2937',
+  },
+  roleButtonSelected: {
+    backgroundColor: '#3B82F6', // Highlight selected
+    borderColor: '#3B82F6',
+  },
+  roleIcon: {
+      marginRight: 8,
+  },
+  roleButtonText: {
+    color: '#9CA3AF',
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  roleButtonTextSelected: {
+      color: '#fff',
+  },
+  // --- End Role Selector Styles ---
 }); 

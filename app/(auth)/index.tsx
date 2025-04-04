@@ -1,24 +1,18 @@
+import React from 'react';
 import { View } from 'react-native';
-import { useRouter } from 'expo-router';
-import LoginScreen from '../../src/screens/LoginScreen';
+import { Stack } from 'expo-router';
+import LoginScreen from '../../src/screens/LoginScreen.js';
 
-export default function Login() {
-  const router = useRouter();
-  
+export default function Auth() {
   return (
     <View style={{ flex: 1 }}>
-      <LoginScreen 
-        navigation={{
-          navigate: (screen: string) => {
-            if (screen === 'signup') {
-              router.push('/(auth)/signup');
-            } else if (screen === 'forgot-password') {
-              router.push('/(auth)/forgot-password');
-            }
-          },
-          replace: (screen: string) => router.replace('/(tabs)')
-        }} 
+      <Stack.Screen 
+        options={{
+          headerShown: false,
+          title: 'Login',
+        }}
       />
+      <LoginScreen />
     </View>
   );
 } 

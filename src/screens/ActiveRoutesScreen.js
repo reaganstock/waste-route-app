@@ -38,7 +38,7 @@ const RouteCard = ({ route, router }) => {
     <View style={styles.routeCard}>
       <TouchableOpacity 
         style={styles.routeContent}
-        onPress={() => router.push(`/route/${route.id}/edit`)}
+        onPress={() => router.push(`/route/${route.id}`)}
       >
         <View style={styles.routeInfo}>
           <Text style={styles.routeName}>{route.name}</Text>

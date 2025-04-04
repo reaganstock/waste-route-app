@@ -1,0 +1,75 @@
+{
+  "cli": {
+    "version": ">= 7.3.0",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "ios": {
+        "simulator": true
+      },
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_APP_ENV": "development",
+        "EXPO_PUBLIC_SUPABASE_URL": "https://ppumccuvuckqrozhygew.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBwdW1jY3V2dWNrcXJvemh5Z2V3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDMzMTM0MzUsImV4cCI6MjA1ODg4OTQzNX0.piRot1i-3iYFrrBnPZVYeJTi60GUS_HrkKxUWSJRvw0"
+      }
+    },
+    "preview": {
+      "distribution": "internal",
+      "channel": "preview",
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_APP_ENV": "preview",
+        "EXPO_PUBLIC_SUPABASE_URL": "https://ppumccuvuckqrozhygew.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBwdW1jY3V2dWNrcXJvemh5Z2V3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDMzMTM0MzUsImV4cCI6MjA1ODg4OTQzNX0.piRot1i-3iYFrrBnPZVYeJTi60GUS_HrkKxUWSJRvw0"
+      }
+    },
+    "production": {
+      "autoIncrement": true,
+      "channel": "production",
+      "env": {
+        "EXPO_PUBLIC_APP_ENV": "production",
+        "EXPO_PUBLIC_SUPABASE_URL": "https://ppumccuvuckqrozhygew.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBwdW1jY3V2dWNrcXJvemh5Z2V3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDMzMTM0MzUsImV4cCI6MjA1ODg4OTQzNX0.piRot1i-3iYFrrBnPZVYeJTi60GUS_HrkKxUWSJRvw0"
+      },
+      "ios": {
+        "resourceClass": "m1-medium"
+      },
+      "android": {
+        "buildType": "app-bundle"
+      }
+    },
+    "ios-production": {
+      "autoIncrement": true,
+      "distribution": "store",
+      "ios": {
+        "image": "latest"
+      },
+      "env": {
+        "EXPO_PUBLIC_APP_ENV": "production",
+        "EXPO_PUBLIC_SUPABASE_URL": "https://ppumccuvuckqrozhygew.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBwdW1jY3V2dWNrcXJvemh5Z2V3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDMzMTM0MzUsImV4cCI6MjA1ODg4OTQzNX0.piRot1i-3iYFrrBnPZVYeJTi60GUS_HrkKxUWSJRvw0"
+      }
+    }
+  },
+  "submit": {
+    "production": {
+      "ios": {
+        "appleId": "rtstock2006@gmail.com",
+        "ascAppId": "1675648321",
+        "appleTeamId": "8927ZB72RY"
+      },
+      "android": {
+        "serviceAccountKeyPath": "../disco-haiku-455505-f9-cc75f2c99205.json",
+        "track": "production"
+      }
+    }
+  }
+}

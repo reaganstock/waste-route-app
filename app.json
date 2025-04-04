@@ -1,11 +1,10 @@
 {
   "expo": {
-    "name": "Waste Route App",
+    "name": "WasteRoute",
     "slug": "waste-route-app",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "scheme": "waste-route",
     "userInterfaceStyle": "dark",
     "splash": {
       "image": "./assets/splash.png",
@@ -13,32 +12,67 @@
       "backgroundColor": "#1F2937"
     },
     "assetBundlePatterns": [
-      "**/*"
+      "**/*",
+      "assets/videos/*.MP4"
     ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.yourcompany.wasterouteapp",
+      "bundleIdentifier": "com.wasteroute.app",
+      "buildNumber": "11",
+      "jsEngine": "hermes",
+      "requireFullScreen": true,
       "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "WasteRoute uses your location to notify you when you are near houses on your route.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "WasteRoute uses your location to track your route and notify you when you are near houses on your route.",
+        "NSLocationAlwaysUsageDescription": "WasteRoute uses your location to track your route and notify you when you are near houses on your route.",
         "UIBackgroundModes": [
           "location",
           "fetch"
         ],
-        "NSLocationWhenInUseUsageDescription": "This app needs access to location to show your position on the map and provide notifications about nearby houses.",
-        "NSLocationAlwaysAndWhenInUseUsageDescription": "This app needs access to location to show your position on the map and provide notifications about nearby houses.",
-        "NSLocationAlwaysUsageDescription": "This app needs access to location to show your position on the map and provide notifications about nearby houses."
-      }
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSCameraUsageDescription": "WasteRoute uses your camera to scan route documents and take photos of completed waste collections. These photos can be attached to route reports as evidence of service completion.",
+        "NSPhotoLibraryUsageDescription": "WasteRoute needs photo library access to upload images of collection sites and completed routes for documentation and reporting purposes.",
+        "NSUserTrackingUsageDescription": "This identifier will be used to deliver personalized service recommendations based on your waste collection routes. We respect your privacy and never share your data with third parties.",
+        "UIRequiresFullScreen": true,
+        "UIStatusBarHidden": false,
+        "UIViewControllerBasedStatusBarAppearance": true,
+        "LSApplicationQueriesSchemes": [
+          "maps",
+          "mapkit"
+        ],
+        "NSFaceIDUsageDescription": "WasteRoute uses Face ID for secure authentication to protect your account and route data."
+      },
+      "minIOSVersion": "13.0"
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#1F2937"
       },
-      "package": "com.yourcompany.wasterouteapp",
+      "package": "com.wasteroute.app",
+      "versionCode": 1,
+      "jsEngine": "hermes",
       "permissions": [
         "ACCESS_COARSE_LOCATION",
         "ACCESS_FINE_LOCATION",
-        "ACCESS_BACKGROUND_LOCATION"
-      ]
+        "ACCESS_BACKGROUND_LOCATION",
+        "FOREGROUND_SERVICE",
+        "VIBRATE",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION",
+        "FOREGROUND_SERVICE",
+        "VIBRATE",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION"
+      ],
+      "config": {
+        "googleMaps": {
+          "apiKey": "YOUR_GOOGLE_MAPS_API_KEY_HERE"
+        }
+      }
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -48,23 +82,35 @@
       [
         "expo-location",
         {
-          "locationAlwaysAndWhenInUsePermission": "Allow $(PRODUCT_NAME) to use your location.",
-          "locationAlwaysPermission": "Allow $(PRODUCT_NAME) to use your location in the background.",
-          "locationWhenInUsePermission": "Allow $(PRODUCT_NAME) to use your location."
-        }
-      ],
-      [
-        "expo-notifications",
-        {
-          "icon": "./assets/notification-icon.png",
-          "color": "#1F2937"
+          "locationAlwaysAndWhenInUsePermission": "WasteRoute uses your location to track your route and notify you when you are near houses on your route.",
+          "locationAlwaysPermission": "WasteRoute uses your location to track your route and notify you when you are near houses on your route."
         }
       ]
     ],
     "experiments": {
-      "typedRoutes": true,
-      "tsconfigPaths": true
+      "tsconfigPaths": true,
+      "typedRoutes": true
     },
-    "newArchEnabled": true
+    "extra": {
+      "router": {
+        "origin": false
+      },
+      "eas": {
+        "projectId": "6687bfd4-02de-45aa-9d1b-145ad0128cf2"
+      },
+      "supabaseUrl": "https://ppumccuvuckqrozhygew.supabase.co",
+      "supabaseAnonKey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBwdW1jY3V2dWNrcXJvemh5Z2V3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDMzMTM0MzUsImV4cCI6MjA1ODg4OTQzNX0.piRot1i-3iYFrrBnPZVYeJTi60GUS_HrkKxUWSJRvw0"
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "enabled": true,
+      "fallbackToCacheTimeout": 0,
+      "checkAutomatically": "ON_LOAD",
+      "useClassicUpdates": false,
+      "url": "https://u.expo.dev/6687bfd4-02de-45aa-9d1b-145ad0128cf2"
+    },
+    "description": "Route management for waste collection services"
   }
 }

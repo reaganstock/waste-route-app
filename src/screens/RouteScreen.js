@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -21,6 +21,7 @@ import * as Notifications from 'expo-notifications';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 import { supabase } from '../lib/supabase';
+import { useGeofencing } from '../hooks/useGeofencing';
 
 // Configure notifications
 Notifications.setNotificationHandler({
@@ -31,91 +32,140 @@ Notifications.setNotificationHandler({
   }),
 });
 
-const GEOFENCE_RADIUS = 200; // meters
-
 const getStatusColor = (status) => {
   switch (status?.toLowerCase()) {
-    case 'pending':
-      return '#3B82F6'; // Blue for pending
-    case 'completed':
-      return '#10B981'; // Green for completed
     case 'skip':
-      return '#EF4444'; // Red for skip
+      return '#EF4444'; // Red
+    case 'new customer':
+      return '#10B981'; // Green
+    case 'pending':
+      return '#3B82F6'; // Blue
+    case 'collect':
     default:
-      return '#6B7280'; // Gray for unknown
+      return '#6B7280'; // Grey
   }
 };
 
-const AddressModal = ({ visible, house, onClose, onSaveNote, onNavigate }) => (
+const AddressModal = ({ visible, house, onClose, onSaveNote, onNavigate }) => {
+  const [additionalNotes, setAdditionalNotes] = useState('');
+
+  const handleSaveAndClose = () => {
+    if (additionalNotes.trim()) {
+      onSaveNote(additionalNotes.trim());
+    }
+    onClose();
+  };
+
+  return (
   <Modal
     visible={visible}
-    transparent={true}
+    transparent
     animationType="slide"
     onRequestClose={onClose}
   >
-    <View style={styles.modalOverlay}>
-      <BlurView intensity={90} style={styles.modalContent}>
+    <View style={styles.modalContainer}>
+      <BlurView intensity={80} style={styles.modalContent}>
         <View style={styles.modalHeader}>
-          <Text style={styles.modalTitle}>Address Details</Text>
-          <TouchableOpacity onPress={onClose} style={styles.modalClose}>
+            <View style={styles.modalHeaderLeft}>
+          <Text style={styles.modalTitle}>House Details</Text>
+              <View style={[styles.statusBadge, { backgroundColor: `${getStatusColor(house?.status)}20` }]}>
+                <Text style={[styles.statusText, { color: getStatusColor(house?.status) }]}>
+                  {house?.status?.charAt(0).toUpperCase() + house?.status?.slice(1)}
+                </Text>
+              </View>
+            </View>
+            <TouchableOpacity onPress={handleSaveAndClose} style={styles.closeButton}>
             <Ionicons name="close" size={24} color="#fff" />
           </TouchableOpacity>
         </View>
-
-        <Text style={styles.modalAddress}>{house?.address}</Text>
-        
-        <View style={[styles.modalStatusBadge, { backgroundColor: getStatusColor(house?.status) + '20' }]}>
-          <Text style={[styles.modalStatusText, { color: getStatusColor(house?.status) }]}>
-            {house?.status?.charAt(0).toUpperCase() + house?.status?.slice(1)}
-          </Text>
+        <View style={styles.modalBody}>
+          <View style={styles.addressSection}>
+            <Text style={styles.addressLabel}>Address</Text>
+            <Text style={styles.addressText}>{house?.address}</Text>
+          </View>
+          <View style={styles.notesSection}>
+              <Text style={styles.notesLabel}>Initial Notes</Text>
+              {house?.notes ? (
+                <View style={styles.initialNotesContainer}>
+                  <Text style={styles.initialNotesText}>{house?.notes}</Text>
+                </View>
+              ) : (
+                <Text style={styles.noNotesText}>No initial notes</Text>
+              )}
+              
+              <Text style={[styles.notesLabel, { marginTop: 16 }]}>Add Notes</Text>
+              <View style={styles.notesInputContainer}>
+            <TextInput
+              style={styles.notesInput}
+              multiline
+              numberOfLines={4}
+                  value={additionalNotes}
+                  onChangeText={setAdditionalNotes}
+                  placeholder="Add additional notes..."
+              placeholderTextColor="#6B7280"
+                  autoCapitalize="sentences"
+                  returnKeyType="done"
+            />
+                <View style={styles.notesInputBorder} />
+              </View>
+          </View>
+          <TouchableOpacity 
+            style={styles.navigateButton}
+            onPress={onNavigate}
+          >
+            <LinearGradient
+              colors={['#3B82F6', '#2563EB']}
+              style={styles.navigateButtonGradient}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+            >
+              <Ionicons name="navigate" size={20} color="#fff" />
+                <Text style={styles.navigateButtonText}>Navigate to Address</Text>
+            </LinearGradient>
+          </TouchableOpacity>
         </View>
-
-        <Text style={styles.modalLabel}>Notes</Text>
-        <TextInput
-          style={styles.modalInput}
-          multiline
-          placeholder="Add notes here..."
-          placeholderTextColor="#6B7280"
-          defaultValue={house?.notes}
-          onEndEditing={(e) => onSaveNote(e.nativeEvent.text)}
-        />
-
-        <TouchableOpacity 
-          style={styles.navigateButton}
-          onPress={onNavigate}
-        >
-          <Ionicons name="navigate" size={20} color="#fff" />
-          <Text style={styles.navigateText}>Navigate to Address</Text>
-        </TouchableOpacity>
       </BlurView>
     </View>
   </Modal>
 );
+};
 
-const HouseItem = ({ house, onToggle, isSelected, onPress }) => (
-  <Pressable 
-    style={[styles.houseItem, isSelected && styles.houseItemSelected]} 
-    onPress={onPress}
-  >
-    <View style={styles.houseInfo}>
-      <Text style={styles.houseAddress}>{house.address}</Text>
-      {house.notes && (
-        <Text style={styles.houseNotes}>{house.notes}</Text>
-      )}
-      <View style={[styles.statusBadge, { backgroundColor: getStatusColor(house.status) + '20' }]}>
-        <Text style={[styles.statusText, { color: getStatusColor(house.status) }]}>
-          {house.status?.charAt(0).toUpperCase() + house.status?.slice(1)}
-        </Text>
-      </View>
-    </View>
-    <TouchableOpacity 
-      style={[styles.checkbox, isSelected && styles.checkboxSelected]}
-      onPress={() => onToggle(house.id)}
+const HouseItem = ({ house, onToggle, isSelected, onPress }) => {
+  const statusColor = getStatusColor(house.status);
+  
+  return (
+    <Pressable 
+      style={[
+        styles.houseItem,
+        { backgroundColor: `${statusColor}10` },
+        { borderColor: statusColor }
+      ]} 
+      onPress={onPress}
     >
-      {isSelected && <Ionicons name="checkmark" size={20} color="#fff" />}
-    </TouchableOpacity>
-  </Pressable>
-);
+      <View style={styles.houseInfo}>
+        <Text style={styles.houseAddress}>{house.address}</Text>
+        {house.notes && (
+          <Text style={styles.houseNotes}>{house.notes}</Text>
+        )}
+        <View style={[styles.statusBadge, { backgroundColor: `${statusColor}20` }]}>
+          <Text style={[styles.statusText, { color: statusColor }]}>
+            {house.status?.charAt(0).toUpperCase() + house.status?.slice(1)}
+          </Text>
+        </View>
+      </View>
+      <TouchableOpacity 
+        style={[
+          styles.checkbox,
+          { borderColor: statusColor },
+          isSelected && { backgroundColor: statusColor }
+        ]}
+        onPress={() => onToggle(house.id)}
+      >
+        {isSelected && <Ionicons name="checkmark" size={20} color="#fff" />}
+      </TouchableOpacity>
+    </Pressable>
+  );
+};
 
 const NotificationBanner = ({ message, onDismiss }) => (
   <BlurView intensity={80} style={styles.notificationBanner}>
@@ -129,20 +179,109 @@ const NotificationBanner = ({ message, onDismiss }) => (
   </BlurView>
 );
 
+const NotificationsSection = () => (
+  <BlurView intensity={80} style={styles.notificationsContainer}>
+    <LinearGradient
+      colors={['#3B82F615', 'transparent']}
+      style={StyleSheet.absoluteFill}
+      start={{ x: 0, y: 0 }}
+      end={{ x: 0, y: 1 }}
+    />
+    <View style={styles.notificationsContent}>
+      <View style={styles.notificationsHeader}>
+        <View style={styles.notificationsIconContainer}>
+          <Ionicons name="notifications-outline" size={24} color="#3B82F6" />
+        </View>
+        <View style={styles.notificationsTextContainer}>
+          <Text style={styles.notificationsTitle}>Approaching Houses</Text>
+          <Text style={styles.notificationsSubtitle}>
+            Special notifications will appear here
+          </Text>
+        </View>
+      </View>
+      
+      <View style={styles.notificationsLegend}>
+        <View style={styles.legendItem}>
+          <View style={[styles.legendDot, { backgroundColor: '#EF4444' }]} />
+          <Text style={styles.legendText}>Skip Houses</Text>
+        </View>
+        <View style={styles.legendItem}>
+          <View style={[styles.legendDot, { backgroundColor: '#10B981' }]} />
+          <Text style={styles.legendText}>New Customers</Text>
+        </View>
+      </View>
+    </View>
+  </BlurView>
+);
+
+const GeofenceAlert = ({ house }) => (
+  <BlurView intensity={80} style={[
+    styles.geofenceAlert,
+    { borderColor: house.status === 'skip' ? '#EF444430' : '#10B98130' }
+  ]}>
+    <View style={styles.geofenceContent}>
+      <View style={[
+        styles.geofenceIcon,
+        { backgroundColor: house.status === 'skip' ? '#EF444415' : '#10B98115' }
+      ]}>
+        <Ionicons 
+          name={house.status === 'skip' ? 'alert-circle' : 'information-circle'} 
+          size={24} 
+          color={house.status === 'skip' ? '#EF4444' : '#10B981'} 
+        />
+      </View>
+      <View style={styles.geofenceTextContent}>
+        <Text style={[
+          styles.geofenceTitle,
+          { color: house.status === 'skip' ? '#EF4444' : '#10B981' }
+        ]}>
+          {house.status === 'skip' ? 'Skip House' : 'New Customer'}
+        </Text>
+        <Text style={styles.geofenceAddress}>{house.address}</Text>
+      </View>
+  </View>
+  </BlurView>
+);
+
 const RouteScreen = ({ routeId }) => {
   const router = useRouter();
   const [route, setRoute] = useState(null);
   const [selectedHouses, setSelectedHouses] = useState(new Set());
-  const [notificationsEnabled, setNotificationsEnabled] = useState(true);
+  const [phoneNotifications, setPhoneNotifications] = useState(true);
   const [selectedHouse, setSelectedHouse] = useState(null);
   const [modalVisible, setModalVisible] = useState(false);
   const [notifications, setNotifications] = useState([]);
   const [showNotifications, setShowNotifications] = useState(true);
   const [loading, setLoading] = useState(true);
+  
+  const { nearbyHouses, approachingHouses, isTracking, error: geofencingError } = useGeofencing(
+    route?.houses,
+    true // Always track, notifications controlled separately
+  );
+
+  // Add allSelected calculation
+  const allSelected = route?.houses && selectedHouses.size === route.houses.length;
+
+  // Update toggleNotifications function to handle only notification permissions
+  const toggleNotifications = async () => {
+    try {
+      if (!phoneNotifications) {
+        const { status: notificationStatus } = await Notifications.requestPermissionsAsync();
+        if (notificationStatus !== 'granted') {
+          Alert.alert('Permission Denied', 'Notification permission is required for alerts.');
+          return;
+        }
+      }
+      
+      setPhoneNotifications(prev => !prev);
+    } catch (error) {
+      console.error('Error toggling notifications:', error);
+      Alert.alert('Error', 'Failed to toggle notifications');
+    }
+  };
 
   useEffect(() => {
     fetchRouteData();
-    setupLocationAndNotifications();
   }, [routeId]);
 
   const fetchRouteData = async () => {
@@ -168,14 +307,39 @@ const RouteScreen = ({ routeId }) => {
       if (routeError) throw routeError;
       
       if (routeData) {
+        // If route is pending, start it
+        if (routeData.status === 'pending') {
+          const { error: updateError } = await supabase
+            .from('routes')
+            .update({
+              status: 'in_progress'
+              // Don't include start_time since column might not exist
+            })
+            .eq('id', routeId);
+
+          if (updateError) {
+            console.error('Error updating route status:', updateError);
+            // Continue without failing if it's a schema issue
+            if (!updateError.message.includes('start_time')) {
+              throw updateError;
+            }
+          }
+          
+          routeData.status = 'in_progress';
+          // Set a fallback start time for UI display
+          if (!routeData.start_time) {
+            routeData.start_time = new Date().toISOString();
+          }
+        }
+
         setRoute(routeData);
-        // Set selected houses based on completed status
-        const completedHouses = new Set(
+        // Set selected houses based on their current status
+        const selectedHouseIds = new Set(
           routeData.houses
-            .filter(h => h.status === 'completed')
+            .filter(h => h.status === 'collect')
             .map(h => h.id)
         );
-        setSelectedHouses(completedHouses);
+        setSelectedHouses(selectedHouseIds);
       }
     } catch (error) {
       console.error('Error fetching route:', error);
@@ -185,50 +349,22 @@ const RouteScreen = ({ routeId }) => {
     }
   };
 
-  const setupLocationAndNotifications = async () => {
-    try {
-      const { status: locationStatus } = await Location.requestForegroundPermissionsAsync();
-      if (locationStatus !== 'granted') {
-        Alert.alert('Permission Denied', 'Location permission is required for address notifications.');
-        return;
-      }
-
-      const { status: notificationStatus } = await Notifications.requestPermissionsAsync();
-      if (notificationStatus !== 'granted') {
-        Alert.alert('Permission Denied', 'Notification permission is required for address alerts.');
-        return;
-      }
-
-      // Start location updates
-      Location.watchPositionAsync(
-        {
-          accuracy: Location.Accuracy.High,
-          distanceInterval: 10,
-        },
-        (location) => {
-          if (notificationsEnabled) {
-            checkGeofences(location.coords);
-          }
-        }
-      );
-    } catch (error) {
-      console.error('Error setting up location:', error);
-    }
-  };
-
+  // Update showNotification to respect phoneNotifications setting
   const showNotification = (message) => {
-    // Add to on-screen notifications
+    // Always add to on-screen notifications
     setNotifications(prev => [...prev, { id: Date.now(), message }]);
 
-    // Schedule phone notification
+    // Only show phone notification if enabled
+    if (phoneNotifications) {
     Notifications.scheduleNotificationAsync({
       content: {
         title: 'WasteRoute Update',
         body: message,
         sound: true,
       },
-      trigger: null, // Show immediately
+        trigger: null,
     });
+    }
 
     // Auto-dismiss after 5 seconds
     setTimeout(() => {
@@ -240,80 +376,67 @@ const RouteScreen = ({ routeId }) => {
     setNotifications(prev => prev.filter(n => n.id !== id));
   };
 
-  const checkGeofences = (currentLocation) => {
-    if (!route?.houses) return;
-
-    route.houses.forEach(house => {
-      const distance = calculateDistance(
-        currentLocation.latitude,
-        currentLocation.longitude,
-        parseFloat(house.lat),
-        parseFloat(house.lng)
-      );
-
-      if (distance <= GEOFENCE_RADIUS && !selectedHouses.has(house.id)) {
-        const isSkip = house.status === 'skip';
-        const isNew = house.status === 'new';
-        const message = `${isSkip ? '⚠️ Skip House' : isNew ? '🆕 New Customer' : '🏠 Collection'}: ${house.address}`;
-        
-        // Show in-app notification
-        showNotification(message);
-        
-        // Show system notification
-        Notifications.scheduleNotificationAsync({
-          content: {
-            title: isSkip ? '⚠️ Skip House Nearby' : isNew ? '🆕 New Customer Nearby' : '🏠 Collection Nearby',
-            body: `${house.address}\n${isSkip ? 'This house should be skipped' : isNew ? 'New customer for collection' : 'Regular collection'}`,
-            data: { houseId: house.id },
-          },
-          trigger: null,
-        });
-      }
-    });
-  };
-
-  const calculateDistance = (lat1, lon1, lat2, lon2) => {
-    const R = 6371e3; // Earth's radius in meters
-    const φ1 = lat1 * Math.PI/180;
-    const φ2 = lat2 * Math.PI/180;
-    const Δφ = (lat2-lat1) * Math.PI/180;
-    const Δλ = (lon2-lon1) * Math.PI/180;
-
-    const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
-              Math.cos(φ1) * Math.cos(φ2) *
-              Math.sin(Δλ/2) * Math.sin(Δλ/2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-
-    return R * c;
-  };
-
+  // Update the toggleHouse function to maintain the original status and only update the selection state
   const toggleHouse = async (houseId) => {
-    const newSelected = new Set(selectedHouses);
-    if (newSelected.has(houseId)) {
-      newSelected.delete(houseId);
-    } else {
-      newSelected.add(houseId);
-    }
-    setSelectedHouses(newSelected);
-
-    // Update house status in Supabase
     try {
-      const { error } = await supabase
-        .from('houses')
-        .update({ status: newSelected.has(houseId) ? 'completed' : 'pending' })
-        .eq('id', houseId);
+      const house = route.houses.find(h => h.id === houseId);
+      if (!house) return;
 
-      if (error) throw error;
+      const newSelected = new Set(selectedHouses);
+      if (newSelected.has(houseId)) {
+        newSelected.delete(houseId);
+      } else {
+        newSelected.add(houseId);
+      }
+
+      // Update route progress in database
+      const { error: routeError } = await supabase
+        .from('routes')
+        .update({ 
+          completed_houses: newSelected.size
+        })
+        .eq('id', route.id);
+
+      if (routeError) throw routeError;
+
+      // Update local state
+      setSelectedHouses(newSelected);
+      setRoute(prev => ({
+        ...prev,
+        completed_houses: newSelected.size
+      }));
+
     } catch (error) {
-      console.error('Error updating house status:', error);
+      console.error('Error updating selection:', error);
+      Alert.alert('Error', 'Failed to update selection');
     }
   };
 
-  const toggleAll = () => {
-    if (selectedHouses.size === route.houses.length) {
-      setSelectedHouses(new Set());
-    } else {
-      setSelectedHouses(new Set(route.houses.map(h => h.id)));
+  const toggleAll = async () => {
+    try {
+      const allSelected = selectedHouses.size === route.houses.length;
+      const newSelected = allSelected ? new Set() : new Set(route.houses.map(h => h.id));
+
+      // Update route progress
+      const { error: routeError } = await supabase
+        .from('routes')
+        .update({ 
+          completed_houses: allSelected ? 0 : route.houses.length
+        })
+        .eq('id', route.id);
+
+      if (routeError) throw routeError;
+
+      // Update local state
+      setSelectedHouses(newSelected);
+      setRoute(prev => ({
+        ...prev,
+        completed_houses: allSelected ? 0 : route.houses.length
+      }));
+
+    } catch (error) {
+      console.error('Error updating selections:', error);
+      Alert.alert('Error', 'Failed to update selections');
     }
   };
 
@@ -322,12 +445,16 @@ const RouteScreen = ({ routeId }) => {
     setModalVisible(true);
   };
 
-  const handleSaveNote = async (note) => {
+  const handleSaveNote = async (newNote) => {
     try {
+      const updatedNotes = selectedHouse.notes 
+        ? `${selectedHouse.notes}\n\n${newNote}`
+        : newNote;
+
       // Update note in Supabase
       const { error } = await supabase
         .from('houses')
-        .update({ notes: note })
+        .update({ notes: updatedNotes })
         .eq('id', selectedHouse.id);
 
       if (error) throw error;
@@ -337,7 +464,7 @@ const RouteScreen = ({ routeId }) => {
         ...prev,
         houses: prev.houses.map(h => 
           h.id === selectedHouse.id 
-            ? { ...h, notes: note }
+            ? { ...h, notes: updatedNotes }
             : h
         )
       }));
@@ -357,32 +484,43 @@ const RouteScreen = ({ routeId }) => {
   };
 
   const handleEndRoute = async () => {
-    const stats = {
-      total: route.houses.length,
-      completed: selectedHouses.size,
-      skipped: route.houses.filter(h => h.status === 'skip').length,
-      newCustomers: route.houses.filter(h => h.status === 'new').length,
-      startTime: new Date(route.date),
-      endTime: new Date(),
-    };
-
     const handleComplete = async () => {
       try {
-        // Update route status to completed
-        const { error } = await supabase
+        // Calculate basic metrics only
+        const completed = selectedHouses.size;
+        const total = route.houses.length;
+        
+        // Update route with minimal required fields
+        const { error: updateError } = await supabase
           .from('routes')
-          .update({ status: 'completed' })
+          .update({
+            status: 'completed',
+            completed_houses: completed
+            // No other fields - they might cause schema errors
+          })
           .eq('id', route.id);
 
-        if (error) throw error;
+        if (updateError) {
+          console.error('Error updating route completion:', updateError);
+          throw updateError;
+        }
 
+        // Prepare simple summary for completion screen
+        const summary = {
+          route_id: route.id,
+          route_name: route.name,
+          total: total,
+          completed: completed
+        };
+
+        // Navigate to completion screen with summary
         router.push({
           pathname: '/route-complete',
-          params: { summary: JSON.stringify(stats) }
+          params: { summary: JSON.stringify(summary) }
         });
       } catch (error) {
         console.error('Error completing route:', error);
-        Alert.alert('Error', 'Failed to complete route');
+        Alert.alert('Error', 'Failed to complete route: ' + error.message);
       }
     };
 
@@ -402,6 +540,178 @@ const RouteScreen = ({ routeId }) => {
     } else {
       handleComplete();
     }
+  };
+
+  // Update the header actions section
+  const renderHeaderActions = () => (
+    <View style={styles.headerActions}>
+      <TouchableOpacity 
+        style={[
+          styles.notificationToggle,
+          { backgroundColor: phoneNotifications ? '#3B82F620' : '#6B728020' }
+        ]}
+        onPress={toggleNotifications}
+      >
+        <Ionicons 
+          name={phoneNotifications ? "notifications" : "notifications-off-outline"} 
+          size={20} 
+          color={phoneNotifications ? "#3B82F6" : "#6B7280"} 
+        />
+        <Text style={[
+          styles.notificationText,
+          { color: phoneNotifications ? "#3B82F6" : "#6B7280" }
+        ]}>
+          {phoneNotifications ? 'Notifications' : 'Off'}
+        </Text>
+      </TouchableOpacity>
+    </View>
+  );
+
+  // Add this near the top of the file after imports
+  const setupNotifications = async () => {
+    try {
+      // Request notification permissions
+      const { status: existingStatus } = await Notifications.getPermissionsAsync();
+      let finalStatus = existingStatus;
+      
+      if (existingStatus !== 'granted') {
+        const { status } = await Notifications.requestPermissionsAsync();
+        finalStatus = status;
+      }
+      
+      if (finalStatus !== 'granted') {
+        Alert.alert(
+          'Notifications Required',
+          'Route notifications are important for tracking skip houses and new customers. Please enable notifications in your settings.',
+          [
+            { text: 'Open Settings', onPress: () => Linking.openSettings() },
+            { text: 'Continue Without Notifications', style: 'cancel' }
+          ]
+        );
+        return false;
+      }
+
+      // Configure notification categories/actions
+      await Notifications.setNotificationCategoryAsync('route', [
+        {
+          identifier: 'mark_complete',
+          buttonTitle: 'Mark Complete',
+          options: {
+            isAuthenticationRequired: false,
+            isDestructive: false,
+          }
+        },
+        {
+          identifier: 'navigate',
+          buttonTitle: 'Navigate',
+          options: {
+            isAuthenticationRequired: false,
+            isDestructive: false,
+          }
+        }
+      ]);
+
+      return true;
+    } catch (error) {
+      console.error('Error setting up notifications:', error);
+      return false;
+    }
+  };
+
+  // Add this to the component
+  useEffect(() => {
+    setupNotifications();
+  }, []);
+
+  // Add notification response handler
+  useEffect(() => {
+    const subscription = Notifications.addNotificationResponseReceivedListener(response => {
+      const { houseId, status, lat, lng } = response.notification.request.content.data;
+      
+      // Handle notification action
+      switch (response.actionIdentifier) {
+        case 'mark_complete':
+          handleHouseComplete(houseId);
+          break;
+        case 'navigate':
+          const url = Platform.select({
+            ios: `maps://app?daddr=${lat},${lng}`,
+            android: `google.navigation:q=${lat},${lng}`
+          });
+          Linking.openURL(url);
+          break;
+        default:
+          // Open house details on notification tap
+          if (houseId) {
+            const house = route?.houses.find(h => h.id === houseId);
+            if (house) {
+              setSelectedHouse(house);
+            }
+          }
+      }
+    });
+
+    return () => subscription.remove();
+  }, [route?.houses]);
+
+  // Add status indicators for nearby houses
+  const getHouseStatus = useCallback((house) => {
+    const isNearby = nearbyHouses.find(h => h.id === house.id);
+    const isApproaching = approachingHouses.find(h => h.id === house.id);
+    
+    if (isNearby) {
+      return {
+        ...house,
+        proximityStatus: 'nearby',
+        distance: isNearby.distance
+      };
+    }
+    
+    if (isApproaching) {
+      return {
+        ...house,
+        proximityStatus: 'approaching',
+        distance: isApproaching.distance
+      };
+    }
+    
+    return house;
+  }, [nearbyHouses, approachingHouses]);
+
+  // Update house list rendering to include proximity status
+  const renderHouseItem = ({ item: house }) => {
+    const houseWithStatus = getHouseStatus(house);
+    const showDistance = houseWithStatus.proximityStatus && houseWithStatus.distance;
+    
+    return (
+      <TouchableOpacity 
+        style={[
+          styles.houseItem,
+          houseWithStatus.proximityStatus === 'nearby' && styles.houseItemNearby,
+          houseWithStatus.proximityStatus === 'approaching' && styles.houseItemApproaching,
+        ]}
+        onPress={() => setSelectedHouse(house)}
+      >
+        <View style={styles.houseInfo}>
+          <Text style={styles.houseAddress}>{house.address}</Text>
+          {showDistance && (
+            <Text style={styles.distanceText}>
+              {Math.round(houseWithStatus.distance)}m away
+            </Text>
+          )}
+          {house.notes && (
+            <Text style={styles.houseNotes}>{house.notes}</Text>
+          )}
+        </View>
+        <View style={styles.houseStatus}>
+          <View style={[
+            styles.statusIndicator,
+            { backgroundColor: getStatusColor(house.status) }
+          ]} />
+          <Text style={styles.statusText}>{house.status}</Text>
+        </View>
+      </TouchableOpacity>
+    );
   };
 
   if (loading) {
@@ -425,8 +735,6 @@ const RouteScreen = ({ routeId }) => {
       <LinearGradient
         colors={['#1a1a1a', '#000000']}
         style={StyleSheet.absoluteFill}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
       />
       
       <BlurView intensity={80} style={styles.header}>
@@ -440,69 +748,73 @@ const RouteScreen = ({ routeId }) => {
           <Text style={styles.headerTitle}>Route Details</Text>
           <Text style={styles.headerSubtitle}>{route?.name}</Text>
         </View>
-        <View style={styles.headerActions}>
-          <TouchableOpacity 
-            style={styles.notificationToggle}
-            onPress={() => setShowNotifications(!showNotifications)}
-          >
-            <Ionicons 
-              name={showNotifications ? "notifications" : "notifications-off"} 
-              size={24} 
-              color={showNotifications ? "#10B981" : "#6B7280"} 
-            />
-            <Text style={[
-              styles.notificationText,
-              !showNotifications && styles.notificationTextOff
-            ]}>
-              Notifications
-            </Text>
-          </TouchableOpacity>
-        </View>
+        {renderHeaderActions()}
       </BlurView>
 
-      {showNotifications && notifications.length > 0 && (
-        <View style={styles.notificationsContainer}>
-          {notifications.map(notification => (
-            <NotificationBanner
-              key={notification.id}
-              message={notification.message}
-              onDismiss={() => dismissNotification(notification.id)}
-            />
-          ))}
-        </View>
-      )}
-
-      <View style={styles.toolbar}>
+      <View style={styles.content}>
+        <View style={styles.topSection}>
+          <View style={styles.progressRow}>
+            <View style={styles.progressSection}>
         <View style={styles.progressContainer}>
           <View style={styles.progressBar}>
             <View 
               style={[
                 styles.progressFill,
-                { width: `${(selectedHouses.size / route.houses.length) * 100}%` }
+                      { width: `${(selectedHouses.size / (route?.houses?.length || 1)) * 100}%` }
               ]} 
             />
           </View>
-          <Text style={styles.progress}>
-            {selectedHouses.size}/{route.houses.length} completed
+                <Text style={styles.progressText}>
+                  {selectedHouses.size}/{route?.houses?.length || 0} completed
           </Text>
+              </View>
         </View>
         
         <TouchableOpacity 
           style={styles.checkAllButton}
           onPress={toggleAll}
-        >
-          <Ionicons name="checkbox" size={20} color="#fff" />
-          <Text style={styles.checkAllText}>
-            {selectedHouses.size === route.houses.length ? 'Uncheck All' : 'Check All'}
-          </Text>
+              disabled={loading || !route?.houses?.length}
+            >
+              <LinearGradient
+                colors={['#3B82F6', '#2563EB']}
+                style={styles.checkAllGradient}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+              >
+                <Ionicons 
+                  name="checkmark-circle" 
+                  size={20} 
+                  color="#fff" 
+                />
+              </LinearGradient>
         </TouchableOpacity>
+          </View>
       </View>
 
+        <View style={styles.notificationsSection}>
       <ScrollView 
-        style={styles.content}
+            style={styles.notificationsScroll}
+            contentContainerStyle={styles.notificationsScrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {route.houses.map(house => (
+            <NotificationsSection />
+            {nearbyHouses.map((house, index) => (
+              <GeofenceAlert key={`${house.id}-${index}`} house={house} />
+            ))}
+          </ScrollView>
+        </View>
+
+        <ScrollView
+          style={styles.housesScroll}
+          contentContainerStyle={[
+            styles.housesScrollContent,
+            { paddingBottom: 200 } // Increased padding for better scroll
+          ]}
+          showsVerticalScrollIndicator={false}
+          bounces={true}
+          overScrollMode="always"
+        >
+          {route?.houses?.map(house => (
           <HouseItem
             key={house.id}
             house={house}
@@ -512,16 +824,72 @@ const RouteScreen = ({ routeId }) => {
           />
         ))}
       </ScrollView>
+      </View>
 
-      <View style={styles.footer}>
+      <BlurView intensity={80} style={styles.footer}>
+        <LinearGradient
+          colors={['transparent', 'rgba(0,0,0,0.95)']}
+          style={[StyleSheet.absoluteFill, { height: 200 }]}
+          pointerEvents="none"
+          locations={[0, 0.5]}
+        />
+        <View style={styles.footerContent}>
+          <View style={styles.footerStats}>
+            <View style={styles.footerStatsLeft}>
+              <Text style={styles.footerStatsText}>
+                {selectedHouses.size}/{route?.houses?.length || 0} Houses
+              </Text>
+              <Text style={styles.footerStatsSubtext}>
+                {Math.round((selectedHouses.size / (route?.houses?.length || 1)) * 100)}% Complete
+              </Text>
+            </View>
+            <View style={styles.footerStatsRight}>
+              <Text style={styles.footerTimeText}>Started at</Text>
+              <Text style={styles.footerTimeValue}>
+                {route?.start_time ? 
+                  new Date(route.start_time).toLocaleTimeString([], { 
+                    hour: '2-digit', 
+                    minute: '2-digit',
+                    hour12: true 
+                  }) : 
+                  new Date().toLocaleTimeString([], { 
+                    hour: '2-digit', 
+                    minute: '2-digit',
+                    hour12: true 
+                  })
+                }
+              </Text>
+            </View>
+          </View>
         <TouchableOpacity 
-          style={styles.endRouteButton}
+            style={[
+              styles.endRouteButton,
+              selectedHouses.size === route?.houses?.length && styles.endRouteButtonComplete
+            ]}
           onPress={handleEndRoute}
-        >
-          <Ionicons name="flag" size={20} color="#fff" />
-          <Text style={styles.endRouteText}>End Route</Text>
+            activeOpacity={0.8}
+          >
+            <LinearGradient
+              colors={selectedHouses.size === route?.houses?.length ? 
+                ['#059669', '#10B981'] : 
+                ['#3B82F6', '#2563EB']
+              }
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.endRouteGradient}
+            >
+              <Ionicons 
+                name={selectedHouses.size === route?.houses?.length ? "checkmark-circle" : "flag-outline"} 
+                size={24} 
+                color="#fff" 
+              />
+              <Text style={styles.endRouteText}>
+                {selectedHouses.size === route?.houses?.length ? 'Complete Route' : 'End Route'}
+              </Text>
+            </LinearGradient>
         </TouchableOpacity>
       </View>
+      </BlurView>
 
       <AddressModal
         visible={modalVisible}
@@ -530,6 +898,14 @@ const RouteScreen = ({ routeId }) => {
         onSaveNote={handleSaveNote}
         onNavigate={handleNavigate}
       />
+
+      {geofencingError && (
+        <View style={styles.errorBanner}>
+          <Text style={styles.errorText}>
+            Location tracking error: {geofencingError}
+          </Text>
+        </View>
+      )}
     </View>
   );
 };
@@ -572,19 +948,129 @@ const styles = StyleSheet.create({
   notificationToggle: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(16, 185, 129, 0.1)',
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 20,
     gap: 6,
   },
   notificationText: {
-    color: '#10B981',
     fontSize: 14,
-    fontWeight: '500',
+    fontWeight: '600',
   },
-  notificationTextOff: {
-    color: '#6B7280',
+  notificationsSection: {
+    flex: 1,
+    maxHeight: 180,
+    marginBottom: 12,
+  },
+  notificationsScroll: {
+    backgroundColor: '#00000040',
+  },
+  notificationsScrollContent: {
+    padding: 16,
+    gap: 12,
+  },
+  notificationsContainer: {
+    borderRadius: 16,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#3B82F620',
+    marginBottom: 8,
+  },
+  notificationsContent: {
+    padding: 16,
+  },
+  notificationsHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  notificationsIconContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#3B82F615',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 16,
+  },
+  notificationsTextContainer: {
+    flex: 1,
+  },
+  notificationsTitle: {
+    color: '#fff',
+    fontSize: 20,
+    fontWeight: '600',
+    marginBottom: 6,
+  },
+  notificationsSubtitle: {
+    color: '#9CA3AF',
+    fontSize: 15,
+    lineHeight: 20,
+  },
+  notificationsLegend: {
+    flexDirection: 'row',
+    gap: 16,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#ffffff10',
+  },
+  legendItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  legendDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  legendText: {
+    color: '#9CA3AF',
+    fontSize: 13,
+  },
+  geofenceAlert: {
+    borderRadius: 14,
+    overflow: 'hidden',
+    borderWidth: 1,
+    marginTop: 10,
+  },
+  geofenceContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+  },
+  geofenceIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  geofenceTextContent: {
+    flex: 1,
+  },
+  geofenceTitle: {
+    fontSize: 17,
+    fontWeight: '600',
+    marginBottom: 4,
+    letterSpacing: 0.2,
+  },
+  geofenceAddress: {
+    color: '#9CA3AF',
+    fontSize: 15,
+    lineHeight: 20,
+  },
+  checkAllButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    overflow: 'hidden',
+  },
+  checkAllGradient: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   toolbar: {
     flexDirection: 'row',
@@ -593,69 +1079,66 @@ const styles = StyleSheet.create({
     padding: 16,
     backgroundColor: 'rgba(26, 26, 26, 0.8)',
   },
-  progressContainer: {
+  topSection: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    zIndex: 1,
+  },
+  progressRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  progressSection: {
     flex: 1,
-    marginRight: 16,
+  },
+  progressContainer: {
+    width: '100%',
   },
   progressBar: {
     height: 6,
     backgroundColor: 'rgba(255,255,255,0.1)',
     borderRadius: 3,
     overflow: 'hidden',
+    marginBottom: 8,
   },
   progressFill: {
     height: '100%',
-    backgroundColor: '#10B981',
+    backgroundColor: '#3B82F6',
   },
-  progress: {
+  progressText: {
     color: '#9CA3AF',
-    fontSize: 12,
-    marginTop: 4,
-  },
-  checkAllButton: {
-    backgroundColor: '#10B981',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 8,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  checkAllText: {
-    color: '#fff',
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '500',
   },
   content: {
     flex: 1,
+    marginTop: Platform.OS === 'ios' ? 20 : 0,
+  },
+  housesScroll: {
+    flex: 1,
+    backgroundColor: '#00000040',
+  },
+  housesScrollContent: {
     padding: 16,
+    paddingTop: 8,
   },
   houseItem: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: 'rgba(26, 26, 26, 0.8)',
-    padding: 16,
-    borderRadius: 16,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
-  },
-  houseItemSelected: {
-    borderColor: '#10B981',
-    backgroundColor: 'rgba(16, 185, 129, 0.1)',
-  },
-  checkbox: {
-    width: 28,
-    height: 28,
+    padding: 14,
     borderRadius: 14,
-    borderWidth: 2,
-    borderColor: '#10B981',
-    marginLeft: 12,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  checkboxSelected: {
-    backgroundColor: '#10B981',
+    marginBottom: 10,
+    borderWidth: 1,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 4,
   },
   houseInfo: {
     flex: 1,
@@ -665,11 +1148,13 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     marginBottom: 4,
+    lineHeight: 20,
   },
   houseNotes: {
     color: '#9CA3AF',
     fontSize: 14,
     marginBottom: 8,
+    lineHeight: 18,
   },
   statusBadge: {
     alignSelf: 'flex-start',
@@ -680,44 +1165,98 @@ const styles = StyleSheet.create({
   statusText: {
     fontSize: 12,
     fontWeight: '600',
+    letterSpacing: 0.2,
+  },
+  checkbox: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    borderWidth: 2,
+    marginLeft: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   footer: {
-    padding: 16,
-    backgroundColor: 'rgba(31, 41, 55, 0.8)',
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(255,255,255,0.1)',
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: 'transparent',
   },
-  endRouteButton: {
-    backgroundColor: '#10B981',
+  footerContent: {
     padding: 16,
-    borderRadius: 12,
-    alignItems: 'center',
+    paddingBottom: Platform.OS === 'ios' ? 34 : 16,
+  },
+  footerStats: {
     flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 8,
+    justifyContent: 'space-between',
+    marginBottom: 16,
+    paddingHorizontal: 4,
   },
-  endRouteText: {
+  footerStatsLeft: {
+    flex: 1,
+  },
+  footerStatsRight: {
+    alignItems: 'flex-end',
+  },
+  footerStatsText: {
     color: '#fff',
     fontSize: 16,
     fontWeight: '600',
+    marginBottom: 4,
   },
-  loadingText: {
+  footerStatsSubtext: {
+    color: '#9CA3AF',
+    fontSize: 13,
+  },
+  footerTimeText: {
+    color: '#9CA3AF',
+    fontSize: 13,
+    marginBottom: 4,
+  },
+  footerTimeValue: {
     color: '#fff',
-    fontSize: 16,
-    textAlign: 'center',
-    marginTop: 20,
+    fontSize: 15,
+    fontWeight: '500',
   },
-  modalOverlay: {
+  endRouteButton: {
+    overflow: 'hidden',
+    borderRadius: 16,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+    marginHorizontal: 4,
+  },
+  endRouteButtonComplete: {
+    shadowColor: '#059669',
+    shadowOpacity: 0.4,
+  },
+  endRouteGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    padding: 18,
+  },
+  endRouteText: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: '600',
+  },
+  modalContainer: {
     flex: 1,
     justifyContent: 'flex-end',
-    backgroundColor: 'rgba(0,0,0,0.5)',
   },
   modalContent: {
-    backgroundColor: 'rgba(31, 41, 55, 0.98)',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    padding: 20,
-    minHeight: '50%',
+    backgroundColor: 'rgba(17, 24, 39, 0.98)',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: 24,
   },
   modalHeader: {
     flexDirection: 'row',
@@ -725,85 +1264,94 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 20,
   },
+  modalHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
   modalTitle: {
-    fontSize: 20,
-    fontWeight: '600',
-    color: '#fff',
-  },
-  modalClose: {
-    padding: 4,
-  },
-  modalAddress: {
-    fontSize: 24,
+    fontSize: 22,
     fontWeight: '700',
     color: '#fff',
-    marginBottom: 12,
+    letterSpacing: 0.3,
   },
-  modalStatusBadge: {
-    alignSelf: 'flex-start',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 12,
-    marginBottom: 24,
+  closeButton: {
+    padding: 8,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    borderRadius: 20,
   },
-  modalStatusText: {
-    fontSize: 14,
-    fontWeight: '600',
+  modalBody: {
+    gap: 24,
   },
-  modalLabel: {
-    color: '#9CA3AF',
-    fontSize: 14,
-    marginBottom: 8,
-  },
-  modalInput: {
-    backgroundColor: 'rgba(55, 65, 81, 0.8)',
-    borderRadius: 12,
+  addressSection: {
+    backgroundColor: 'rgba(255,255,255,0.05)',
     padding: 16,
+    borderRadius: 12,
+    gap: 8,
+  },
+  addressLabel: {
+    fontSize: 14,
+    color: '#9CA3AF',
+    fontWeight: '500',
+  },
+  addressText: {
+    fontSize: 17,
+    color: '#fff',
+    fontWeight: '500',
+    lineHeight: 22,
+  },
+  notesSection: {
+    gap: 8,
+  },
+  notesLabel: {
+    fontSize: 14,
+    color: '#9CA3AF',
+    fontWeight: '500',
+  },
+  notesInputContainer: {
+    position: 'relative',
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: 12,
+    padding: 2,
+  },
+  notesInput: {
+    backgroundColor: '#1F2937',
+    borderRadius: 14,
+    padding: 14,
     color: '#fff',
     fontSize: 16,
-    minHeight: 100,
+    minHeight: 120,
     textAlignVertical: 'top',
-    marginBottom: 20,
+    lineHeight: 22,
+  },
+  notesInputBorder: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+    pointerEvents: 'none',
   },
   navigateButton: {
-    backgroundColor: '#3B82F6',
+    overflow: 'hidden',
+    borderRadius: 12,
+    marginTop: 8,
+  },
+  navigateButtonGradient: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 8,
     padding: 16,
-    borderRadius: 12,
-    gap: 8,
   },
-  navigateText: {
+  navigateButtonText: {
     color: '#fff',
-    fontSize: 16,
+    fontSize: 17,
     fontWeight: '600',
-  },
-  notificationsContainer: {
-    position: 'absolute',
-    top: Platform.OS === 'ios' ? 120 : 80,
-    left: 20,
-    right: 20,
-    zIndex: 100,
-  },
-  notificationBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(26, 26, 26, 0.95)',
-    padding: 12,
-    borderRadius: 12,
-    marginBottom: 8,
-  },
-  notificationContent: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  notificationText: {
-    color: '#fff',
-    fontSize: 14,
-    flex: 1,
+    letterSpacing: 0.3,
   },
   headerActions: {
     flexDirection: 'row',
@@ -817,6 +1365,58 @@ const styles = StyleSheet.create({
     color: '#EF4444',
     fontSize: 16,
     textAlign: 'center',
+  },
+  headerActionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  trackingIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 16,
+    gap: 4,
+  },
+  trackingText: {
+    fontSize: 13,
+    fontWeight: '500',
+  },
+  initialNotesContainer: {
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+  },
+  initialNotesText: {
+    color: '#fff',
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  noNotesText: {
+    color: '#6B7280',
+    fontSize: 14,
+    fontStyle: 'italic',
+  },
+  houseItemNearby: {
+    borderLeftWidth: 4,
+    borderLeftColor: '#10B981', // green
+  },
+  houseItemApproaching: {
+    borderLeftWidth: 4,
+    borderLeftColor: '#3B82F6', // blue
+  },
+  distanceText: {
+    fontSize: 12,
+    color: '#6B7280',
+    marginTop: 2,
+  },
+  errorBanner: {
+    backgroundColor: '#EF4444',
+    padding: 8,
+    width: '100%',
   },
 });
 

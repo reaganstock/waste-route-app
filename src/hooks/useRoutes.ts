@@ -1,10 +1,24 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { Database } from '../types/database';
+import { useAuth } from '../contexts/AuthContext';
 
 type Route = Database['public']['Tables']['routes']['Row'];
 type House = Database['public']['Tables']['houses']['Row'];
 type Profile = Database['public']['Tables']['profiles']['Row'];
+
+// Extend the User type to include our custom properties
+type ExtendedUser = {
+  id: string;
+  team_id?: string;
+  profile?: {
+    team_id?: string;
+    role?: string;
+  };
+  user_metadata?: {
+    role?: string;
+  };
+}
 
 export type RouteWithDetails = Route & {
   houses: House[];
@@ -16,11 +30,32 @@ export const useRoutes = (routeId?: string) => {
   const [route, setRoute] = useState<RouteWithDetails | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
+  // Cast user to our extended type
+  const { user } = useAuth() as { user: ExtendedUser | null };
 
   const fetchRoutes = async () => {
     try {
       setLoading(true);
       setError(null);
+
+      // Get the user's team ID
+      let teamId = null;
+      if (user?.team_id) {
+        teamId = user.team_id;
+      } else if (user?.profile?.team_id) {
+        teamId = user.profile.team_id;
+      }
+
+      // Get user role
+      const userRole = user?.user_metadata?.role || user?.profile?.role;
+      const isOwnerOrAdmin = userRole === 'owner' || userRole === 'admin';
+
+      if (!teamId && !routeId) {
+        console.error("No team ID found for current user");
+        setRoutes([]);
+        setLoading(false);
+        return;
+      }
 
       let query = supabase
         .from('routes')
@@ -32,10 +67,26 @@ export const useRoutes = (routeId?: string) => {
         .order('date', { ascending: false });
 
       if (routeId) {
-        query = query.eq('id', routeId).single();
+        // When fetching a specific route, ensure it belongs to the user's team
+        query = query.eq('id', routeId);
+        if (teamId) {
+          query = query.eq('team_id', teamId);
+        }
+      } else {
+        // When fetching all routes, filter by team_id
+        if (teamId) {
+          query = query.eq('team_id', teamId);
+        }
+
+        // If user is not an owner or admin, only show routes assigned to them
+        if (!isOwnerOrAdmin) {
+          query = query.eq('driver_id', user?.id);
+        }
       }
 
-      const { data, error: routesError } = await query;
+      const { data, error: routesError } = routeId 
+        ? await query.maybeSingle() 
+        : await query;
 
       if (routesError) throw routesError;
 
@@ -53,9 +104,26 @@ export const useRoutes = (routeId?: string) => {
 
   const createRoute = async (routeData: Omit<Route, 'id' | 'created_at' | 'updated_at'>) => {
     try {
+      // Ensure the team_id is set when creating a route
+      let teamId = null;
+      if (user?.team_id) {
+        teamId = user.team_id;
+      } else if (user?.profile?.team_id) {
+        teamId = user.profile.team_id;
+      }
+
+      if (!teamId) {
+        throw new Error('Could not determine team ID. Please ensure you are assigned to a team.');
+      }
+
+      const routeWithTeam = {
+        ...routeData,
+        team_id: teamId
+      };
+
       const { data, error } = await supabase
         .from('routes')
-        .insert([routeData])
+        .insert([routeWithTeam])
         .select()
         .single();
 

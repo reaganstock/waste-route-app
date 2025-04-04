@@ -5,14 +5,14 @@ export default function AuthLayout() {
     <Stack
       screenOptions={{
         headerShown: false,
-        presentation: 'modal',
-        animation: 'fade',
+        presentation: 'card',
+        animation: 'slide_from_right',
       }}
     >
       <Stack.Screen 
         name="index" 
         options={{
-          animation: 'fade',
+          animation: 'slide_from_right',
         }}
       />
       <Stack.Screen 
@@ -24,8 +24,13 @@ export default function AuthLayout() {
       <Stack.Screen 
         name="forgot-password"
         options={{
-          presentation: 'modal',
-          animation: 'slide_from_bottom',
+          animation: 'slide_from_right',
+        }}
+      />
+      <Stack.Screen 
+        name="sign-in"
+        options={{
+          animation: 'slide_from_right',
         }}
       />
     </Stack>

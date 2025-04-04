@@ -7,22 +7,31 @@ import {
   ScrollView,
   Platform,
   Dimensions,
+  ActivityIndicator,
+  Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
-import { mockRoutes } from '../lib/mockData';
+import { supabase } from '../lib/supabase';
+import { useAuth } from '../contexts/AuthContext';
+import PropTypes from 'prop-types';
 
 const { width } = Dimensions.get('window');
 
 const RouteCard = ({ route, onPress }) => {
+  const { user } = useAuth();
+  const router = useRouter();
   const completionRate = Math.round((route.completed_houses / route.total_houses) * 100) || 0;
   const formattedDate = new Date(route.date).toLocaleDateString('en-US', {
     weekday: 'short',
     month: 'short',
     day: 'numeric',
   });
+  
+  // Check if user is assigned to this route
+  const isAssignedDriver = route.driver_id === user?.id;
 
   const getStatusColor = (status) => {
     switch (status) {
@@ -36,58 +45,105 @@ const RouteCard = ({ route, onPress }) => {
         return '#6B7280';
     }
   };
+  
+  // Handler for starting a route
+  const handleStartRoute = async () => {
+    try {
+      if (!isAssignedDriver) {
+        Alert.alert('Permission Denied', 'Only the assigned driver can start this route');
+        return;
+      }
+      
+      // Update route status
+      const { error } = await supabase
+        .from('routes')
+        .update({ 
+          status: 'in_progress'
+          // Don't include start_time field since it might not exist
+        })
+        .eq('id', route.id);
+        
+      if (error) throw error;
+      
+      // Navigate to route screen
+      router.push(`/route/${route.id}`);
+    } catch (error) {
+      console.error('Error starting route:', error);
+      // Handle error more gracefully
+      if (error.message && error.message.includes("start_time")) {
+        Alert.alert('Error', 'Could not start route. Please contact support.');
+      } else {
+        Alert.alert('Error', 'Failed to start route: ' + error.message);
+      }
+    }
+  };
 
   return (
-    <TouchableOpacity 
-      style={styles.routeCard}
-      onPress={onPress}
-      activeOpacity={0.7}
-    >
-      <LinearGradient
-        colors={['rgba(31,41,55,0.8)', 'rgba(17,24,39,0.8)']}
-        style={styles.routeCardGradient}
+    <View style={styles.routeCard}>
+      <TouchableOpacity 
+        style={styles.routeContent}
+        onPress={onPress}
+        activeOpacity={0.7}
+        // Make completed routes not clickable
+        disabled={route.status === 'completed'}
       >
-        <View style={styles.routeHeader}>
-          <Text style={styles.routeName}>{route.name}</Text>
-          <View style={[
-            styles.statusBadge,
-            { backgroundColor: `${getStatusColor(route.status)}20` }
-          ]}>
+        <LinearGradient
+          colors={['rgba(31,41,55,0.8)', 'rgba(17,24,39,0.8)']}
+          style={styles.routeCardGradient}
+        >
+          <View style={styles.routeHeader}>
+            <Text style={styles.routeName}>{route.name}</Text>
             <View style={[
-              styles.statusDot,
-              { backgroundColor: getStatusColor(route.status) }
-            ]} />
-            <Text style={[
-              styles.statusText,
-              { color: getStatusColor(route.status) }
+              styles.statusBadge,
+              { backgroundColor: `${getStatusColor(route.status)}20` }
             ]}>
-              {route.status.replace('_', ' ').toUpperCase()}
-            </Text>
+              <View style={[
+                styles.statusDot,
+                { backgroundColor: getStatusColor(route.status) }
+              ]} />
+              <Text style={[
+                styles.statusText,
+                { color: getStatusColor(route.status) }
+              ]}>
+                {route.status.replace('_', ' ').toUpperCase()}
+              </Text>
+            </View>
           </View>
-        </View>
 
-        <View style={styles.routeStats}>
-          <View style={styles.statItem}>
-            <Ionicons name="home" size={16} color="#9CA3AF" />
-            <Text style={styles.statText}>
-              {route.completed_houses}/{route.total_houses} houses
-            </Text>
+          <View style={styles.routeStats}>
+            <View style={styles.statItem}>
+              <Ionicons name="home" size={16} color="#9CA3AF" />
+              <Text style={styles.statText}>
+                {route.completed_houses}/{route.total_houses} houses
+              </Text>
+            </View>
+            <View style={styles.statItem}>
+              <Ionicons name="time" size={16} color="#9CA3AF" />
+              <Text style={styles.statText}>{route.duration || 0}h</Text>
+            </View>
+            <View style={styles.statItem}>
+              <Ionicons name="trending-up" size={16} color="#9CA3AF" />
+              <Text style={styles.statText}>{completionRate}%</Text>
+            </View>
           </View>
-          <View style={styles.statItem}>
-            <Ionicons name="time" size={16} color="#9CA3AF" />
-            <Text style={styles.statText}>{route.duration}h</Text>
-          </View>
-          <View style={styles.statItem}>
-            <Ionicons name="trending-up" size={16} color="#9CA3AF" />
-            <Text style={styles.statText}>{completionRate}%</Text>
-          </View>
-        </View>
 
-        <View style={styles.routeFooter}>
-          <Text style={styles.routeDate}>{formattedDate}</Text>
-        </View>
-      </LinearGradient>
-    </TouchableOpacity>
+          <View style={styles.routeFooter}>
+            <Text style={styles.routeDate}>{formattedDate}</Text>
+            
+            {/* Add Start button for pending routes */}
+            {route.status === 'pending' && isAssignedDriver && (
+              <TouchableOpacity 
+                style={styles.startButton}
+                onPress={handleStartRoute}
+              >
+                <Ionicons name="play" size={16} color="#fff" />
+                <Text style={styles.startButtonText}>Start</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        </LinearGradient>
+      </TouchableOpacity>
+    </View>
   );
 };
 
@@ -102,33 +158,160 @@ const FilterButton = ({ label, isActive, onPress }) => (
   </TouchableOpacity>
 );
 
-const AllRoutesScreen = () => {
+const AllRoutesScreen = ({ initialFilter }) => {
   const router = useRouter();
+  const params = useLocalSearchParams();
+  const { user } = useAuth();
   const [routes, setRoutes] = useState([]);
-  const [filter, setFilter] = useState('all');
+  const [filter, setFilter] = useState(initialFilter || 'all');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  
+  // Set initial filter from params if provided
+  useEffect(() => {
+    if (params.filter && ['all', 'completed', 'in_progress', 'pending'].includes(params.filter)) {
+      setFilter(params.filter);
+    } else if (initialFilter && ['all', 'completed', 'in_progress', 'pending'].includes(initialFilter)) {
+      setFilter(initialFilter);
+    }
+  }, [params.filter, initialFilter]);
 
   useEffect(() => {
     loadRoutes();
   }, [filter]);
 
-  const loadRoutes = () => {
-    let filteredRoutes = [...mockRoutes];
+  const loadRoutes = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      // Get the user's team ID
+      let teamId = null;
+      if (user?.team_id) {
+        teamId = user.team_id;
+      } else if (user?.profile?.team_id) {
+        teamId = user.profile.team_id;
+      }
+      
+      if (!teamId) {
+        console.error("No team ID found for current user");
+        setRoutes([]);
+        setLoading(false);
+        return;
+      }
+      
+      // Get user role
+      const userRole = user?.user_metadata?.role || user?.profile?.role;
+      const isOwnerOrAdmin = userRole === 'owner' || userRole === 'admin';
+      
+      console.log(`Fetching routes for team: ${teamId}, role: ${userRole}, filter: ${filter}`);
+      
+      // Start with a base query to fetch routes
+      let query = supabase
+        .from('routes')
+        .select(`
+          id,
+          name,
+          date,
+          status,
+          total_houses,
+          completed_houses,
+          duration,
+          efficiency,
+          driver_id,
+          driver:driver_id(id, full_name)
+        `)
+        .eq('team_id', teamId); // Filter by team_id to ensure team-specific visibility
+      
+      // Apply filter if not 'all'
+      if (filter !== 'all') {
+        query = query.eq('status', filter);
+      }
+      
+      // Only fetch routes for this driver if not admin/owner
+      if (!isOwnerOrAdmin) {
+        query = query.eq('driver_id', user?.id);
+      }
+      
+      // Sort by date, most recent first
+      query = query.order('date', { ascending: false });
+      
+      const { data, error: fetchError } = await query;
+      
+      if (fetchError) throw fetchError;
+      
+      console.log(`Fetched ${data?.length || 0} routes`);
+      setRoutes(data || []);
+    } catch (err) {
+      console.error('Error loading routes:', err);
+      setError(err.message);
+      Alert.alert('Error', 'Failed to load routes');
+    } finally {
+      setLoading(false);
+    }
+  };
 
-    switch (filter) {
-      case 'completed':
-        filteredRoutes = filteredRoutes.filter(r => r.status === 'completed');
-        break;
-      case 'in_progress':
-        filteredRoutes = filteredRoutes.filter(r => r.status === 'in_progress');
-        break;
-      case 'pending':
-        filteredRoutes = filteredRoutes.filter(r => r.status === 'pending');
-        break;
+  const renderContent = () => {
+    if (loading) {
+      return (
+        <View style={styles.centerContent}>
+          <ActivityIndicator size="large" color="#3B82F6" />
+        </View>
+      );
     }
 
-    // Sort by date, most recent first
-    filteredRoutes.sort((a, b) => new Date(b.date) - new Date(a.date));
-    setRoutes(filteredRoutes);
+    if (error) {
+      return (
+        <View style={styles.centerContent}>
+          <Text style={styles.errorText}>Error loading routes</Text>
+          <TouchableOpacity style={styles.retryButton} onPress={loadRoutes}>
+            <Text style={styles.retryButtonText}>Retry</Text>
+          </TouchableOpacity>
+        </View>
+      );
+    }
+
+    if (routes.length === 0) {
+      return (
+        <View style={styles.centerContent}>
+          <Text style={styles.emptyText}>No routes found</Text>
+          <TouchableOpacity 
+            style={styles.createButton}
+            onPress={() => router.push('/routes/create')}
+          >
+            <Text style={styles.createButtonText}>Create New Route</Text>
+          </TouchableOpacity>
+        </View>
+      );
+    }
+
+    return (
+      <ScrollView 
+        style={styles.content}
+        contentContainerStyle={styles.routesList}
+        showsVerticalScrollIndicator={false}
+      >
+        {routes.map(route => (
+          <RouteCard
+            key={route.id}
+            route={route}
+            onPress={() => {
+              // Different navigation behavior based on route status
+              if (route.status === 'completed') {
+                // No navigation for completed routes
+                return;
+              } else if (route.status === 'in_progress') {
+                // In-progress routes go to the route screen
+                router.push(`/route/${route.id}`);
+              } else {
+                // Pending routes go to edit screen
+                router.push(`/route/${route.id}/edit`);
+              }
+            }}
+          />
+        ))}
+      </ScrollView>
+    );
   };
 
   return (
@@ -138,16 +321,22 @@ const AllRoutesScreen = () => {
         style={StyleSheet.absoluteFill}
       />
       
-      <BlurView intensity={80} style={styles.header}>
+      <View style={styles.graySection}>
         <TouchableOpacity 
           onPress={() => router.back()}
           style={styles.backButton}
         >
           <Ionicons name="arrow-back" size={24} color="#fff" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>All Routes</Text>
-        <View style={styles.placeholder} />
-      </BlurView>
+        <Text style={styles.title}>Routes</Text>
+        <TouchableOpacity 
+          style={styles.addButton}
+          onPress={() => router.push('/routes/create')}
+          activeOpacity={0.7}
+        >
+          <Ionicons name="add" size={24} color="#fff" />
+        </TouchableOpacity>
+      </View>
 
       <View style={styles.filterContainer}>
         <ScrollView 
@@ -178,21 +367,13 @@ const AllRoutesScreen = () => {
         </ScrollView>
       </View>
 
-      <ScrollView 
-        style={styles.content}
-        contentContainerStyle={styles.routesList}
-        showsVerticalScrollIndicator={false}
-      >
-        {routes.map(route => (
-          <RouteCard
-            key={route.id}
-            route={route}
-            onPress={() => router.push(`/route/${route.id}`)}
-          />
-        ))}
-      </ScrollView>
+      {renderContent()}
     </View>
   );
+};
+
+AllRoutesScreen.propTypes = {
+  initialFilter: PropTypes.string
 };
 
 const styles = StyleSheet.create({
@@ -200,7 +381,7 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#000',
   },
-  header: {
+  graySection: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
@@ -208,20 +389,18 @@ const styles = StyleSheet.create({
     paddingTop: Platform.OS === 'ios' ? 60 : 20,
     backgroundColor: 'rgba(17, 24, 39, 0.8)',
   },
-  backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  headerTitle: {
+  title: {
     fontSize: 20,
     fontWeight: '600',
     color: '#fff',
   },
-  placeholder: {
+  addButton: {
     width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   filterContainer: {
     paddingVertical: 12,
@@ -262,6 +441,7 @@ const styles = StyleSheet.create({
   routeCard: {
     borderRadius: 16,
     overflow: 'hidden',
+    marginBottom: 16,
   },
   routeCardGradient: {
     padding: 16,
@@ -302,7 +482,7 @@ const styles = StyleSheet.create({
   statItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: 4,
   },
   statText: {
     color: '#9CA3AF',
@@ -312,10 +492,78 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: 'rgba(255,255,255,0.1)',
     paddingTop: 12,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
   },
   routeDate: {
     color: '#6B7280',
     fontSize: 14,
+  },
+  centerContent: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  errorText: {
+    color: '#EF4444',
+    fontSize: 16,
+    marginBottom: 16,
+    textAlign: 'center',
+  },
+  emptyText: {
+    color: '#9CA3AF',
+    fontSize: 16,
+    marginBottom: 16,
+    textAlign: 'center',
+  },
+  retryButton: {
+    backgroundColor: '#3B82F6',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 8,
+  },
+  retryButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  createButton: {
+    backgroundColor: '#10B981',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 8,
+  },
+  createButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  backButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  routeContent: {
+    flex: 1,
+  },
+  startButton: {
+    backgroundColor: '#10B981',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  startButtonText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '600',
   },
 });
 

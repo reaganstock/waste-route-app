@@ -1,0 +1,136 @@
+---
+format_version: '11'
+default_step_lib_source: https://github.com/bitrise-io/bitrise-steplib.git
+project_type: react-native
+workflows:
+  primary:
+    description: |
+      The workflow will first run our test and build.
+      Then it will build, sign and deploy the iOS and Android app.
+    steps:
+    - activate-ssh-key@4:
+        run_if: '{{getenv "SSH_RSA_PRIVATE_KEY" | ne ""}}'
+    - git-clone@6: {}
+    - restore-npm-cache@1: {}
+    - npm@1:
+        inputs:
+        - command: install
+    - npm@1:
+        inputs:
+        - command: ci
+    - save-npm-cache@1: {}
+    - npm@1:
+        title: Install EAS CLI
+        inputs:
+        - command: install -g eas-cli
+    - script@1:
+        title: EAS Login
+        inputs:
+        - content: |-
+            #!/usr/bin/env bash
+            set -ex
+            eas login --non-interactive --token "$EXPO_TOKEN"
+    - script@1:
+        title: EAS Build for iOS
+        inputs:
+        - content: |-
+            #!/usr/bin/env bash
+            set -ex
+            eas build --platform ios --profile production --non-interactive
+    - script@1:
+        title: EAS Build for Android
+        inputs:
+        - content: |-
+            #!/usr/bin/env bash
+            set -ex
+            eas build --platform android --profile production --non-interactive
+  android:
+    description: |
+      Builds and signs an Android APK for distribution.
+    steps:
+    - activate-ssh-key@4:
+        run_if: '{{getenv "SSH_RSA_PRIVATE_KEY" | ne ""}}'
+    - git-clone@6: {}
+    - restore-npm-cache@1: {}
+    - npm@1:
+        inputs:
+        - command: install
+    - save-npm-cache@1: {}
+    - npm@1:
+        title: Install EAS CLI
+        inputs:
+        - command: install -g eas-cli
+    - script@1:
+        title: EAS Login
+        inputs:
+        - content: |-
+            #!/usr/bin/env bash
+            set -ex
+            eas login --non-interactive --token "$EXPO_TOKEN"
+    - script@1:
+        title: EAS Build for Android
+        inputs:
+        - content: |-
+            #!/usr/bin/env bash
+            set -ex
+            eas build --platform android --profile production --non-interactive
+  ios:
+    description: |
+      Builds and signs an iOS IPA for distribution.
+    steps:
+    - activate-ssh-key@4:
+        run_if: '{{getenv "SSH_RSA_PRIVATE_KEY" | ne ""}}'
+    - git-clone@6: {}
+    - restore-npm-cache@1: {}
+    - npm@1:
+        inputs:
+        - command: install
+    - save-npm-cache@1: {}
+    - npm@1:
+        title: Install EAS CLI
+        inputs:
+        - command: install -g eas-cli
+    - script@1:
+        title: EAS Login
+        inputs:
+        - content: |-
+            #!/usr/bin/env bash
+            set -ex
+            eas login --non-interactive --token "$EXPO_TOKEN"
+    - script@1:
+        title: EAS Build for iOS
+        inputs:
+        - content: |-
+            #!/usr/bin/env bash
+            set -ex
+            eas build --platform ios --profile production --non-interactive
+  deploy:
+    description: |
+      Deploys the app to app stores.
+    steps:
+    - activate-ssh-key@4:
+        run_if: '{{getenv "SSH_RSA_PRIVATE_KEY" | ne ""}}'
+    - git-clone@6: {}
+    - restore-npm-cache@1: {}
+    - npm@1:
+        inputs:
+        - command: install
+    - save-npm-cache@1: {}
+    - npm@1:
+        title: Install EAS CLI
+        inputs:
+        - command: install -g eas-cli
+    - script@1:
+        title: EAS Login
+        inputs:
+        - content: |-
+            #!/usr/bin/env bash
+            set -ex
+            eas login --non-interactive --token "$EXPO_TOKEN"
+    - script@1:
+        title: EAS Submit
+        inputs:
+        - content: |-
+            #!/usr/bin/env bash
+            set -ex
+            eas submit --platform all --latest 

@@ -33,8 +33,10 @@ const LoginScreen = () => {
     try {
       setLoading(true);
       await signIn(email, password);
+      // Login happens automatically and user will be redirected by AuthContext
     } catch (error) {
-      Alert.alert('Error', error.message);
+      console.error('Login error:', error);
+      Alert.alert('Error', error.message || 'Invalid email or password');
     } finally {
       setLoading(false);
     }
@@ -44,6 +46,7 @@ const LoginScreen = () => {
     <KeyboardAvoidingView 
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       style={styles.container}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 50 : 0}
     >
       <View style={styles.header}>
         <View style={styles.logoContainer}>
@@ -55,7 +58,7 @@ const LoginScreen = () => {
           </LinearGradient>
           <Text style={styles.appName}>WasteRoute</Text>
         </View>
-        <Text style={styles.subtitle}>Route management made easy</Text>
+        <Text style={styles.subtitle}>Waste management made efficient</Text>
       </View>
 
       <View style={styles.form}>
@@ -113,7 +116,7 @@ const LoginScreen = () => {
           onPress={() => router.push('/(auth)/signup')}
         >
           <Text style={styles.signupText}>
-            Don't have an account? <Text style={styles.signupTextBold}>Sign up</Text>
+            Create a business account? <Text style={styles.signupTextBold}>Sign up</Text>
           </Text>
         </TouchableOpacity>
       </View>

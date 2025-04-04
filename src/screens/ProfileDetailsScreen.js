@@ -274,21 +274,6 @@ const ProfileDetailsScreen = () => {
             icon="calendar-outline"
           />
         </View>
-
-        {!isEditing && (
-          <TouchableOpacity
-            style={styles.resetPasswordButton}
-            onPress={() => router.push('/(auth)/forgot-password')}
-          >
-            <LinearGradient
-              colors={['rgba(59,130,246,0.1)', 'rgba(37,99,235,0.1)']}
-              style={styles.resetPasswordGradient}
-            >
-              <Ionicons name="key-outline" size={20} color="#3B82F6" />
-              <Text style={styles.resetPasswordText}>Reset Password</Text>
-            </LinearGradient>
-          </TouchableOpacity>
-        )}
       </ScrollView>
     </View>
   );
@@ -404,23 +389,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     paddingVertical: 16,
     paddingRight: 16,
-  },
-  resetPasswordButton: {
-    margin: 20,
-    borderRadius: 12,
-    overflow: 'hidden',
-  },
-  resetPasswordGradient: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    padding: 16,
-  },
-  resetPasswordText: {
-    color: '#3B82F6',
-    fontSize: 16,
-    fontWeight: '500',
   },
 });
 

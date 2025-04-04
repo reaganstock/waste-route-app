@@ -256,7 +256,16 @@ const PerformanceScreen = () => {
               <TouchableOpacity 
                 key={route.id}
                 style={styles.timelineItem}
-                onPress={() => router.push(`/route/${route.id}`)}
+                onPress={() => {
+                  // Navigate to appropriate screen based on route status
+                  if (route.status === 'completed') {
+                    router.push(`/route/${route.id}/details`);
+                  } else if (route.status === 'in_progress') {
+                    router.push(`/route/${route.id}`);
+                  } else {
+                    router.push(`/route/${route.id}/edit`);
+                  }
+                }}
               >
                 <View style={styles.timelineDot} />
                 <View style={styles.timelineContent}>

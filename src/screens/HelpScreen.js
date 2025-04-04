@@ -14,7 +14,7 @@ const HelpScreen = () => {
   const router = useRouter();
 
   const supportEmail = 'support@wasteroute.com';
-  const supportPhone = '+1 (555) 123-4567';
+  const supportPhone = '+1 (469) 703-5242';
 
   const handleEmailSupport = () => {
     Linking.openURL(`mailto:${supportEmail}`);
