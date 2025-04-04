@@ -280,6 +280,12 @@ const HomeScreen = () => {
   const [refreshing, setRefreshing] = useState(false);
   const [userGreeting, setUserGreeting] = useState('');
   
+  // Force a refresh of routes data when component mounts
+  useEffect(() => {
+    console.log("HomeScreen mounted - fetching latest routes data");
+    fetchRoutes();
+  }, []);
+  
   // Set greeting based on time of day
   useEffect(() => {
     const hour = new Date().getHours();
@@ -323,10 +329,14 @@ const HomeScreen = () => {
     .sort((a, b) => new Date(a.date) - new Date(b.date));
     
   const upcomingRoutes = pendingRoutes.slice(0, 5);
-  const completedRoutes = filteredRoutes
-    .filter(r => r.status === 'completed')
-    .sort((a, b) => new Date(b.date) - new Date(a.date)) // Most recent first
-    .slice(0, 5); // Only show the 5 most recent
+  
+  // Get all completed routes for calculations
+  const allCompletedRoutes = filteredRoutes.filter(r => r.status === 'completed');
+  
+  // Only show the 5 most recent in the UI
+  const completedRoutes = allCompletedRoutes
+    .sort((a, b) => new Date(b.date) - new Date(a.date))
+    .slice(0, 5);
 
   // Calculate statistics
   const totalCompletedHouses = filteredRoutes.reduce((total, route) => {
@@ -343,12 +353,72 @@ const HomeScreen = () => {
     return total + (route.total_houses || 0);
   }, 0);
   
+  // Helper function to calculate completion rate based on user role
+  const calculateCompletionRate = (routes, user) => {
+    // Only consider completed routes for completion calculation
+    const completedRoutesOnly = routes.filter(route => route.status === 'completed');
+    
+    console.log("DEBUG - Completed routes count:", completedRoutesOnly.length);
+    console.log("DEBUG - Completed routes:", JSON.stringify(completedRoutesOnly.map(r => ({
+      id: r.id,
+      name: r.name,
+      completed_houses: r.completed_houses,
+      total_houses: r.total_houses || (r.houses?.length || 0),
+      status: r.status
+    }))));
+    
+    if (completedRoutesOnly.length === 0) return 0;
+    
+    const userRole = user?.user_metadata?.role || user?.profile?.role;
+    const isAdmin = userRole === 'admin' || userRole === 'owner';
+    
+    if (isAdmin) {
+      // For admins/owners, calculate team average of ALL completed routes
+      // Calculate the real percentage based on completed houses and total houses first
+      let totalCompletedHouses = 0;
+      let totalHouses = 0;
+      
+      completedRoutesOnly.forEach(route => {
+        totalCompletedHouses += (route.completed_houses || 0);
+        totalHouses += (route.total_houses || (route.houses?.length || 0));
+      });
+      
+      console.log("DEBUG - Total completed houses:", totalCompletedHouses);
+      console.log("DEBUG - Total houses:", totalHouses);
+      console.log("DEBUG - Calculated completion:", totalHouses > 0 ? Math.round((totalCompletedHouses / totalHouses) * 100) : 0);
+      
+      // Avoid division by zero
+      return totalHouses > 0 ? Math.round((totalCompletedHouses / totalHouses) * 100) : 0;
+    } else {
+      // For drivers, only include completed routes assigned to them
+      const driverCompletedRoutes = completedRoutesOnly.filter(route => route.driver_id === user?.id);
+      
+      console.log("DEBUG - Driver completed routes count:", driverCompletedRoutes.length);
+      
+      if (driverCompletedRoutes.length === 0) return 0;
+      
+      // Calculate the real percentage based on completed houses and total houses
+      let totalCompletedHouses = 0;
+      let totalHouses = 0;
+      
+      driverCompletedRoutes.forEach(route => {
+        totalCompletedHouses += (route.completed_houses || 0);
+        totalHouses += (route.total_houses || (route.houses?.length || 0));
+      });
+      
+      console.log("DEBUG - Driver total completed houses:", totalCompletedHouses);
+      console.log("DEBUG - Driver total houses:", totalHouses);
+      console.log("DEBUG - Driver calculated completion:", totalHouses > 0 ? Math.round((totalCompletedHouses / totalHouses) * 100) : 0);
+      
+      // Avoid division by zero
+      return totalHouses > 0 ? Math.round((totalCompletedHouses / totalHouses) * 100) : 0;
+    }
+  };
+
   const stats = {
     todayHouses: todayTotalHouses,
-    completedRoutes: completedRoutes.length,
-    completion: completedRoutes.length > 0
-      ? Math.round(completedRoutes.reduce((acc, route) => acc + (route.efficiency || 0), 0) / completedRoutes.length)
-      : 0
+    completedRoutes: allCompletedRoutes.length,
+    completion: calculateCompletionRate(allCompletedRoutes, user)
   };
 
   const onRefresh = async () => {

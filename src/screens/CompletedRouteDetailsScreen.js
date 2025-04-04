@@ -41,7 +41,6 @@ const CompletedRouteDetailsScreen = () => {
   const [loading, setLoading] = useState(true);
   const [selectedHouse, setSelectedHouse] = useState(null);
   const [showAllHouses, setShowAllHouses] = useState(false);
-  const mapRef = useRef(null);
 
   useEffect(() => {
     fetchRouteDetails();
@@ -169,7 +168,6 @@ const CompletedRouteDetailsScreen = () => {
 
       <View style={styles.mapContainer}>
         <Map
-          ref={mapRef}
           houses={route.houses || []}
           onHousePress={handleHousePress}
           style={styles.map}

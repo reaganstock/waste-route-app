@@ -108,11 +108,14 @@ const PerformanceScreen = () => {
         new Date(r.date) >= startDate && new Date(r.date) <= now
       ) || [];
 
+      // Get only completed routes
       const completedRoutes = periodRoutes.filter(r => r.status === 'completed');
       const totalHousesServiced = completedRoutes.reduce((sum, r) => sum + (r.completed_houses || 0), 0);
-      const avgCompletion = completedRoutes.length > 0
-        ? completedRoutes.reduce((sum, r) => sum + (r.efficiency || 0), 0) / completedRoutes.length
-        : 0;
+      const totalHouses = completedRoutes.reduce((sum, r) => sum + (r.total_houses || 0), 0);
+
+      // Calculate real completion percentage based on total completed houses divided by total houses
+      const avgCompletion = totalHouses > 0 ? (totalHousesServiced / totalHouses) * 100 : 0;
+
       const stopsPerRoute = completedRoutes.length > 0
         ? Math.round(totalHousesServiced / completedRoutes.length)
         : 0;

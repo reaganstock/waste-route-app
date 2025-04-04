@@ -19,7 +19,7 @@ import { useAuth } from '../contexts/AuthContext';
 
 const RouteCard = ({ route, onPress, onReuseRoute }) => {
   const date = new Date(route.date);
-  const completion = Math.round((route.completed_houses / route.houses.length) * 100);
+  const completion = Math.round((route.completed_houses / (route.houses?.length || route.total_houses || 1)) * 100);
   const specialHouses = route.houses.filter(h => h.status === 'skip' || h.notes).length;
   const duration = route.duration || '2.5'; // This would come from your backend
   const [isReuseLoading, setIsReuseLoading] = useState(false);

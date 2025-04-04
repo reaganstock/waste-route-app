@@ -178,7 +178,7 @@ const AnimatedMarker = memo(({ house, isActive, onPress, isNextHouse, isPrevious
   );
 });
 
-const Map = ({ 
+const Map = React.forwardRef(({ 
   houses = [], 
   onHousePress, 
   showStreetView = false,
@@ -189,7 +189,7 @@ const Map = ({
   style,
   activeHouseId,
   onActiveHouseChange
-}) => {
+}, ref) => {
   const mapRef = useRef(null);
   const { location } = useLocation();
   const [mapType, setMapType] = useState('standard');
@@ -541,6 +541,13 @@ const Map = ({
     }
   }, [fitMapToMarkers]);
 
+  // Forward the ref to the internal mapRef
+  useEffect(() => {
+    if (ref) {
+      ref.current = mapRef.current;
+    }
+  }, [ref]);
+
   return (
     <View style={styles.container}>
       <MapView
@@ -590,7 +597,7 @@ const Map = ({
               onPress={goToPreviousHouse}
               disabled={activeHouseIndex <= 0}
             >
-              <Ionicons name="chevron-back" size={20} color="#fff" />
+              <Ionicons name="chevron-back" size={24} color="#fff" />
             </TouchableOpacity>
             
             <View style={styles.navStatusContainer}>
@@ -613,7 +620,7 @@ const Map = ({
               onPress={goToNextHouse}
               disabled={activeHouseIndex >= processedHouses.length - 1}
             >
-              <Ionicons name="chevron-forward" size={20} color="#fff" />
+              <Ionicons name="chevron-forward" size={24} color="#fff" />
             </TouchableOpacity>
           </BlurView>
         </View>
@@ -627,7 +634,7 @@ const Map = ({
         >
           <Ionicons 
             name={mapType === 'standard' ? 'map' : 'map-outline'} 
-            size={20} 
+            size={28} 
             color="#fff" 
           />
         </TouchableOpacity>
@@ -636,19 +643,19 @@ const Map = ({
           style={styles.controlButton}
           onPress={handleOverview}
         >
-          <Ionicons name="expand-outline" size={20} color="#fff" />
+          <Ionicons name="expand-outline" size={28} color="#fff" />
         </TouchableOpacity>
         
         <TouchableOpacity 
           style={[styles.controlButton, followUser && styles.activeControlButton]}
           onPress={toggleFollowUser}
         >
-          <Ionicons name="locate-outline" size={20} color="#fff" />
+          <Ionicons name="locate-outline" size={28} color="#fff" />
         </TouchableOpacity>
       </View>
     </View>
   );
-};
+});
 
 const styles = StyleSheet.create({
   container: {
@@ -667,17 +674,23 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderWidth: 3,
     borderColor: '#fff',
-  },
-  highlightedMarker: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    borderWidth: 3,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    elevation: 6,
+    shadowOpacity: 0.25,
+    shadowRadius: 3,
+    elevation: 5,
+  },
+  highlightedMarker: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    borderWidth: 3,
+    borderColor: '#fff',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.35,
+    shadowRadius: 5,
+    elevation: 8,
   },
   markerText: {
     color: '#fff',
@@ -701,29 +714,34 @@ const styles = StyleSheet.create({
   },
   controls: {
     position: 'absolute',
-    top: 20,
+    top: 160,
+    bottom: 'auto',
     right: 12,
     alignItems: 'center',
-    gap: 8,
+    gap: 12,
+    zIndex: 10,
   },
   controlButton: {
-    backgroundColor: 'rgba(31, 41, 55, 0.8)',
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    backgroundColor: 'rgba(31, 41, 55, 0.95)',
+    width: 50,
+    height: 50,
+    borderRadius: 25,
     justifyContent: 'center',
     alignItems: 'center',
     shadowColor: '#000',
     shadowOffset: {
       width: 0,
-      height: 2,
+      height: 4,
     },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
+    shadowOpacity: 0.5,
+    shadowRadius: 6,
+    elevation: 10,
+    borderWidth: 2,
+    borderColor: 'rgba(255, 255, 255, 0.4)',
   },
   activeControlButton: {
     backgroundColor: '#3B82F6',
+    borderColor: 'rgba(255, 255, 255, 0.7)',
   },
   streetViewButton: {
     backgroundColor: '#3B82F6',
@@ -739,19 +757,34 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    backgroundColor: 'rgba(31, 41, 55, 0.5)',
+    backgroundColor: 'rgba(31, 41, 55, 0.95)',
     borderRadius: 50,
-    padding: 6,
-    width: '85%',
+    padding: 8,
+    width: '90%',
     maxWidth: 400,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.5,
+    shadowRadius: 6,
+    elevation: 10,
+    borderWidth: 2,
+    borderColor: 'rgba(255, 255, 255, 0.4)',
+    zIndex: 10,
   },
   navButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: 'rgba(59, 130, 246, 0.7)',
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    backgroundColor: 'rgba(59, 130, 246, 0.9)',
     justifyContent: 'center',
     alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 3,
+    elevation: 5,
+    borderWidth: 2,
+    borderColor: 'rgba(255, 255, 255, 0.4)',
   },
   navButtonNext: {
     backgroundColor: 'rgba(16, 185, 129, 0.7)',
@@ -769,19 +802,20 @@ const styles = StyleSheet.create({
   navStatusText: {
     color: '#fff',
     fontWeight: 'bold',
-    fontSize: 13,
+    fontSize: 14,
   },
   navAddressText: {
     color: '#F3F4F6',
-    fontSize: 11,
+    fontSize: 12,
     marginTop: 2,
-    opacity: 0.8,
+    opacity: 0.9,
     maxWidth: '90%',
   },
   controlsSmall: {
-    top: 10,
+    top: 130,
+    bottom: 'auto',
     right: 10,
-    gap: 6,
+    gap: 8,
   },
   navigationPanelSmall: {
     width: '95%',
@@ -789,4 +823,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default memo(Map); 
+export default Map; 

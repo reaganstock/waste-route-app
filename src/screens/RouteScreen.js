@@ -526,14 +526,15 @@ const RouteScreen = ({ routeId }) => {
         // Calculate basic metrics only
         const completed = selectedHouses.size;
         const total = route.houses.length;
+        const completionPercentage = Math.round((completed / total) * 100);
         
         // Update route with minimal required fields
         const { error: updateError } = await supabase
           .from('routes')
           .update({
             status: 'completed',
-            completed_houses: completed
-            // No other fields - they might cause schema errors
+            completed_houses: completed,
+            completion: completionPercentage
           })
           .eq('id', route.id);
 
@@ -541,6 +542,9 @@ const RouteScreen = ({ routeId }) => {
           console.error('Error updating route completion:', updateError);
           throw updateError;
         }
+
+        // Force a refresh of route data to ensure navigation home shows updated stats
+        console.log(`Route completed - ${completed} houses out of ${total} (${completionPercentage}%)`);
 
         // Prepare simple summary for completion screen
         const summary = {

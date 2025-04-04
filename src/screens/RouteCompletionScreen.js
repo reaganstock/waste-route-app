@@ -13,6 +13,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useRoutes } from '../hooks/useRoutes';
 
 const MetricCard = ({ icon, title, value, subtitle, borderColor }) => (
   <View style={[styles.metricCard, borderColor && { borderColor }]}>
@@ -34,6 +35,7 @@ const MetricCard = ({ icon, title, value, subtitle, borderColor }) => (
 const RouteCompletionScreen = () => {
   const router = useRouter();
   const params = useLocalSearchParams();
+  const { fetchRoutes } = useRoutes();
   
   // Add debugging to check what summary data is being received
   console.log("Route completion params:", params);
@@ -109,6 +111,14 @@ const RouteCompletionScreen = () => {
     );
   };
 
+  const handleNavigateHome = () => {
+    // Fetch updated routes data before navigating home
+    console.log("Refreshing routes data before navigating home");
+    fetchRoutes().then(() => {
+      router.push('/(tabs)');
+    });
+  };
+
   return (
     <View style={styles.container}>
       <LinearGradient
@@ -120,7 +130,7 @@ const RouteCompletionScreen = () => {
       
       <BlurView intensity={80} style={styles.header}>
         <TouchableOpacity 
-          onPress={() => router.push('/(tabs)')} 
+          onPress={handleNavigateHome} 
           style={styles.backButton}
         >
           <Ionicons name="close" size={24} color="#fff" />
@@ -199,7 +209,7 @@ const RouteCompletionScreen = () => {
 
         <TouchableOpacity 
           style={styles.homeButton}
-          onPress={() => router.push('/(tabs)')}
+          onPress={handleNavigateHome}
         >
           <Ionicons name="home" size={20} color="#fff" />
           <Text style={styles.homeButtonText}>Go to Home</Text>

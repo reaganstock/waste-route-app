@@ -124,7 +124,7 @@ const PerformerCard = ({ member, position }) => {
 
 const RouteCard = ({ route }) => {
   const router = useRouter();
-  const completion = Math.round((route.completed_houses / route.houses.length) * 100);
+  const completion = Math.round((route.completed_houses / (route.houses?.length || route.total_houses || 1)) * 100);
   const date = new Date(route.date);
 
   return (
