@@ -445,17 +445,6 @@ const SettingsScreen = () => {
             isDisabled={permissionsLoading}
           />
 
-          {Platform.OS === 'ios' && (
-            <SettingItem
-              icon="analytics-outline"
-              title="App Tracking"
-              description="Optimize routes based on usage patterns"
-              value={settings.tracking}
-              onValueChange={(value) => handleSettingChange('tracking', value)}
-              isDisabled={permissionsLoading}
-            />
-          )}
-
           <SettingItem
             icon="navigate-outline"
             title="Auto Navigation"

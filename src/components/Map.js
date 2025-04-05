@@ -469,8 +469,28 @@ const Map = React.forwardRef(({
   // Toggle follow user mode
   const toggleFollowUser = useCallback(async () => {
     try {
-      // Use the passed requestLocationPermission function that handles all alerts
-      const permissionGranted = await requestLocationPermission();
+      let permissionGranted = true;
+      
+      // If requestLocationPermission is provided, use it
+      if (typeof requestLocationPermission === 'function') {
+        permissionGranted = await requestLocationPermission();
+      } 
+      // Otherwise request permission directly
+      else {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        permissionGranted = status === 'granted';
+        
+        if (status !== 'granted') {
+          Alert.alert(
+            'Permission Required',
+            'Location permission is needed to track your position on the map and optimize your route.',
+            [
+              { text: 'Cancel', style: 'cancel' },
+              { text: 'Open Settings', onPress: () => Linking.openSettings() }
+            ]
+          );
+        }
+      }
       
       if (!permissionGranted) {
         return;

@@ -32,7 +32,6 @@
         "ITSAppUsesNonExemptEncryption": false,
         "NSCameraUsageDescription": "Photos are used only for setting your profile picture, which helps team members identify you on the Waste Route platform. Your photos are never shared with third parties.",
         "NSPhotoLibraryUsageDescription": "Photos are used only for setting your profile picture, which helps team members identify you on the Waste Route platform. Your photos are never shared with third parties.",
-        "NSUserTrackingUsageDescription": "This allows us to optimize your waste collection routes and improve navigation accuracy based on aggregated user patterns.",
         "UIRequiresFullScreen": true,
         "UIStatusBarHidden": false,
         "UIViewControllerBasedStatusBarAppearance": true,

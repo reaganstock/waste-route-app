@@ -209,45 +209,6 @@ if (Platform.OS === 'ios') {
   }
 }
 
-// Request tracking permission on iOS 14.5+
-const requestTrackingPermission = async () => {
-  if (Platform.OS === 'ios') {
-    try {
-      // Use the native module conditionally
-      const { ATTrackingManager } = require('react-native-tracking-transparency');
-      
-      // Check if the device supports tracking permission requests
-      if (ATTrackingManager && ATTrackingManager.requestTrackingPermission) {
-        const status = await ATTrackingManager.requestTrackingPermission();
-        console.log('Tracking permission status:', status);
-        
-        // Store the tracking permission status for later use
-        await AsyncStorage.setItem('trackingPermissionStatus', status);
-        
-        // Log specific outcomes for debugging and app review
-        if (status === 'authorized') {
-          console.log('User allowed tracking');
-          // You could potentially initialize analytics here
-        } else if (status === 'denied') {
-          console.log('User denied tracking');
-          // Respect user's choice by not tracking
-        } else if (status === 'not-determined') {
-          console.log('User has not been asked for tracking permission yet');
-        } else if (status === 'restricted') {
-          console.log('Tracking restricted by device settings');
-        }
-        
-        return status;
-      } else {
-        console.log('Tracking permission API not available');
-      }
-    } catch (error) {
-      console.log('Error requesting tracking permission:', error);
-    }
-  }
-  return null;
-};
-
 // Main app component
 const App = () => {
   const [appIsReady, setAppIsReady] = useState(false);
@@ -267,11 +228,6 @@ const App = () => {
 
     async function prepareApp() {
       try {
-        // Request tracking permission on iOS
-        if (Platform.OS === 'ios') {
-          await requestTrackingPermission();
-        }
-        
         // Check for updates
         if (process.env.NODE_ENV === 'production') {
           try {

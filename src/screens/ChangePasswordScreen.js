@@ -89,7 +89,7 @@ const ChangePasswordScreen = () => {
             { 
               text: 'OK', 
               onPress: () => {
-                // Use router.replace instead of setPasswordChanged for more reliable navigation
+                // Navigate to home screen
                 router.replace('/(tabs)');
               }
             }
