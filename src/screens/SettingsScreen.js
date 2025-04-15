@@ -15,6 +15,8 @@ import {
   Pressable,
   ActivityIndicator,
   Linking,
+  TouchableWithoutFeedback,
+  Keyboard,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -25,6 +27,8 @@ import * as Location from 'expo-location';
 import * as Notifications from 'expo-notifications';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
+import KeyboardAwareView from '../components/KeyboardAwareView';
+import { useGeofencing } from '../hooks/useGeofencing';
 
 // Mock profile data
 const mockProfile = {
@@ -125,6 +129,64 @@ const SupportItem = ({ icon, title, onPress }) => {
   );
 };
 
+// Add a new component for sound selection
+const SoundSelector = ({ title, description, value, onPress, icon }) => {
+  return (
+    <TouchableOpacity
+      onPress={onPress}
+      activeOpacity={0.7}
+    >
+      <View style={styles.settingItem}>
+        <View style={styles.settingInfo}>
+          <View style={[styles.settingIcon, { backgroundColor: `rgba(59,130,246,0.2)` }]}>
+            <Ionicons name={icon} size={24} color="#3B82F6" />
+          </View>
+          <View style={styles.settingText}>
+            <Text style={styles.settingTitle}>{title}</Text>
+            <Text style={styles.settingDescription}>{description}</Text>
+          </View>
+        </View>
+        <View style={styles.soundValue}>
+          <Text style={styles.soundValueText}>{value}</Text>
+          <Ionicons name="chevron-forward" size={20} color="#6B7280" />
+        </View>
+      </View>
+    </TouchableOpacity>
+  );
+};
+
+// Add a new component for distance configuration
+const DistanceSelector = ({ title, description, value, onValueChange, icon, min = 5, max = 250, step = 5 }) => {
+  return (
+    <View style={styles.settingItem}>
+      <View style={styles.settingInfo}>
+        <View style={[styles.settingIcon, { backgroundColor: `rgba(59,130,246,0.2)` }]}>
+          <Ionicons name={icon} size={24} color="#3B82F6" />
+        </View>
+        <View style={styles.settingText}>
+          <Text style={styles.settingTitle}>{title}</Text>
+          <Text style={styles.settingDescription}>{description}</Text>
+        </View>
+      </View>
+      <View style={styles.distanceSelector}>
+        <TouchableOpacity 
+          style={styles.distanceButton}
+          onPress={() => onValueChange(Math.max(min, value - step))}
+        >
+          <Ionicons name="remove" size={20} color="#3B82F6" />
+        </TouchableOpacity>
+        <Text style={styles.distanceValue}>{value}m</Text>
+        <TouchableOpacity 
+          style={styles.distanceButton}
+          onPress={() => onValueChange(Math.min(max, value + step))}
+        >
+          <Ionicons name="add" size={20} color="#3B82F6" />
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+};
+
 const SettingsScreen = () => {
   const router = useRouter();
   const { signOut, user, deleteAccount } = useAuth();
@@ -141,6 +203,68 @@ const SettingsScreen = () => {
     soundEffects: true,
     tracking: false,
   });
+
+  // Add the useGeofencing hook
+  const { settings: geofenceSettings, saveSettings, playSound } = useGeofencing([], false);
+  
+  // Add state for sound selector modal
+  const [soundModalVisible, setSoundModalVisible] = useState(false);
+  const [currentSoundType, setCurrentSoundType] = useState(null);
+  const [isPlayingSound, setIsPlayingSound] = useState(false);
+  
+  // Define available sounds - updating to match existing sound file names in the app
+  const availableSounds = [
+    { id: 'collect_sound', name: 'Regular Collection' },
+    { id: 'skip_sound', name: 'Skip House' },
+    { id: 'new_customer_sound', name: 'New Customer' }
+  ];
+  
+  // Add a function to get the sound name from ID
+  const getSoundName = (soundId) => {
+    const sound = availableSounds.find(s => s.id === soundId);
+    return sound ? sound.name : 'Default';
+  };
+  
+  // Add a function to handle distance change
+  const handleDistanceChange = async (type, value) => {
+    const newSettings = { ...geofenceSettings };
+    newSettings[type] = value;
+    await saveSettings(newSettings);
+  };
+  
+  // Add a function to open sound selector
+  const openSoundSelector = (type) => {
+    setCurrentSoundType(type);
+    setSoundModalVisible(true);
+  };
+  
+  // Add a function to select sound
+  const selectSound = async (soundId) => {
+    if (!currentSoundType) return;
+    
+    const newSettings = { ...geofenceSettings };
+    newSettings.SOUNDS[currentSoundType] = soundId;
+    await saveSettings(newSettings);
+    setSoundModalVisible(false);
+  };
+
+  // Add a function to play a sound preview
+  const handlePlaySound = async (soundId) => {
+    if (isPlayingSound) return; // Prevent multiple plays
+    
+    try {
+      setIsPlayingSound(true);
+      await playSound(soundId);
+    } catch (error) {
+      console.error('Error playing sound preview:', error);
+      Alert.alert('Error', 'Failed to play sound preview');
+    } finally {
+      // Add slight delay before allowing another play
+      setTimeout(() => {
+        setIsPlayingSound(false);
+      }, 1000);
+    }
+  };
 
   useEffect(() => {
     loadSettings();
@@ -502,6 +626,22 @@ const SettingsScreen = () => {
           />
         </View>
 
+        {/* Add a simplified section for Notification Settings */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Notification Settings</Text>
+          
+          <DistanceSelector
+            icon="navigate-circle-outline"
+            title="Alert Distance"
+            description="Distance from houses to receive alerts"
+            value={geofenceSettings?.ALERT_DISTANCE || 50}
+            onValueChange={(value) => handleDistanceChange('ALERT_DISTANCE', value)}
+            min={5}
+            max={250}
+            step={5}
+          />
+        </View>
+
         {/* Logout Button */}
         <TouchableOpacity 
           style={styles.logoutButton}
@@ -524,7 +664,12 @@ const SettingsScreen = () => {
         visible={deleteModalVisible}
         onRequestClose={() => setDeleteModalVisible(false)}
       >
+        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
         <View style={styles.modalOverlay}>
+            <KeyboardAwareView 
+              style={{flex: 1, justifyContent: 'center'}}
+              keyboardVerticalOffset={Platform.OS === 'ios' ? 50 : 30}
+            >
           <BlurView intensity={80} style={styles.modalContainer}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Delete Account</Text>
@@ -574,7 +719,66 @@ const SettingsScreen = () => {
               </TouchableOpacity>
             </View>
           </BlurView>
+            </KeyboardAwareView>
         </View>
+        </TouchableWithoutFeedback>
+      </Modal>
+
+      {/* Add Sound Selector Modal */}
+      <Modal
+        animationType="slide"
+        transparent={true}
+        visible={soundModalVisible}
+        onRequestClose={() => setSoundModalVisible(false)}
+      >
+        <TouchableWithoutFeedback onPress={() => setSoundModalVisible(false)}>
+          <View style={styles.modalOverlay}>
+            <TouchableWithoutFeedback onPress={(e) => e.stopPropagation()}>
+              <BlurView intensity={80} style={styles.soundModalContent}>
+                <View style={styles.soundModalHeader}>
+                  <Text style={styles.soundModalTitle}>Select Notification Sound</Text>
+                  <TouchableOpacity 
+                    style={styles.closeButton}
+                    onPress={() => setSoundModalVisible(false)}
+                  >
+                    <Ionicons name="close" size={24} color="#fff" />
+                  </TouchableOpacity>
+                </View>
+                <ScrollView style={styles.soundList}>
+                  {availableSounds.map((sound) => (
+                    <TouchableOpacity
+                      key={sound.id}
+                      style={[
+                        styles.soundOption,
+                        sound.id === geofenceSettings?.SOUNDS?.[currentSoundType] && styles.soundOptionSelected
+                      ]}
+                      onPress={() => selectSound(sound.id)}
+                    >
+                      <Ionicons 
+                        name={sound.id === geofenceSettings?.SOUNDS?.[currentSoundType] ? "checkmark-circle" : "ellipse-outline"} 
+                        size={24} 
+                        color={sound.id === geofenceSettings?.SOUNDS?.[currentSoundType] ? "#3B82F6" : "#6B7280"} 
+                      />
+                      <Text style={[
+                        styles.soundOptionText,
+                        sound.id === geofenceSettings?.SOUNDS?.[currentSoundType] && styles.soundOptionTextSelected
+                      ]}>
+                        {sound.name}
+                      </Text>
+                      <TouchableOpacity 
+                        style={[styles.playButton, isPlayingSound && { opacity: 0.5 }]}
+                        onPress={() => handlePlaySound(sound.id)}
+                        disabled={isPlayingSound}
+                      >
+                        <Ionicons name={isPlayingSound ? "pause" : "play"} size={18} color="#3B82F6" />
+                      </TouchableOpacity>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </BlurView>
+            </TouchableWithoutFeedback>
+          </View>
+        </TouchableWithoutFeedback>
       </Modal>
     </View>
   );
@@ -894,6 +1098,97 @@ const styles = StyleSheet.create({
   },
   settingItemDisabled: {
     opacity: 0.5,
+  },
+  soundValue: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  soundValueText: {
+    color: '#3B82F6',
+    fontSize: 14,
+    marginRight: 8,
+  },
+  distanceSelector: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  distanceButton: {
+    width: 36,
+    height: 36,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(59, 130, 246, 0.1)',
+    borderRadius: 18,
+  },
+  distanceValue: {
+    color: '#3B82F6',
+    fontSize: 16,
+    fontWeight: '600',
+    marginHorizontal: 12,
+    minWidth: 60,
+    textAlign: 'center',
+  },
+  soundModalContent: {
+    backgroundColor: 'rgba(17, 24, 39, 0.98)',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingBottom: Platform.OS === 'ios' ? 40 : 24,
+    maxHeight: '70%',
+  },
+  soundModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  soundModalTitle: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: '600',
+  },
+  soundList: {
+    padding: 16,
+  },
+  soundOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+  },
+  soundOptionSelected: {
+    backgroundColor: 'rgba(59, 130, 246, 0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(59, 130, 246, 0.2)',
+  },
+  soundOptionText: {
+    flex: 1,
+    color: '#D1D5DB',
+    fontSize: 16,
+    marginLeft: 12,
+  },
+  soundOptionTextSelected: {
+    color: '#fff',
+    fontWeight: '600',
+  },
+  playButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(59, 130, 246, 0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  closeButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.1)',
   },
 });
 

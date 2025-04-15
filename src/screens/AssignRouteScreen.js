@@ -7,10 +7,14 @@ import {
   ScrollView,
   Platform,
   Alert,
+  Keyboard,
+  TextInput
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { mockTeamMembers, mockRoutes } from '../lib/mockData';
+import { LinearGradient } from 'expo-linear-gradient';
+import DismissKeyboardView from '../components/DismissKeyboardView';
 
 const RouteCard = ({ route, onSelect, isSelected }) => {
   const housesCompleted = route.completed_houses || 0;
@@ -124,7 +128,11 @@ const AssignRouteScreen = ({ memberId }) => {
   }
 
   return (
-    <View style={styles.container}>
+    <DismissKeyboardView style={styles.container}>
+      <LinearGradient
+        colors={['#1a1a1a', '#000000']}
+        style={StyleSheet.absoluteFill}
+      />
       <View style={styles.header}>
         <TouchableOpacity 
           onPress={() => router.back()}
@@ -177,7 +185,7 @@ const AssignRouteScreen = ({ memberId }) => {
           <Text style={styles.assignButtonText}>Assign Route</Text>
         </TouchableOpacity>
       </View>
-    </View>
+    </DismissKeyboardView>
   );
 };
 
@@ -197,7 +205,7 @@ const getAvatarColor = (role) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#1F2937',
+    backgroundColor: '#000000',
   },
   header: {
     flexDirection: 'row',

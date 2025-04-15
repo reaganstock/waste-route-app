@@ -1,24 +1,19 @@
 import 'react-native-gesture-handler';
 import React, { useEffect, useState } from 'react';
-import { NavigationContainer } from '@react-navigation/native';
-import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import { Ionicons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
 import * as Updates from 'expo-updates';
-import { Alert, View, Text, StyleSheet, Platform, TouchableOpacity } from 'react-native';
+import { View, StyleSheet, Platform } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { LogBox } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import Constants from 'expo-constants';
 import * as Device from 'expo-device';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-
-// Import screens
-import HomeScreen from './src/screens/HomeScreen';
-import RouteScreen from './src/screens/RouteScreen';
-import TeamScreen from './src/screens/TeamScreen';
+// This imports the Expo Router entry point
+import { RootSiblingParent } from 'react-native-root-siblings';
+import LoadingScreen from './src/components/LoadingScreen';
+import { registerRootComponent } from 'expo';
+import App from './node_modules/expo-router/entry';
 
 // Configure notifications
 Notifications.setNotificationHandler({
@@ -35,110 +30,10 @@ LogBox.ignoreLogs([
   'Non-serializable values were found in the navigation state',
 ]);
 
-// Keep splash screen visible while we check for updates
-SplashScreen.preventAutoHideAsync();
-
-const Tab = createBottomTabNavigator();
-const Stack = createNativeStackNavigator();
-
-// Main tab navigator
-const TabNavigator = () => {
-  return (
-    <Tab.Navigator
-      screenOptions={({ route }) => ({
-        tabBarIcon: ({ focused, color, size }) => {
-          let iconName;
-
-          if (route.name === 'Home') {
-            iconName = focused ? 'home' : 'home-outline';
-          } else if (route.name === 'Team') {
-            iconName = focused ? 'people' : 'people-outline';
-          }
-
-          return <Ionicons name={iconName} size={size} color={color} />;
-        },
-        tabBarActiveTintColor: '#3B82F6',
-        tabBarInactiveTintColor: '#6B7280',
-        tabBarStyle: {
-          backgroundColor: '#1F2937',
-          borderTopColor: 'rgba(255,255,255,0.1)',
-          paddingBottom: 8,
-          paddingTop: 8,
-          height: 60,
-        },
-        headerShown: false,
-        tabBarLabelStyle: {
-          fontSize: 12,
-          marginTop: -4,
-        },
-      })}
-    >
-      <Tab.Screen name="Home" component={HomeScreen} />
-      <Tab.Screen name="Team" component={TeamScreen} />
-    </Tab.Navigator>
-  );
-};
-
-// Error Boundary Component
-class ErrorBoundary extends React.Component {
-  constructor(props) {
-    super(props);
-    this.state = { hasError: false, error: null, errorInfo: null };
-  }
-
-  static getDerivedStateFromError(error) {
-    return { hasError: true, error };
-  }
-
-  componentDidCatch(error, errorInfo) {
-    // Log error to monitoring service
-    console.error('App Error:', error);
-    console.error('Error Info:', errorInfo);
-    
-    // Save error info for display
-    this.setState({ errorInfo });
-    
-    // In production, you would send this to your error monitoring service
-    // Example: Sentry.captureException(error);
-  }
-
-  resetError = () => {
-    this.setState({ hasError: false, error: null, errorInfo: null });
-    
-    // Force app reload if possible
-    if (Updates.canReloadAsync) {
-      Updates.reloadAsync().catch(e => {
-        console.log('Failed to reload app, trying to continue:', e);
-      });
-    }
-  }
-
-  render() {
-    if (this.state.hasError) {
-      const errorMessage = this.state.error?.message || 'An unexpected error occurred';
-      const errorStack = this.state.error?.stack || '';
-      
-      return (
-        <View style={styles.errorContainer}>
-          <View style={styles.errorContent}>
-            <Ionicons name="alert-circle" size={64} color="#EF4444" />
-            <Text style={styles.errorTitle}>Something went wrong</Text>
-            <Text style={styles.errorMessage}>{errorMessage}</Text>
-            <Text style={styles.errorInstructions}>
-              Please try restarting the app. If the problem persists, contact support.
-            </Text>
-            
-            <TouchableOpacity style={styles.resetButton} onPress={this.resetError}>
-              <Text style={styles.resetButtonText}>Try Again</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      );
-    }
-
-    return this.props.children;
-  }
-}
+// Prevent auto-hide of splash screen
+SplashScreen.preventAutoHideAsync().catch(() => {
+  console.log('SplashScreen already hidden');
+});
 
 // Register for push notifications
 async function registerForPushNotificationsAsync() {
@@ -209,25 +104,29 @@ if (Platform.OS === 'ios') {
   }
 }
 
-// Main app component
-const App = () => {
+// Main app wrapper component that adds our loading screen
+const AppWrapper = () => {
   const [appIsReady, setAppIsReady] = useState(false);
-  const [notification, setNotification] = useState(false);
   const notificationListener = React.useRef();
   const responseListener = React.useRef();
 
   useEffect(() => {
-    // Set a safety timeout to prevent hanging at splash screen
-    const splashTimeout = setTimeout(() => {
+    // Hide the Expo splash screen immediately to show our custom loading screen
+    SplashScreen.hideAsync().catch(e => console.log('Error hiding splash:', e));
+
+    // Set a safety timeout to prevent hanging at loading screen
+    const loadingTimeout = setTimeout(() => {
       if (!appIsReady) {
         console.log('Safety timeout triggered - showing app anyway');
         setAppIsReady(true);
-        SplashScreen.hideAsync().catch(e => console.log('Error hiding splash:', e));
       }
     }, 5000); // 5 second timeout
 
     async function prepareApp() {
       try {
+        // Add a small delay to make the loading screen visible
+        await simulateDelay(500);
+
         // Check for updates
         if (process.env.NODE_ENV === 'production') {
           try {
@@ -251,13 +150,16 @@ const App = () => {
           // Continue even if notification registration fails
         }
         
+        // Finish initialization with a small delay
+        await simulateDelay(300);
+        
       } catch (e) {
         console.warn('Error preparing app:', e);
       } finally {
         // App is initialized
-        clearTimeout(splashTimeout); // Clear safety timeout
+        clearTimeout(loadingTimeout); // Clear safety timeout
+        await simulateDelay(200); // Short delay before showing app
         setAppIsReady(true);
-        await SplashScreen.hideAsync().catch(e => console.log('Error hiding splash:', e));
       }
     }
 
@@ -267,7 +169,6 @@ const App = () => {
     try {
       notificationListener.current = Notifications.addNotificationReceivedListener(notification => {
         console.log('Notification received:', notification);
-        setNotification(notification);
       });
 
       responseListener.current = Notifications.addNotificationResponseReceivedListener(response => {
@@ -278,22 +179,6 @@ const App = () => {
       console.warn('Error setting up notification listeners:', notifError);
     }
 
-    // Setup error handlers
-    const handleError = (error) => {
-      console.error('Unhandled error:', error);
-      // In production, you would send this to your error monitoring service
-    };
-
-    // Global error handling
-    const unhandledRejectionHandler = (event) => {
-      handleError(event.reason);
-    };
-
-    // Set up error handlers
-    if (global.addEventListener) {
-      global.addEventListener('unhandledrejection', unhandledRejectionHandler);
-    }
-
     return () => {
       // Clean up notification listeners
       if (notificationListener.current) {
@@ -302,78 +187,24 @@ const App = () => {
       if (responseListener.current) {
         Notifications.removeNotificationSubscription(responseListener.current);
       }
-      
-      // Clean up error handlers
-      if (global.removeEventListener) {
-        global.removeEventListener('unhandledrejection', unhandledRejectionHandler);
-      }
     };
   }, []);
 
+  // Helper function to add small delays to make the loading screen visible
+  const simulateDelay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
   if (!appIsReady) {
-    return null; // Still showing splash screen
+    return <LoadingScreen />;
   }
 
   return (
     <SafeAreaProvider>
-      <ErrorBoundary>
-        <NavigationContainer>
-          <StatusBar style="light" />
-          <Stack.Navigator
-            screenOptions={{
-              headerShown: false,
-              contentStyle: { backgroundColor: '#000' },
-            }}
-          >
-            <Stack.Screen name="Main" component={TabNavigator} />
-            <Stack.Screen name="Route" component={RouteScreen} />
-            {/* Add other screens here */}
-          </Stack.Navigator>
-        </NavigationContainer>
-      </ErrorBoundary>
+      <StatusBar style="light" />
+      <RootSiblingParent>
+        <App />
+      </RootSiblingParent>
     </SafeAreaProvider>
   );
 };
 
-const styles = StyleSheet.create({
-  errorContainer: {
-    flex: 1,
-    backgroundColor: '#1F2937',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 20,
-  },
-  errorContent: {
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  errorTitle: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#EF4444',
-    marginBottom: 12,
-  },
-  errorMessage: {
-    fontSize: 16,
-    color: '#ffffff',
-    marginBottom: 24,
-    textAlign: 'center',
-  },
-  errorInstructions: {
-    fontSize: 14,
-    color: '#9CA3AF',
-    textAlign: 'center',
-  },
-  resetButton: {
-    backgroundColor: '#3B82F6',
-    padding: 12,
-    borderRadius: 8,
-  },
-  resetButtonText: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#ffffff',
-  },
-});
-
-export default App; 
+export default registerRootComponent(AppWrapper); 

@@ -13,8 +13,22 @@ export default function Map() {
           navigate: (screen: string, params?: any) => {
             if (screen === 'Route') {
               router.push(`/route/${params.routeId}`);
+            } else if (screen === 'CreateRoute') {
+              router.push('/routes/create');
             } else {
-              router.push(screen.toLowerCase());
+              // Map specific screen names to valid routes
+              const routeMap: Record<string, string> = {
+                'home': '/(tabs)',
+                'team': '/(tabs)/team',
+                'settings': '/settings',
+                'profile': '/profile-details',
+                'support': '/support',
+                'map': '/map'
+              };
+              
+              // Use the map or default to the lowercase screen name
+              const routePath = routeMap[screen.toLowerCase()] || `/${screen.toLowerCase()}`;
+              router.push(routePath as any);
             }
           }
         }} 

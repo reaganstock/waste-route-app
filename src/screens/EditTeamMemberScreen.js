@@ -5,7 +5,6 @@ import {
   StyleSheet,
   TextInput,
   TouchableOpacity,
-  ScrollView,
   Alert,
   Platform,
   ActivityIndicator,
@@ -15,6 +14,7 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 import { supabase } from '../lib/supabase';
+import KeyboardAwareView from '../components/KeyboardAwareView';
 
 const InputField = ({ label, value, onChangeText, placeholder, keyboardType = 'default', icon, required = false }) => (
   <View style={styles.inputContainer}>
@@ -119,7 +119,10 @@ const EditTeamMemberScreen = () => {
   }
 
   return (
-    <View style={styles.container}>
+    <KeyboardAwareView 
+      style={styles.container} 
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
+    >
       <LinearGradient
         colors={['#1a1a1a', '#000000']}
         style={StyleSheet.absoluteFill}
@@ -146,7 +149,7 @@ const EditTeamMemberScreen = () => {
         </TouchableOpacity>
       </BlurView>
 
-      <ScrollView style={styles.content}>
+      <View style={styles.content}>
         <View style={styles.formContainer}>
           <InputField
             label="Full Name"
@@ -198,11 +201,11 @@ const EditTeamMemberScreen = () => {
                 >
                   <View style={[
                     styles.statusDot,
-                    { backgroundColor: status === 'active' ? '#10B981' : '#6B7280' }
+                    formData.status === status && styles.statusDotActive
                   ]} />
                   <Text style={[
-                    styles.statusButtonText,
-                    formData.status === status && styles.statusButtonTextActive
+                    styles.statusText,
+                    formData.status === status && styles.statusTextActive
                   ]}>
                     {status.charAt(0).toUpperCase() + status.slice(1)}
                   </Text>
@@ -211,8 +214,8 @@ const EditTeamMemberScreen = () => {
             </View>
           </View>
         </View>
-      </ScrollView>
-    </View>
+      </View>
+    </KeyboardAwareView>
   );
 };
 
@@ -326,12 +329,15 @@ const styles = StyleSheet.create({
     height: 8,
     borderRadius: 4,
   },
-  statusButtonText: {
+  statusDotActive: {
+    backgroundColor: '#10B981',
+  },
+  statusText: {
     color: '#9CA3AF',
     fontSize: 16,
     fontWeight: '500',
   },
-  statusButtonTextActive: {
+  statusTextActive: {
     color: '#fff',
   },
 });

@@ -4,7 +4,6 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
-  KeyboardAvoidingView,
   Platform,
   Alert,
   ActivityIndicator,
@@ -15,6 +14,7 @@ import { useRouter, Redirect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import { useAuth } from '../contexts/AuthContext';
+import KeyboardAwareView from '../components/KeyboardAwareView';
 
 const ChangePasswordScreen = () => {
   const router = useRouter();
@@ -107,9 +107,9 @@ const ChangePasswordScreen = () => {
   };
 
   return (
-    <KeyboardAvoidingView 
+    <KeyboardAwareView 
       style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
     >
       <StatusBar style="light" />
       <BlurView intensity={80} style={styles.header}>
@@ -211,19 +211,19 @@ const ChangePasswordScreen = () => {
           </View>
 
           <TouchableOpacity
-            style={[styles.button, loading && styles.buttonDisabled]}
+            style={[styles.changeButton, loading && styles.changeButtonDisabled]}
             onPress={handleChangePassword}
             disabled={loading}
           >
             {loading ? (
               <ActivityIndicator color="#fff" />
             ) : (
-              <Text style={styles.buttonText}>Change Password</Text>
+              <Text style={styles.changeButtonText}>Change Password</Text>
             )}
           </TouchableOpacity>
         </View>
       </View>
-    </KeyboardAvoidingView>
+    </KeyboardAwareView>
   );
 };
 
@@ -298,17 +298,17 @@ const styles = StyleSheet.create({
   visibilityToggle: {
     padding: 12,
   },
-  button: {
+  changeButton: {
     backgroundColor: '#3B82F6',
     borderRadius: 8,
     padding: 16,
     alignItems: 'center',
     marginTop: 16,
   },
-  buttonDisabled: {
+  changeButtonDisabled: {
     backgroundColor: '#64748B',
   },
-  buttonText: {
+  changeButtonText: {
     color: '#fff',
     fontSize: 16,
     fontWeight: 'bold',

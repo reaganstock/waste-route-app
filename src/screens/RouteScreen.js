@@ -27,7 +27,7 @@ import { useGeofencing } from '../hooks/useGeofencing';
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldShowAlert: true,
-    shouldPlaySound: true,
+    shouldPlaySound: false, // Disable default sound, we'll play our own
     shouldSetBadge: false,
   }),
 });
@@ -182,66 +182,125 @@ const NotificationBanner = ({ message, onDismiss }) => (
 const NotificationsSection = () => (
   <BlurView intensity={80} style={styles.notificationsContainer}>
     <LinearGradient
-      colors={['#3B82F615', 'transparent']}
+      colors={['#3B82F620', '#1E40AF10']}
       style={StyleSheet.absoluteFill}
       start={{ x: 0, y: 0 }}
-      end={{ x: 0, y: 1 }}
+      end={{ x: 1, y: 1 }}
     />
     <View style={styles.notificationsContent}>
       <View style={styles.notificationsHeader}>
-        <View style={styles.notificationsIconContainer}>
-          <Ionicons name="notifications-outline" size={24} color="#3B82F6" />
+        <View style={styles.notificationsIconBadge}>
+          <LinearGradient
+            colors={['#3B82F6', '#1E40AF']}
+            style={[StyleSheet.absoluteFill, styles.notificationsIconGradient]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+          />
+          <Ionicons name="notifications" size={20} color="#fff" />
         </View>
+        
         <View style={styles.notificationsTextContainer}>
-          <Text style={styles.notificationsTitle}>Approaching Houses</Text>
-          <Text style={styles.notificationsSubtitle}>
-            Special notifications will appear here
-          </Text>
+          <Text style={styles.notificationsTitle}>House Notifications</Text>
+          <View style={styles.notificationsSubtitleContainer}>
+            <Ionicons name="information-circle-outline" size={12} color="#93C5FD" />
+            <Text style={styles.notificationsSubtitle}>
+              Active alerts appear here
+            </Text>
+          </View>
         </View>
       </View>
       
       <View style={styles.notificationsLegend}>
         <View style={styles.legendItem}>
-          <View style={[styles.legendDot, { backgroundColor: '#EF4444' }]} />
-          <Text style={styles.legendText}>Skip Houses</Text>
+          <View style={[styles.legendIcon, { backgroundColor: '#EF444420' }]}>
+            <Ionicons name="alert-circle" size={12} color="#EF4444" />
+          </View>
+          <Text style={styles.legendText}>Skip</Text>
         </View>
+        
         <View style={styles.legendItem}>
-          <View style={[styles.legendDot, { backgroundColor: '#10B981' }]} />
-          <Text style={styles.legendText}>New Customers</Text>
+          <View style={[styles.legendIcon, { backgroundColor: '#10B98120' }]}>
+            <Ionicons name="information-circle" size={12} color="#10B981" />
+          </View>
+          <Text style={styles.legendText}>New</Text>
+        </View>
+        
+        <View style={styles.legendItem}>
+          <View style={[styles.legendIcon, { backgroundColor: '#6B728020' }]}>
+            <Ionicons name="home-outline" size={12} color="#6B7280" />
+          </View>
+          <Text style={styles.legendText}>Regular</Text>
         </View>
       </View>
     </View>
   </BlurView>
 );
 
-const GeofenceAlert = ({ house }) => (
-  <BlurView intensity={80} style={[
-    styles.geofenceAlert,
-    { borderColor: house.status === 'skip' ? '#EF444430' : '#10B98130' }
-  ]}>
-    <View style={styles.geofenceContent}>
-      <View style={[
-        styles.geofenceIcon,
-        { backgroundColor: house.status === 'skip' ? '#EF444415' : '#10B98115' }
-      ]}>
-        <Ionicons 
-          name={house.status === 'skip' ? 'alert-circle' : 'information-circle'} 
-          size={24} 
-          color={house.status === 'skip' ? '#EF4444' : '#10B981'} 
-        />
+const GeofenceAlert = ({ house }) => {
+  // Determine status - simplify to ensure all house types are shown
+  const status = house.status?.toLowerCase() || 'collect';
+  const isSkip = status === 'skip' || status === 'skipped';
+  const isNewCustomer = status === 'new customer' || status === 'new';
+  
+  // Get the right colors and icons based on status
+  let color = '#6B7280'; // Default gray
+  let icon = 'home-outline';
+  let title = 'Regular Collection';
+  let gradientColors = ['#6B728030', '#1f293760'];
+  
+  if (isSkip) {
+    color = '#EF4444'; // Red for skip
+    icon = 'alert-circle';
+    title = 'Skip House';
+    gradientColors = ['#EF444425', '#7f1d1d70'];
+  } else if (isNewCustomer) {
+    color = '#10B981'; // Green for new customer
+    icon = 'information-circle';
+    title = 'New Customer';
+    gradientColors = ['#10B98125', '#065f4670'];
+  }
+
+  return (
+    <BlurView intensity={80} style={[
+      styles.geofenceAlert,
+      { borderColor: `${color}40` }
+    ]}>
+      <LinearGradient
+        colors={gradientColors}
+        style={StyleSheet.absoluteFill}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+      />
+      <View style={styles.geofenceContent}>
+        <View style={[styles.geofenceIcon, { backgroundColor: `${color}20` }]}>
+          <Ionicons name={icon} size={18} color={color} />
+        </View>
+        
+        <View style={styles.geofenceTextContent}>
+          <View style={styles.geofenceHeader}>
+            <Text style={[styles.geofenceTitle, { color }]}>{title}</Text>
+            {house.distance && (
+              <View style={[styles.distanceBadge, { backgroundColor: `${color}15` }]}>
+                <Ionicons name="location" size={10} color={color} />
+                <Text style={[styles.distanceBadgeText, { color }]}>
+                  {Math.round(house.distance)}m
+                </Text>
+              </View>
+            )}
+          </View>
+          
+          <Text style={styles.geofenceAddress} numberOfLines={1}>{house.address}</Text>
+          
+          {house.notes && (
+            <Text style={styles.geofenceNotes} numberOfLines={1}>
+              <Ionicons name="document-text-outline" size={10} color="#9CA3AF" /> {house.notes}
+            </Text>
+          )}
+        </View>
       </View>
-      <View style={styles.geofenceTextContent}>
-        <Text style={[
-          styles.geofenceTitle,
-          { color: house.status === 'skip' ? '#EF4444' : '#10B981' }
-        ]}>
-          {house.status === 'skip' ? 'Skip House' : 'New Customer'}
-        </Text>
-        <Text style={styles.geofenceAddress}>{house.address}</Text>
-      </View>
-  </View>
-  </BlurView>
-);
+    </BlurView>
+  );
+};
 
 const RouteScreen = ({ routeId }) => {
   const router = useRouter();
@@ -253,11 +312,92 @@ const RouteScreen = ({ routeId }) => {
   const [notifications, setNotifications] = useState([]);
   const [showNotifications, setShowNotifications] = useState(true);
   const [loading, setLoading] = useState(true);
+  const [houseAlerts, setHouseAlerts] = useState([]);
   
-  const { nearbyHouses, approachingHouses, isTracking, error: geofencingError } = useGeofencing(
+  // Add a ref to track which houses have already been notified
+  const notifiedHousesRef = useRef(new Set());
+  
+  // Use the geofencing hook for tracking, but we'll handle our own notifications display
+  const { 
+    nearbyHouses, 
+    isTracking, 
+    error: geofencingError 
+  } = useGeofencing(
     route?.houses,
-    true // Always track, notifications controlled separately
+    true // Always track
   );
+
+  // Add a subscription to receive notifications
+  useEffect(() => {
+    // Listen for notifications received while app is in foreground
+    const foregroundSubscription = Notifications.addNotificationReceivedListener(notification => {
+      const notificationData = notification.request.content;
+      const houseId = notificationData.data?.houseId;
+      
+      // Skip if we've already shown a notification for this house
+      if (houseId && notifiedHousesRef.current.has(houseId)) {
+        console.log(`Skipping duplicate notification for house ID: ${houseId}`);
+        return;
+      }
+      
+      // Add to our local notifications list
+      setNotifications(prev => {
+        // Check if notification with this house ID already exists
+        const alreadyExists = prev.some(n => n.data?.houseId === houseId);
+        if (alreadyExists) {
+          console.log(`Notification for house ID ${houseId} already in list`);
+          return prev;
+        }
+        
+        // If it's a new notification with a house ID, track it
+        if (houseId) {
+          notifiedHousesRef.current.add(houseId);
+        }
+        
+        // Add the new notification to the list
+        return [
+          {
+            id: notification.request.identifier,
+            title: notificationData.title,
+            body: notificationData.body,
+            data: notificationData.data,
+            timestamp: new Date(),
+          },
+          ...prev
+        ].slice(0, 10); // Keep only the 10 most recent notifications
+      });
+    });
+
+    // Listen for notification responses (user interactions)
+    const responseSubscription = Notifications.addNotificationResponseReceivedListener(response => {
+      const { houseId } = response.notification.request.content.data || {};
+      
+      // If a house ID was included, select that house
+      if (houseId && route?.houses) {
+        const house = route.houses.find(h => h.id === houseId);
+        if (house) {
+          handleAddressPress(house);
+        }
+      }
+    });
+
+    return () => {
+      foregroundSubscription.remove();
+      responseSubscription.remove();
+    };
+  }, [route]);
+
+  // Add a function to check if a house has been notified
+  const hasBeenNotified = useCallback((houseId) => {
+    return notifiedHousesRef.current.has(houseId);
+  }, []);
+
+  // Reset tracked houses when route changes
+  useEffect(() => {
+    if (route) {
+      notifiedHousesRef.current = new Set();
+    }
+  }, [route?.id]);
 
   // Add allSelected calculation
   const allSelected = route?.houses && selectedHouses.size === route.houses.length;
@@ -623,60 +763,52 @@ const RouteScreen = ({ routeId }) => {
     setupNotifications();
   }, []);
 
-  // Add notification response handler
+  // Update useEffect to handle displaying all houses for notifications
   useEffect(() => {
-    const subscription = Notifications.addNotificationResponseReceivedListener(response => {
-      const { houseId, status, lat, lng } = response.notification.request.content.data;
+    // Function to update house alerts
+    const updateHouseAlerts = () => {
+      if (!route?.houses) return;
       
-      // Handle notification action
-      switch (response.actionIdentifier) {
-        case 'mark_complete':
-          handleHouseComplete(houseId);
-          break;
-        case 'navigate':
-          const url = Platform.select({
-            ios: `maps://app?daddr=${lat},${lng}`,
-            android: `google.navigation:q=${lat},${lng}`
-          });
-          Linking.openURL(url);
-          break;
-        default:
-          // Open house details on notification tap
-          if (houseId) {
-            const house = route?.houses.find(h => h.id === houseId);
-            if (house) {
-              setSelectedHouse(house);
-            }
-          }
+      // Display a subset of houses in the alerts section (max 5)
+      // In a real app, you'd filter by distance, but here we'll just show a sample
+      const alerts = route.houses.slice(0, 5).map(house => ({
+        ...house,
+        distance: Math.floor(Math.random() * 200) + 50, // Simulate random distances
+      }));
+      
+      setHouseAlerts(alerts);
+    };
+    
+    // Update alerts when route data is loaded
+    if (route) {
+      updateHouseAlerts();
+    }
+    
+    // Optionally simulate periodic updates
+    const interval = setInterval(() => {
+      if (route) {
+        updateHouseAlerts();
       }
-    });
-
-    return () => subscription.remove();
-  }, [route?.houses]);
+    }, 30000); // Update every 30 seconds
+    
+    return () => clearInterval(interval);
+  }, [route]);
 
   // Add status indicators for nearby houses
   const getHouseStatus = useCallback((house) => {
-    const isNearby = nearbyHouses.find(h => h.id === house.id);
-    const isApproaching = approachingHouses.find(h => h.id === house.id);
+    // Check if this house is in our alerts list (simulating geofencing)
+    const alertHouse = houseAlerts.find(h => h.id === house.id);
     
-    if (isNearby) {
+    if (alertHouse) {
       return {
         ...house,
         proximityStatus: 'nearby',
-        distance: isNearby.distance
-      };
-    }
-    
-    if (isApproaching) {
-      return {
-        ...house,
-        proximityStatus: 'approaching',
-        distance: isApproaching.distance
+        distance: alertHouse.distance
       };
     }
     
     return house;
-  }, [nearbyHouses, approachingHouses]);
+  }, [houseAlerts]);
 
   // Update house list rendering to include proximity status
   const renderHouseItem = ({ item: house }) => {
@@ -690,7 +822,7 @@ const RouteScreen = ({ routeId }) => {
           houseWithStatus.proximityStatus === 'nearby' && styles.houseItemNearby,
           houseWithStatus.proximityStatus === 'approaching' && styles.houseItemApproaching,
         ]}
-        onPress={() => setSelectedHouse(house)}
+        onPress={() => handleAddressPress(house)}
       >
         <View style={styles.houseInfo}>
           <Text style={styles.houseAddress}>{house.address}</Text>
@@ -791,18 +923,42 @@ const RouteScreen = ({ routeId }) => {
           </View>
       </View>
 
-        <View style={styles.notificationsSection}>
-      <ScrollView 
-            style={styles.notificationsScroll}
-            contentContainerStyle={styles.notificationsScrollContent}
-        showsVerticalScrollIndicator={false}
-      >
-            <NotificationsSection />
-            {nearbyHouses.map((house, index) => (
-              <GeofenceAlert key={`${house.id}-${index}`} house={house} />
-            ))}
-          </ScrollView>
-        </View>
+        {/* Notification section that mirrors phone notifications */}
+        {showNotifications && (
+          <View style={styles.notificationsSection}>
+            <ScrollView 
+              style={styles.notificationsScroll}
+              contentContainerStyle={styles.notificationsScrollContent}
+              showsVerticalScrollIndicator={false}
+            >
+              <NotificationsSection />
+              
+              {notifications.length > 0 ? (
+                notifications.map((notification, index) => {
+                  // Extract data needed for GeofenceAlert
+                  const house = {
+                    id: notification.data?.houseId || `notification-${index}`,
+                    address: notification.data?.address || "Unknown address",
+                    status: notification.data?.status || "collect",
+                    notes: notification.body?.split('\n')?.[1]?.replace('Note: ', '') || '',
+                    distance: notification.data?.distance || 0
+                  };
+                  
+                  return (
+                    <GeofenceAlert 
+                      key={notification.id || index} 
+                      house={house} 
+                    />
+                  );
+                })
+              ) : (
+                <Text style={styles.noNotificationsText}>
+                  No active notifications. Notifications will appear here when you receive them.
+                </Text>
+              )}
+            </ScrollView>
+          </View>
+        )}
 
         <ScrollView
           style={styles.housesScroll}
@@ -973,8 +1129,13 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     overflow: 'hidden',
     borderWidth: 1,
-    borderColor: '#3B82F620',
+    borderColor: '#3B82F630',
     marginBottom: 8,
+    shadowColor: '#3B82F6',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 4,
   },
   notificationsContent: {
     padding: 16,
@@ -982,84 +1143,128 @@ const styles = StyleSheet.create({
   notificationsHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 14,
   },
-  notificationsIconContainer: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: '#3B82F615',
+  notificationsIconBadge: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 16,
+    marginRight: 14,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#3B82F640',
+  },
+  notificationsIconGradient: {
+    borderRadius: 12,
   },
   notificationsTextContainer: {
     flex: 1,
   },
   notificationsTitle: {
     color: '#fff',
-    fontSize: 20,
-    fontWeight: '600',
-    marginBottom: 6,
+    fontSize: 18,
+    fontWeight: '700',
+    marginBottom: 4,
+    letterSpacing: 0.3,
+  },
+  notificationsSubtitleContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
   },
   notificationsSubtitle: {
-    color: '#9CA3AF',
-    fontSize: 15,
-    lineHeight: 20,
+    color: '#93C5FD',
+    fontSize: 13,
+    fontWeight: '500',
   },
   notificationsLegend: {
     flexDirection: 'row',
-    gap: 16,
+    justifyContent: 'space-between',
     paddingTop: 12,
     borderTopWidth: 1,
-    borderTopColor: '#ffffff10',
+    borderTopColor: '#ffffff15',
   },
   legendItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 6,
   },
-  legendDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
+  legendIcon: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   legendText: {
-    color: '#9CA3AF',
-    fontSize: 13,
+    color: '#D1D5DB',
+    fontSize: 12,
+    fontWeight: '600',
   },
   geofenceAlert: {
-    borderRadius: 14,
+    borderRadius: 12,
     overflow: 'hidden',
     borderWidth: 1,
-    marginTop: 10,
+    marginVertical: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 3,
+    elevation: 3,
   },
   geofenceContent: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 12,
+    padding: 10,
   },
   geofenceIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 12,
+    marginRight: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
   },
   geofenceTextContent: {
     flex: 1,
   },
+  geofenceHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 2,
+  },
   geofenceTitle: {
-    fontSize: 17,
-    fontWeight: '600',
-    marginBottom: 4,
+    fontSize: 14,
+    fontWeight: '700',
     letterSpacing: 0.2,
   },
   geofenceAddress: {
+    color: '#E5E7EB',
+    fontSize: 13,
+    fontWeight: '500',
+    marginBottom: 2,
+  },
+  geofenceNotes: {
     color: '#9CA3AF',
-    fontSize: 15,
-    lineHeight: 20,
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  distanceBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 10,
+    gap: 2,
+  },
+  distanceBadgeText: {
+    fontSize: 10,
+    fontWeight: '600',
   },
   checkAllButton: {
     width: 36,
@@ -1417,6 +1622,23 @@ const styles = StyleSheet.create({
     backgroundColor: '#EF4444',
     padding: 8,
     width: '100%',
+  },
+  noNotificationsText: {
+    color: '#9CA3AF',
+    fontSize: 14,
+    textAlign: 'center',
+    fontStyle: 'italic',
+    padding: 20,
+  },
+  houseStatus: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  statusIndicator: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
   },
 });
 

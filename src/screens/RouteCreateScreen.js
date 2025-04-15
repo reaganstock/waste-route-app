@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   View,
   Text,
@@ -10,8 +10,9 @@ import {
   ActivityIndicator,
   Platform,
   Image,
-  KeyboardAvoidingView,
   Modal,
+  Keyboard,
+  TouchableWithoutFeedback
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
@@ -25,6 +26,7 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import Papa from 'papaparse';
 import { useAuth } from '../contexts/AuthContext';
 import { LinearGradient } from 'expo-linear-gradient';
+import KeyboardAwareView from '../components/KeyboardAwareView';
 
 const MAPBOX_ACCESS_TOKEN = "pk.eyJ1IjoicmVhZ2Fuc3RvY2siLCJhIjoiY204eHZ1bTQzMDdzOTJrcHRuY2l3em05NiJ9.yMm1TND_J6jZpYJlYmfhyQ";
 
@@ -244,6 +246,13 @@ const RouteCreateScreen = React.forwardRef(({ isEditing = false, existingRoute =
   const [endDate, setEndDate] = useState(null);
   const [showEndDatePicker, setShowEndDatePicker] = useState(false);
   const [showSchedulingOptions, setShowSchedulingOptions] = useState(false);
+
+  // Add these new state variables for editing house data
+  const [editModalVisible, setEditModalVisible] = useState(false);
+  const [editingHouseIndex, setEditingHouseIndex] = useState(null);
+  const [editingHouseAddress, setEditingHouseAddress] = useState('');
+  const [editingHouseStatus, setEditingHouseStatus] = useState('');
+  const [editingHouseNotes, setEditingHouseNotes] = useState('');
 
   useEffect(() => {
     fetchDrivers();
@@ -566,53 +575,53 @@ const RouteCreateScreen = React.forwardRef(({ isEditing = false, existingRoute =
   };
 
   const createSingleRoute = async () => {
-    // Format date in local timezone to prevent timezone offset issues
-    // Get YYYY-MM-DD format in local timezone
-    const localDate = new Date(date);
-    // Add one day to compensate for timezone issue
-    localDate.setDate(localDate.getDate() + 1);
-    const year = localDate.getFullYear();
-    const month = String(localDate.getMonth() + 1).padStart(2, '0');
-    const day = String(localDate.getDate()).padStart(2, '0');
-    const dateString = `${year}-${month}-${day}`;
+      // Format date in local timezone to prevent timezone offset issues
+      // Get YYYY-MM-DD format in local timezone
+      const localDate = new Date(date);
+      // Add one day to compensate for timezone issue
+      localDate.setDate(localDate.getDate() + 1);
+      const year = localDate.getFullYear();
+      const month = String(localDate.getMonth() + 1).padStart(2, '0');
+      const day = String(localDate.getDate()).padStart(2, '0');
+      const dateString = `${year}-${month}-${day}`;
 
     // Get team ID
     let teamId = user?.team_id || user?.profile?.team_id;
 
-    // Create route first
-    console.log('Creating route with data:', {
-      name: name.trim(),
-      date: dateString, // Local date string with compensation for timezone
-      driver_id: selectedDriver,
-      status: 'pending',
-      total_houses: houses.length,
-      completed_houses: 0,
+      // Create route first
+      console.log('Creating route with data:', {
+         name: name.trim(),
+         date: dateString, // Local date string with compensation for timezone
+         driver_id: selectedDriver,
+         status: 'pending',
+         total_houses: houses.length,
+         completed_houses: 0,
       team_id: teamId,
       notes: notes.trim()
-    });
-    const { data: route, error: routeError } = await supabase
-      .from('routes')
-      .insert({
-        name: name.trim(),
+      });
+      const { data: route, error: routeError } = await supabase
+        .from('routes')
+        .insert({
+          name: name.trim(),
         date: dateString,
-        driver_id: selectedDriver,
-        status: 'pending',
-        total_houses: houses.length,
-        completed_houses: 0,
+          driver_id: selectedDriver,
+          status: 'pending',
+          total_houses: houses.length,
+          completed_houses: 0,
         team_id: teamId,
         notes: notes.trim()
-      })
+        })
       .select('id')
-      .single();
+        .single();
 
-    if (routeError) {
-      console.error('Supabase route insert error:', routeError);
+      if (routeError) {
+          console.error('Supabase route insert error:', routeError);
       throw new Error(`Database error creating route: ${routeError.message}`);
-    }
-    
-    if (!route || !route.id) {
-      throw new Error('Failed to get route ID after insert.');
-    }
+      }
+      
+      if (!route || !route.id) {
+          throw new Error('Failed to get route ID after insert.');
+      }
 
     await insertHousesForRoute(route.id);
   };
@@ -672,26 +681,26 @@ const RouteCreateScreen = React.forwardRef(({ isEditing = false, existingRoute =
   };
   
   const insertHousesForRoute = async (routeId) => {
-    // Process houses data
+      // Process houses data
     const housesData = houses.map((house) => ({
       route_id: routeId,
-      address: house.address,
-      status: processHouseStatus(house.status),
-      notes: house.notes,
-      is_new_customer: house.status === 'new customer' || house.status === 'new',
-      lat: house.lat,
-      lng: house.lng
-    }));
-    
+        address: house.address,
+        status: processHouseStatus(house.status),
+        notes: house.notes,
+        is_new_customer: house.status === 'new customer' || house.status === 'new',
+        lat: house.lat,
+        lng: house.lng
+      }));
+      
     console.log(`Inserting ${housesData.length} houses for route ${routeId}`);
-    
-    // Insert houses
-    const { error: housesError } = await supabase
-      .from('houses')
-      .insert(housesData);
-    
-    if (housesError) {
-      console.error('Supabase houses insert error:', housesError);
+
+      // Insert houses
+      const { error: housesError } = await supabase
+        .from('houses')
+        .insert(housesData);
+
+      if (housesError) {
+          console.error('Supabase houses insert error:', housesError);
       throw new Error(`Database error adding houses: ${housesError.message}`);
     }
   };
@@ -785,6 +794,30 @@ const RouteCreateScreen = React.forwardRef(({ isEditing = false, existingRoute =
     }
   };
 
+  const openEditHouseModal = (index) => {
+    const house = houses[index];
+    setEditingHouseIndex(index);
+    setEditingHouseAddress(house.address);
+    setEditingHouseStatus(house.status || 'pending');
+    setEditingHouseNotes(house.notes || '');
+    setEditModalVisible(true);
+  };
+
+  const saveHouseEdits = () => {
+    if (editingHouseIndex === null) return;
+    
+    const updatedHouses = [...houses];
+    updatedHouses[editingHouseIndex] = {
+      ...updatedHouses[editingHouseIndex],
+      status: editingHouseStatus,
+      notes: editingHouseNotes
+    };
+    
+    setHouses(updatedHouses);
+    setEditModalVisible(false);
+    setEditingHouseIndex(null);
+  };
+
   // Expose route data to parent
   React.useImperativeHandle(ref, () => ({
     getRouteData: () => {
@@ -826,364 +859,311 @@ const RouteCreateScreen = React.forwardRef(({ isEditing = false, existingRoute =
     }
   }, [name, selectedDriver, houses, notes, existingRoute, onRouteChange]);
 
+  // Add this right after the removeHouse function
+  const getStatusOptions = () => [
+    { value: 'collect', label: 'Collect', color: '#6B7280' },
+    { value: 'skip', label: 'Skip', color: '#EF4444' },
+    { value: 'new customer', label: 'New Customer', color: '#10B981' },
+    { value: 'pending', label: 'Pending', color: '#3B82F6' }
+  ];
+
   return (
-    <KeyboardAvoidingView 
-      style={styles.kavContainer}
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
-      keyboardVerticalOffset={Platform.OS === 'ios' ? 60 : 0}
+    <KeyboardAwareView
+      style={styles.container}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
+      bounces={false}
     >
-      <View style={styles.container}>
         {!hideHeader && (
           <View style={styles.header}>
+            <View style={styles.headerLeft}>
             <TouchableOpacity 
-              onPress={() => router.back()} 
               style={styles.backButton}
+                onPress={() => router.back()}
             >
               <Ionicons name="arrow-back" size={24} color="#fff" />
               <Text style={styles.backButtonText}>Back</Text>
             </TouchableOpacity>
+            </View>
+            
+            <View style={styles.headerCenter}>
             <Text style={styles.headerTitle}>
-              {isEditing ? 'Edit Route' : (reusing === 'true' ? 'Reuse Route' : 'Create Route')}
+                {isEditing ? 'Edit Route' : (reusing === 'true' ? 'Reuse Route' : 'Create Route')}
             </Text>
+            </View>
+            
+            <View style={styles.headerRight}>
             <TouchableOpacity 
               style={[
-                styles.headerCreateButton, 
-                (!name || !selectedDriver || houses.length === 0) && styles.createButtonDisabled
+                  styles.saveButton,
+                  (!name || !selectedDriver || houses.length === 0) && styles.saveButtonDisabled
               ]}
               onPress={handleCreateRoute}
-              disabled={!name || !selectedDriver || houses.length === 0 || uploading || loadingReusedRoute}
+                disabled={!name || !selectedDriver || houses.length === 0 || uploading || loadingReusedRoute}
             >
               {uploading ? (
                 <ActivityIndicator color="#fff" size="small" />
               ) : (
-                <Text style={styles.headerCreateText}>
+                  <Text style={styles.saveButtonText}>
                   {isEditing ? 'Save' : 'Create'}
                 </Text>
               )}
             </TouchableOpacity>
+            </View>
           </View>
         )}
 
         <ScrollView 
-          style={styles.scrollView}
-          contentContainerStyle={styles.scrollContentContainer}
+          style={styles.form}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
-          {loadingReusedRoute ? (
-            <View style={styles.loadingContainer}>
-              <ActivityIndicator size="large" color="#3B82F6" />
-              <Text style={styles.loadingText}>Loading route data...</Text>
+        {loadingReusedRoute ? (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color="#3B82F6" />
+            <Text style={styles.loadingText}>Loading route data...</Text>
+          </View>
+        ) : (
+          <>
+            <View style={styles.inputContainer}>
+              <Text style={styles.inputLabel}>Route Name</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Enter route name"
+                placeholderTextColor="#6B7280"
+                value={name}
+                onChangeText={setName}
+              />
             </View>
-          ) : (
-            <>
-              <View style={styles.card}>
-                <Text style={styles.cardTitle}>Route Details</Text>
 
-                <View style={styles.inputContainer}>
-                  <Ionicons name="map-outline" size={22} color="#3B82F6" />
-                  <TextInput
-                    style={styles.input}
-                    placeholder="Route Name"
-                    placeholderTextColor="#6B7280"
-                    value={name}
-                    onChangeText={setName}
-                  />
-                </View>
-
-                <TouchableOpacity 
-                  style={styles.inputContainer}
-                  onPress={() => setShowDatePicker(true)}
+            <View style={styles.inputContainer}>
+              <Text style={styles.inputLabel}>Date</Text>
+            <TouchableOpacity 
+                style={styles.dateButton}
+              onPress={() => setShowDatePicker(true)}
+            >
+                <Text style={styles.dateButtonText}>
+                {date.toLocaleDateString()}
+              </Text>
+                <Ionicons name="calendar" size={20} color="#3B82F6" />
+            </TouchableOpacity>
+            {showDatePicker && (
+              <DateTimePicker
+                value={date}
+                mode="date"
+                display="default"
+                onChange={(event, selectedDate) => {
+                  setShowDatePicker(false);
+                  if (selectedDate) {
+                    setDate(selectedDate);
+                  }
+                }}
+                  minimumDate={new Date()}
+              />
+            )}
+          </View>
+          
+            <View style={styles.inputContainer}>
+              <Text style={styles.inputLabel}>Driver</Text>
+              {drivers.length > 0 ? (
+                <ScrollView 
+                  horizontal 
+                  showsHorizontalScrollIndicator={false}
+                  style={styles.driverList}
                 >
-                  <Ionicons name="calendar-outline" size={22} color="#3B82F6" />
-                  <Text style={styles.dateText}>
-                    {date.toLocaleDateString()}
-                  </Text>
-                </TouchableOpacity>
-
-                {showDatePicker && (
-                  <DateTimePicker
-                    value={date}
-                    mode="date"
-                    display="default"
-                    onChange={(event, selectedDate) => {
-                      setShowDatePicker(false);
-                      if (selectedDate) {
-                        // Store the date as-is, the compensation happens when sending to API
-                        setDate(selectedDate);
-                        console.log("Selected date:", selectedDate.toISOString(), "- Will be adjusted when creating route");
-                      }
-                    }}
-                  />
-                )}
-                
-                {/* Scheduling Options Toggle */}
-                <TouchableOpacity 
-                  style={styles.schedulingToggle}
-                  onPress={() => setShowSchedulingOptions(!showSchedulingOptions)}
-                >
-                  <View style={styles.schedulingToggleContent}>
-                    <Ionicons 
-                      name="repeat-outline" 
-                      size={22} 
-                      color="#3B82F6" 
-                    />
-                    <Text style={styles.schedulingToggleText}>
-                      {showSchedulingOptions ? 'Hide Scheduling Options' : 'Show Scheduling Options'}
-                    </Text>
-                  </View>
-                  <Ionicons 
-                    name={showSchedulingOptions ? "chevron-up" : "chevron-down"} 
-                    size={22} 
-                    color="#6B7280" 
-                  />
-                </TouchableOpacity>
-                
-                {/* Scheduling Options */}
-                {showSchedulingOptions && (
-                  <View style={styles.schedulingOptions}>
-                    <Text style={styles.schedulingTitle}>Repeat Frequency</Text>
-                    
-                    <View style={styles.frequencyOptions}>
-                      {['none', 'daily', 'weekly', 'monthly'].map((frequency) => (
-                        <TouchableOpacity
-                          key={frequency}
-                          style={[
-                            styles.frequencyOption,
-                            repeatFrequency === frequency && styles.frequencyOptionSelected
-                          ]}
-                          onPress={() => setRepeatFrequency(frequency)}
-                        >
-                          <Text style={[
-                            styles.frequencyOptionText,
-                            repeatFrequency === frequency && styles.frequencyOptionTextSelected
-                          ]}>
-                            {frequency.charAt(0).toUpperCase() + frequency.slice(1)}
-                          </Text>
-                        </TouchableOpacity>
-                      ))}
-                    </View>
-                    
-                    {repeatFrequency !== 'none' && (
-                      <>
-                        <Text style={styles.schedulingTitle}>End Date</Text>
-                        <TouchableOpacity 
-                          style={styles.inputContainer}
-                          onPress={() => setShowEndDatePicker(true)}
-                        >
-                          <Ionicons name="calendar-outline" size={22} color="#3B82F6" />
-                          <Text style={styles.dateText}>
-                            {endDate ? endDate.toLocaleDateString() : 'Select End Date'}
-                          </Text>
-                        </TouchableOpacity>
-                        
-                        {showEndDatePicker && (
-                          <DateTimePicker
-                            value={endDate || new Date(date.getTime() + 30 * 24 * 60 * 60 * 1000)} // Default to 30 days from start date
-                            minimumDate={new Date(date.getTime() + 24 * 60 * 60 * 1000)} // At least 1 day after start date
-                            mode="date"
-                            display="default"
-                            onChange={(event, selectedDate) => {
-                              setShowEndDatePicker(false);
-                              if (selectedDate) {
-                                setEndDate(selectedDate);
-                              }
-                            }}
-                          />
-                        )}
-                      </>
-                    )}
-                  </View>
-                )}
-              </View>
-              
-              {isOwner && (
-                <View style={styles.card}>
-                  <Text style={styles.cardTitle}>Assign Driver</Text>
-                  {drivers.length > 0 ? (
-                    <ScrollView 
-                      horizontal 
-                      showsHorizontalScrollIndicator={false}
-                      style={styles.driverList}
+                  {drivers.map(driver => (
+                    <TouchableOpacity
+                      key={driver.id}
+                      style={[
+                        styles.driverCard,
+                        selectedDriver === driver.id && styles.driverCardSelected
+                      ]}
+                      onPress={() => setSelectedDriver(driver.id)}
                     >
-                      {drivers.map(driver => (
-                        <TouchableOpacity
-                          key={driver.id}
-                          style={[
-                            styles.driverCard,
-                            selectedDriver === driver.id && styles.driverCardSelected
-                          ]}
-                          onPress={() => setSelectedDriver(driver.id)}
-                        >
-                          {driver.avatar_url ? (
-                            <Image
-                              source={{ uri: driver.avatar_url }}
-                              style={styles.driverAvatar}
-                            />
-                          ) : (
-                            <View style={styles.driverAvatar}>
-                              <Text style={styles.driverInitials}>
-                                {driver.full_name.split(' ').map(n => n[0]).join('')}
-                              </Text>
-                            </View>
-                          )}
-                          <Text style={styles.driverName}>{driver.full_name}</Text>
-                        </TouchableOpacity>
-                      ))}
-                    </ScrollView>
-                  ) : (
-                    <View style={styles.noDriversContainer}>
-                      <Text style={styles.noDriversText}>
-                        No drivers available in your team. Add team members in the Team section.
-                      </Text>
-                      <TouchableOpacity 
-                        style={styles.addTeamMemberButton}
-                        onPress={() => router.navigate('/(tabs)/team')}
-                      >
-                        <Ionicons name="people-outline" size={16} color="#fff" />
-                        <Text style={styles.addTeamMemberButtonText}>Go to Team</Text>
-                      </TouchableOpacity>
-                    </View>
-                  )}
+                      {driver.avatar_url ? (
+                        <Image
+                          source={{ uri: driver.avatar_url }}
+                          style={styles.driverAvatar}
+                        />
+                      ) : (
+                        <View style={styles.driverAvatar}>
+                          <Text style={styles.driverInitials}>
+                            {driver.full_name.split(' ').map(n => n[0]).join('')}
+                          </Text>
+                        </View>
+                      )}
+                      <Text style={styles.driverName}>{driver.full_name}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              ) : (
+                <View style={styles.noDriversContainer}>
+                  <Text style={styles.noDriversText}>
+                    No drivers available in your team. Add team members in the Team section.
+                  </Text>
+                  <TouchableOpacity 
+                    style={styles.addTeamMemberButton}
+                    onPress={() => router.navigate('/(tabs)/team')}
+                  >
+                    <Ionicons name="people-outline" size={16} color="#fff" />
+                    <Text style={styles.addTeamMemberButtonText}>Go to Team</Text>
+                  </TouchableOpacity>
                 </View>
               )}
+            </View>
 
-              <View style={styles.card}>
-                <Text style={styles.cardTitle}>Route Notes</Text>
-                <TextInput
-                  style={styles.notesInput}
-                  placeholder="Enter notes about this route here"
-                  placeholderTextColor="#6B7280"
-                  value={notes}
-                  onChangeText={setNotes}
-                  multiline
-                  numberOfLines={4}
-                  textAlignVertical="top"
-                />
-              </View>
+            <View style={styles.inputContainer}>
+              <Text style={styles.inputLabel}>Route Notes</Text>
+            <TextInput
+              style={styles.notesInput}
+              placeholder="Enter notes about this route here"
+              placeholderTextColor="#6B7280"
+              value={notes}
+              onChangeText={setNotes}
+              multiline
+              numberOfLines={4}
+              textAlignVertical="top"
+            />
+          </View>
 
-              <View style={styles.card}>
-                <Text style={styles.cardTitle}>Add Addresses</Text>
-                
-                <View style={styles.buttonRow}>
-                  <TouchableOpacity 
-                    style={styles.importButton}
-                    onPress={handleGoogleSheetImport}
-                    disabled={isLoadingGoogleSheet}
-                  >
-                    {isLoadingGoogleSheet ? (
-                      <ActivityIndicator color="#fff" size="small" />
-                    ) : (
-                      <>
-                        <Ionicons name="logo-google" size={20} color="#fff" />
-                        <Text style={styles.importButtonText}>Google Sheet</Text>
-                      </>
-                    )}
-                  </TouchableOpacity>
-                  <TouchableOpacity 
-                    style={styles.importButton}
-                    onPress={handleUploadCSV}
-                    disabled={uploading}
-                  >
-                    {uploading ? (
-                      <ActivityIndicator color="#fff" size="small" />
-                    ) : (
-                      <>
-                        <Ionicons name="document-text-outline" size={20} color="#fff" />
-                        <Text style={styles.importButtonText}>Upload CSV</Text>
-                      </>
-                    )}
-                  </TouchableOpacity>
-                </View>
-
-                <View style={styles.addressInputWrapper}>
-                  <Text style={styles.inputLabel}>Enter addresses below (one per line)</Text>
-                  <TextInput
-                    style={styles.addressInput}
-                    placeholder="123 Main St, Dallas, TX, 75201 [, status] [, notes]"
-                    placeholderTextColor="#6B7280"
-                    value={addressInput}
-                    onChangeText={setAddressInput}
-                    multiline
-                    numberOfLines={6}
-                    textAlignVertical="top"
-                    autoCapitalize="none"
-                  />
-                  <TouchableOpacity
-                    style={[
-                      styles.addButton,
-                      !addressInput.trim() && styles.addButtonDisabled
-                    ]}
-                    onPress={handleAddressPaste}
-                    disabled={!addressInput.trim() || uploading}
-                  >
-                    {uploading ? (
-                      <ActivityIndicator color="#fff" size="small" />
-                    ) : (
-                      <>
-                        <Ionicons name="add-circle-outline" size={20} color="#fff" />
-                        <Text style={styles.addButtonText}>Add Addresses</Text>
-                      </>
-                    )}
-                  </TouchableOpacity>
-                  <Text style={styles.helperText}>
-                    Format: Street, City, State, ZIP [, Status] [, Notes]{'\n'}
-                    Status can be: collect, skip, or new customer
-                  </Text>
-                </View>
-
-                {houses.length > 0 && (
+            <View style={styles.inputContainer}>
+              <Text style={styles.inputLabel}>Add Addresses</Text>
+            
+            <View style={styles.buttonRow}>
+              <TouchableOpacity 
+                style={styles.importButton}
+                onPress={handleGoogleSheetImport}
+                disabled={isLoadingGoogleSheet}
+              >
+                {isLoadingGoogleSheet ? (
+                  <ActivityIndicator color="#fff" size="small" />
+                ) : (
                   <>
-                    <Text style={[styles.cardTitle, {marginTop: 24}]}>Route Preview</Text>
-                    <View style={styles.mapContainer}>
-                      <Map 
-                        houses={houses}
-                        onHousePress={(house) => {
-                          Alert.alert(
-                            house.address,
-                            house.notes || 'No additional notes',
-                            [{ text: 'OK' }]
-                          );
-                        }}
-                        style={styles.map}
-                        screenContext="routeCreate"
-                      />
-                    </View>
+                    <Ionicons name="logo-google" size={20} color="#fff" />
+                    <Text style={styles.importButtonText}>Google Sheet</Text>
                   </>
                 )}
-
-                {houses.length > 0 && (
-                  <View style={styles.houseListContainer}>
-                    <Text style={styles.listTitle}>Added Addresses ({houses.length})</Text>
-                    {houses.map((house, index) => (
-                      <View key={`house-${index}`} style={styles.houseItem}>
-                        <View style={styles.houseItemContent}>
-                          <Text style={styles.houseAddress}>{house.address}</Text>
-                          {house.notes && (
-                            <Text style={styles.houseNotes}>{house.notes}</Text>
-                          )}
-                          <View style={[styles.statusBadge, { backgroundColor: getStatusColor(house.status) + '20' }]}>
-                            <View style={[styles.statusDot, { backgroundColor: getStatusColor(house.status) }]} />
-                            <Text style={[styles.statusText, { color: getStatusColor(house.status) }]}>
-                              {house.status?.charAt(0).toUpperCase() + house.status?.slice(1)}
-                            </Text>
-                          </View>
-                        </View>
-                        <TouchableOpacity 
-                          style={styles.removeButton}
-                          onPress={() => removeHouse(index)}
-                        >
-                          <Ionicons name="close-circle" size={20} color="#EF4444" />
-                        </TouchableOpacity>
-                      </View>
-                    ))}
-                  </View>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={styles.importButton}
+                onPress={handleUploadCSV}
+                disabled={uploading}
+              >
+                {uploading ? (
+                  <ActivityIndicator color="#fff" size="small" />
+                ) : (
+                  <>
+                    <Ionicons name="document-text-outline" size={20} color="#fff" />
+                    <Text style={styles.importButtonText}>Upload CSV</Text>
+                  </>
                 )}
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.addressInputWrapper}>
+              <Text style={styles.inputLabel}>Enter addresses below (one per line)</Text>
+              <TextInput
+                style={styles.addressInput}
+                placeholder="123 Main St, Dallas, TX, 75201 [, status] [, notes]"
+                placeholderTextColor="#6B7280"
+                value={addressInput}
+                onChangeText={setAddressInput}
+                multiline
+                numberOfLines={6}
+                textAlignVertical="top"
+                autoCapitalize="none"
+              />
+              <TouchableOpacity
+                style={[
+                  styles.addButton,
+                  !addressInput.trim() && styles.addButtonDisabled
+                ]}
+                onPress={handleAddressPaste}
+                disabled={!addressInput.trim() || uploading}
+              >
+                {uploading ? (
+                  <ActivityIndicator color="#fff" size="small" />
+                ) : (
+                  <>
+                    <Ionicons name="add-circle-outline" size={20} color="#fff" />
+                    <Text style={styles.addButtonText}>Add Addresses</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+              <Text style={styles.helperText}>
+                Format: Street, City, State, ZIP [, Status] [, Notes]{'\n'}
+                Status can be: collect, skip, or new customer
+              </Text>
+            </View>
+
+            {houses.length > 0 && (
+              <>
+                  <Text style={[styles.inputLabel, {marginTop: 24}]}>Route Preview</Text>
+                <View style={styles.mapContainer}>
+                  <Map 
+                    houses={houses}
+                    onHousePress={(house) => {
+                      Alert.alert(
+                        house.address,
+                        house.notes || 'No additional notes',
+                        [{ text: 'OK' }]
+                      );
+                    }}
+                    style={styles.map}
+                      screenContext="routeCreate"
+                  />
+                </View>
+              </>
+            )}
+
+            {houses.length > 0 && (
+              <View style={styles.houseListContainer}>
+                <Text style={styles.listTitle}>Added Addresses ({houses.length})</Text>
+                {houses.map((house, index) => (
+                  <View key={`house-${index}`} style={styles.houseItem}>
+                    <View style={styles.houseItemContent}>
+                      <Text style={styles.houseAddress}>{house.address}</Text>
+                      {house.notes && (
+                        <Text style={styles.houseNotes}>{house.notes}</Text>
+                      )}
+                      <View style={[styles.statusBadge, { backgroundColor: getStatusColor(house.status) + '20' }]}>
+                        <View style={[styles.statusDot, { backgroundColor: getStatusColor(house.status) }]} />
+                        <Text style={[styles.statusText, { color: getStatusColor(house.status) }]}>
+                          {house.status?.charAt(0).toUpperCase() + house.status?.slice(1)}
+                        </Text>
+                      </View>
+                    </View>
+                    <View style={styles.houseItemActions}>
+                    <TouchableOpacity 
+                        style={styles.actionButton}
+                        onPress={() => openEditHouseModal(index)}
+                      >
+                        <LinearGradient
+                          colors={['#3B82F6', '#2563EB']}
+                          style={styles.actionButtonGradient}
+                        >
+                          <Ionicons name="create-outline" size={20} color="#fff" />
+                        </LinearGradient>
+                      </TouchableOpacity>
+                      <TouchableOpacity 
+                        style={styles.actionButton}
+                      onPress={() => removeHouse(index)}
+                    >
+                        <LinearGradient
+                          colors={['#EF4444', '#DC2626']}
+                          style={styles.actionButtonGradient}
+                        >
+                          <Ionicons name="trash-outline" size={20} color="#fff" />
+                        </LinearGradient>
+                    </TouchableOpacity>
+                    </View>
+                  </View>
+                ))}
               </View>
-            </>
-          )}
+            )}
+          </View>
+          </>
+        )}
         </ScrollView>
-      </View>
 
       <Modal
         visible={showInfoModal}
@@ -1191,7 +1171,7 @@ const RouteCreateScreen = React.forwardRef(({ isEditing = false, existingRoute =
         animationType="fade"
         onRequestClose={() => setShowInfoModal(false)}
       >
-        <KeyboardAvoidingView 
+        <KeyboardAwareView 
           behavior={Platform.OS === "ios" ? "padding" : "height"}
           style={{flex: 1}}
         >
@@ -1245,94 +1225,191 @@ const RouteCreateScreen = React.forwardRef(({ isEditing = false, existingRoute =
               </TouchableOpacity>
             </View>
           </View>
-        </KeyboardAvoidingView>
+        </KeyboardAwareView>
       </Modal>
-    </KeyboardAvoidingView>
+
+      {/* Add this Edit House Modal */}
+      <Modal
+        visible={editModalVisible}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setEditModalVisible(false)}
+      >
+        <TouchableWithoutFeedback onPress={() => setEditModalVisible(false)}>
+          <View style={styles.modalOverlay}>
+            <TouchableWithoutFeedback onPress={e => e.stopPropagation()}>
+              <View style={styles.editModalContent}>
+                <View style={styles.modalHeader}>
+                  <Text style={styles.modalTitle}>Edit Address</Text>
+                  <TouchableOpacity 
+                    onPress={() => setEditModalVisible(false)}
+                    style={styles.modalCloseButton}
+                  >
+                    <Ionicons name="close" size={24} color="#fff" />
+                  </TouchableOpacity>
+                </View>
+
+                <ScrollView style={styles.editModalBody}>
+                  <Text style={styles.inputLabel}>Address</Text>
+                  <Text style={styles.editingAddressText}>{editingHouseAddress}</Text>
+
+                  <Text style={[styles.inputLabel, {marginTop: 16}]}>Status</Text>
+                  <View style={styles.statusOptionsContainer}>
+                    {getStatusOptions().map((option) => (
+                      <TouchableOpacity
+                        key={option.value}
+                        style={[
+                          styles.statusOption,
+                          editingHouseStatus === option.value && {
+                            backgroundColor: `${option.color}40`,
+                            borderColor: option.color
+                          }
+                        ]}
+                        onPress={() => setEditingHouseStatus(option.value)}
+                      >
+                        <View style={[styles.statusDot, { backgroundColor: option.color }]} />
+                        <Text 
+                          style={[
+                            styles.statusOptionText,
+                            editingHouseStatus === option.value && { color: option.color, fontWeight: '600' }
+                          ]}
+                        >
+                          {option.label}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+
+                  <Text style={[styles.inputLabel, {marginTop: 16}]}>Notes</Text>
+                  <TextInput
+                    style={styles.editNotesInput}
+                    placeholder="Add notes about this address"
+                    placeholderTextColor="#6B7280"
+                    value={editingHouseNotes}
+                    onChangeText={setEditingHouseNotes}
+                    multiline
+                    numberOfLines={4}
+                    textAlignVertical="top"
+                  />
+                </ScrollView>
+
+                <View style={styles.editModalFooter}>
+                  <TouchableOpacity 
+                    style={styles.cancelButton}
+                    onPress={() => setEditModalVisible(false)}
+                  >
+                    <Text style={styles.cancelButtonText}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity 
+                    style={styles.saveEditButton}
+                    onPress={saveHouseEdits}
+                  >
+                    <Text style={styles.saveEditButtonText}>Save Changes</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </TouchableWithoutFeedback>
+          </View>
+        </TouchableWithoutFeedback>
+      </Modal>
+    </KeyboardAwareView>
   );
 });
 
 export default RouteCreateScreen;
 
 const styles = StyleSheet.create({
-  kavContainer: {
-    flex: 1,
-  },
   container: {
     flex: 1,
-  },
-  scrollView: {
-    flex: 1,
-  },
-  scrollContentContainer: {
-    padding: 16,
+    backgroundColor: '#000',
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 16,
+    padding: 20,
     paddingTop: Platform.OS === 'ios' ? 60 : 20,
-    backgroundColor: '#1F2937',
+    backgroundColor: '#111',
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(255,255,255,0.1)',
   },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: '600',
-    color: '#fff',
+  headerLeft: {
     flex: 1,
-    textAlign: 'center',
+    alignItems: 'flex-start',
+  },
+  headerCenter: {
+    flex: 2,
+    alignItems: 'center',
+  },
+  headerRight: {
+    flex: 1,
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+    gap: 12,
   },
   backButton: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
     paddingVertical: 8,
-    paddingHorizontal: 8,
+    paddingHorizontal: 12,
   },
   backButtonText: {
     color: '#fff',
     fontSize: 16,
     fontWeight: '500',
   },
-  placeholder: {
-    width: 44, // Same width as back button for alignment
-  },
-  card: {
-    backgroundColor: '#1F2937',
-    borderRadius: 16,
-    padding: 20,
-    marginBottom: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  cardTitle: {
-    fontSize: 18,
+  headerTitle: {
+    fontSize: 20,
     fontWeight: '600',
     color: '#fff',
-    marginBottom: 16,
+  },
+  saveButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    backgroundColor: '#3B82F6',
+    borderRadius: 8,
+  },
+  saveButtonDisabled: {
+    backgroundColor: '#374151',
+  },
+  saveButtonText: {
+    color: '#fff',
+    fontWeight: '600',
+  },
+  saveButtonTextDisabled: {
+    color: '#9CA3AF',
+  },
+  form: {
+    flex: 1,
   },
   inputContainer: {
+    padding: 16,
+  },
+  inputLabel: {
+    color: '#D1D5DB',
+    fontSize: 14,
+    marginBottom: 8,
+  },
+  input: {
+    backgroundColor: '#2D3748',
+    borderRadius: 12,
+    padding: 16,
+    color: '#fff',
+    fontSize: 15,
+  },
+  dateButton: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#2D3748',
     borderRadius: 12,
     padding: 14,
-    marginBottom: 16,
   },
-  input: {
-    flex: 1,
-    marginLeft: 12,
+  dateButtonText: {
     color: '#fff',
     fontSize: 16,
-  },
-  dateText: {
-    color: '#fff',
-    fontSize: 16,
-    marginLeft: 12,
+    marginRight: 12,
   },
   driverList: {
     flexDirection: 'row',
@@ -1404,11 +1481,6 @@ const styles = StyleSheet.create({
   addressInputWrapper: {
     marginTop: 8,
   },
-  inputLabel: {
-    color: '#D1D5DB',
-    fontSize: 14,
-    marginBottom: 8,
-  },
   addressInput: {
     backgroundColor: '#2D3748',
     borderRadius: 12,
@@ -1468,12 +1540,14 @@ const styles = StyleSheet.create({
     padding: 16,
     marginBottom: 12,
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     borderLeftWidth: 3,
     borderLeftColor: '#3B82F6',
   },
   houseItemContent: {
     flex: 1,
+    marginRight: 12,
   },
   houseAddress: {
     color: '#fff',
@@ -1504,32 +1578,26 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '500',
   },
-  removeButton: {
-    marginLeft: 12,
-    padding: 4,
+  houseItemActions: {
+    flexDirection: 'column',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 8,
   },
-  footer: {
-    padding: 16,
-    backgroundColor: 'rgba(17, 24, 39, 0.95)',
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(255,255,255,0.1)',
+  actionButton: {
+    borderRadius: 8,
+    overflow: 'hidden',
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 1.5,
   },
-  createButton: {
-    flexDirection: 'row',
+  actionButtonGradient: {
+    width: 36,
+    height: 36,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 10,
-    backgroundColor: '#3B82F6',
-    borderRadius: 12,
-    padding: 16,
-  },
-  createButtonDisabled: {
-    backgroundColor: '#4B5563',
-  },
-  createButtonText: {
-    color: '#fff',
-    fontSize: 18,
-    fontWeight: '600',
   },
   modalOverlay: {
     flex: 1,
@@ -1613,16 +1681,16 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: 'bold',
   },
-  headerCreateButton: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    backgroundColor: '#3B82F6',
-    borderRadius: 8,
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  headerCreateText: {
+  loadingText: {
     color: '#fff',
-    fontWeight: '600',
-    fontSize: 15,
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginTop: 16,
   },
   noDriversContainer: {
     flexDirection: 'row',
@@ -1647,64 +1715,84 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
   },
-  schedulingToggle: {
+  editModalContent: {
+    backgroundColor: '#1F2937',
+    borderRadius: 16,
+    width: '90%',
+    maxHeight: '80%',
+    overflow: 'hidden',
+  },
+  editModalBody: {
+    padding: 16,
+    maxHeight: 400,
+  },
+  editModalFooter: {
     flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'space-between',
-    padding: 14,
+    padding: 16,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  editingAddressText: {
+    color: '#D1D5DB',
+    fontSize: 15,
     backgroundColor: '#2D3748',
     borderRadius: 12,
-    marginBottom: 16,
+    padding: 16,
   },
-  schedulingToggleContent: {
+  statusOptionsContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginTop: 8,
+    gap: 8,
+  },
+  statusOption: {
     flexDirection: 'row',
     alignItems: 'center',
-  },
-  schedulingToggleText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  schedulingOptions: {
-    marginTop: 16,
-  },
-  schedulingTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#fff',
-    marginBottom: 8,
-  },
-  frequencyOptions: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 16,
-  },
-  frequencyOption: {
-    padding: 12,
     backgroundColor: '#2D3748',
     borderRadius: 8,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: 'transparent',
+    minWidth: '48%',
   },
-  frequencyOptionSelected: {
+  statusOptionText: {
+    color: '#D1D5DB',
+    fontSize: 14,
+    marginLeft: 6,
+  },
+  editNotesInput: {
+    backgroundColor: '#2D3748',
+    borderRadius: 12,
+    padding: 16,
+    color: '#fff',
+    fontSize: 15,
+    minHeight: 100,
+    textAlignVertical: 'top',
+  },
+  cancelButton: {
+    backgroundColor: '#4B5563',
+    padding: 12,
+    borderRadius: 8,
+    flex: 1,
+    marginRight: 8,
+    alignItems: 'center',
+  },
+  cancelButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  saveEditButton: {
     backgroundColor: '#3B82F6',
+    padding: 12,
+    borderRadius: 8,
+    flex: 2,
+    alignItems: 'center',
   },
-  frequencyOptionText: {
+  saveEditButtonText: {
     color: '#fff',
     fontSize: 16,
     fontWeight: '600',
-  },
-  frequencyOptionTextSelected: {
-    color: '#fff',
-    fontWeight: 'bold',
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  loadingText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: 'bold',
-    marginTop: 16,
   },
 }); 

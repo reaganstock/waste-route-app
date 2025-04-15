@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { LogBox, Platform, Dimensions } from 'react-native';
@@ -12,6 +12,8 @@ import { FontAwesome } from '@expo/vector-icons';
 import { View } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import ErrorBoundary from '../src/components/ErrorBoundary';
+import LoadingScreen from '../src/components/LoadingScreen';
+import { router } from 'expo-router';
 
 // Get device information
 export const isTablet = () => {
@@ -37,22 +39,54 @@ LogBox.ignoreLogs([
   'Non-serializable values were found in the navigation state',
 ]);
 
-function RootLayoutNav() {
-  const { user, session, loading } = useAuth();
+export function RootLayoutNav() {
+  const { user, session, loading: authLoading } = useAuth();
   const segments = useSegments();
-  const router = useRouter();
+  const currentPath = segments.join('/');
   const [fontsLoaded, fontError] = useFonts({
     SpaceMono: require('../assets/fonts/SpaceMono-Regular.ttf'),
     ...FontAwesome.font,
   });
+  const [checkingOnboarding, setCheckingOnboarding] = useState(true);
+  const [loading, setLoading] = useState(true);
+
+  // Helper function to add small delays to make the loading screen visible
+  const simulateDelay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
   // Expo Router uses Error Boundaries to catch errors in the navigation tree.
   useEffect(() => {
     if (fontError) throw fontError;
   }, [fontError]);
 
+  // Initialize loading process
   useEffect(() => {
-    if (!loading && !user && session?.user) {
+    const initializeApp = async () => {
+      try {
+        // Start with ensuring the SplashScreen is hidden
+        await SplashScreen.hideAsync().catch(e => console.log('Error hiding splash:', e));
+        
+        // Wait a bit to ensure all resources are loaded properly
+        await simulateDelay(500);
+        
+        // Check onboarding only after auth is loaded
+        if (!authLoading) {
+          await checkOnboardingStatus();
+        }
+        
+        // Final preparation and complete loading
+        await simulateDelay(300);
+        setLoading(false);
+      } catch (error) {
+        console.error('Error during app initialization:', error);
+        setLoading(false);
+      }
+    };
+    
+    initializeApp();
+  }, [authLoading, fontsLoaded]);
+
+  useEffect(() => {
+    if (!authLoading && !user && session?.user) {
       // Ensure user has a profile with timeout protection
       const ensureUserProfile = async () => {
         // Create a timeout promise to prevent hanging
@@ -308,11 +342,11 @@ function RootLayoutNav() {
         console.error("Unhandled error in profile initialization:", error);
       });
     }
-  }, [loading, user, session]);
+  }, [authLoading, user, session]);
 
   // Handle authentication navigation
   useEffect(() => {
-    if (loading || !fontsLoaded) return;
+    if (authLoading || !fontsLoaded || loading) return;
     
     const checkNavigationState = async () => {
       try {
@@ -344,7 +378,7 @@ function RootLayoutNav() {
     };
     
     checkNavigationState();
-  }, [user, loading, segments, router, fontsLoaded]);
+  }, [user, authLoading, segments, router, fontsLoaded, loading]);
 
   // One-time cleanup on app start
   useEffect(() => {
@@ -425,9 +459,28 @@ function RootLayoutNav() {
     cleanupDatabase();
   }, []);
 
-  // Prevent rendering until fonts are loaded
-  if (!fontsLoaded || loading) {
-    return null; // Return null during loading
+  async function checkOnboardingStatus() {
+    try {
+      // Check if onboarding has been completed
+      const onboardingComplete = await AsyncStorage.getItem('onboarding_complete');
+      console.log('Checking onboarding status:', onboardingComplete);
+      
+      // We only set the state and don't navigate here
+      // Navigation will happen in the useEffect that depends on this state
+      if (!onboardingComplete) {
+        // Mark that we need to show onboarding
+        console.log('Onboarding needs to be shown');
+      }
+    } catch (error) {
+      console.error('Error checking onboarding status:', error);
+    } finally {
+      setCheckingOnboarding(false);
+    }
+  }
+
+  // Show the loading screen while the app is initializing
+  if (loading || authLoading || !fontsLoaded) {
+    return <LoadingScreen />;
   }
 
   return (

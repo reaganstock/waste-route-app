@@ -5,7 +5,6 @@ import {
   StyleSheet,
   TextInput,
   TouchableOpacity,
-  KeyboardAvoidingView,
   Platform,
   Alert,
   ActivityIndicator,
@@ -14,6 +13,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../contexts/AuthContext';
+import KeyboardAwareView from '../components/KeyboardAwareView';
 
 const LoginScreen = () => {
   const router = useRouter();
@@ -43,10 +43,10 @@ const LoginScreen = () => {
   };
 
   return (
-    <KeyboardAvoidingView 
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+    <KeyboardAwareView
       style={styles.container}
       keyboardVerticalOffset={Platform.OS === 'ios' ? 50 : 0}
+      contentContainerStyle={styles.contentContainer}
     >
       <View style={styles.header}>
         <View style={styles.logoContainer}>
@@ -120,7 +120,7 @@ const LoginScreen = () => {
           </Text>
         </TouchableOpacity>
       </View>
-    </KeyboardAvoidingView>
+    </KeyboardAwareView>
   );
 };
 
@@ -128,7 +128,10 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#000',
+  },
+  contentContainer: {
     padding: 20,
+    flexGrow: 1,
   },
   header: {
     alignItems: 'center',

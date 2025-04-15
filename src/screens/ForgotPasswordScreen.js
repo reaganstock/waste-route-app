@@ -6,7 +6,6 @@ import {
   TextInput,
   TouchableOpacity,
   Alert,
-  KeyboardAvoidingView,
   Platform,
   Animated,
   ActivityIndicator,
@@ -16,6 +15,7 @@ import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth } from '../contexts/AuthContext';
+import KeyboardAwareView from '../components/KeyboardAwareView';
 
 const StepDot = ({ active, completed }) => (
   <View
@@ -145,9 +145,9 @@ const ForgotPasswordScreen = () => {
   };
 
   return (
-    <KeyboardAvoidingView 
+    <KeyboardAwareView 
       style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 50 : 0}
     >
       <StatusBar style="light" />
       <View style={styles.header}>
@@ -198,7 +198,7 @@ const ForgotPasswordScreen = () => {
           </Text>
         </TouchableOpacity>
       </View>
-    </KeyboardAvoidingView>
+    </KeyboardAwareView>
   );
 };
 

@@ -3,16 +3,122 @@ import { getDistance } from 'geolib';
 import * as Notifications from 'expo-notifications';
 import * as Location from 'expo-location';
 import { AppState } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Audio } from 'expo-av';
 
-// Configurable settings for performance tuning in production
-const GEOFENCE_SETTINGS = {
-  OUTER_RADIUS: 500, // meters - early warning
-  INNER_RADIUS: 100, // meters - immediate alert
-  MIN_DISTANCE_CHANGE: 10, // meters - minimum movement to trigger check (reduced from 30)
-  NOTIFICATION_COOLDOWN: 2 * 60 * 1000, // 2 minutes between repeat notifications (reduced from 5 min)
-  BACKGROUND_UPDATE_INTERVAL: 20 * 1000, // 20 seconds in background (reduced from 30)
-  FOREGROUND_UPDATE_INTERVAL: 5 * 1000, // 5 seconds in foreground (reduced from 10)
-  LOCATION_ACCURACY: Location.Accuracy.High // Increased accuracy from Balanced
+// Sound URLs from Supabase - hardcoded URLs for reliability
+const SOUND_URLS = {
+  COLLECT: 'https://ppumccuvuckqrozhygew.supabase.co/storage/v1/object/sign/audio/11L-persistent_collect_s-1744674206365.mp3?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1cmwiOiJhdWRpby8xMUwtcGVyc2lzdGVudF9jb2xsZWN0X3MtMTc0NDY3NDIwNjM2NS5tcDMiLCJpYXQiOjE3NDQ2NzQyMzMsImV4cCI6MTc3NjIxMDIzM30.ahZhzmmCRU_84v3jVBVKo4WUVPnyPgs0TnIuXsfGFKQ',
+  SKIP: 'https://ppumccuvuckqrozhygew.supabase.co/storage/v1/object/sign/audio/11L-2._Skip_Notification-1744664804277.mp3?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1cmwiOiJhdWRpby8xMUwtMi5fU2tpcF9Ob3RpZmljYXRpb24tMTc0NDY2NDgwNDI3Ny5tcDMiLCJpYXQiOjE3NDQ2NzMzOTAsImV4cCI6MTc3NjIwOTM5MH0.AthBAnV2Z3I4yLxpb6ERQkrOK037Xu1TzTT24dJTSsg',
+  NEW_CUSTOMER: 'https://ppumccuvuckqrozhygew.supabase.co/storage/v1/object/sign/audio/11L-3._New_Customer_Noti-1744664868116.mp3?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1cmwiOiJhdWRpby8xMUwtMy5fTmV3X0N1c3RvbWVyX05vdGktMTc0NDY2NDg2ODExNi5tcDMiLCJpYXQiOjE3NDQ2NzM0MDMsImV4cCI6MTc3NjIwOTQwM30.36EHR9eio54dwbkpePPLxzw_dzTEftBYtLcBSFLYm4s'
+};
+
+// Notification action categories
+const NOTIFICATION_CATEGORIES = {
+  ROUTE_ALERT: 'route-alert'
+};
+
+// Default settings for geofencing
+const DEFAULT_SETTINGS = {
+  ALERT_DISTANCE: 50, // meters - notification alert distance
+  MIN_DISTANCE_CHANGE: 10, // meters - minimum movement to trigger check
+  NOTIFICATION_COOLDOWN: 2 * 60 * 1000, // 2 minutes between repeat notifications
+  BACKGROUND_UPDATE_INTERVAL: 20 * 1000, // 20 seconds in background
+  FOREGROUND_UPDATE_INTERVAL: 5 * 1000, // 5 seconds in foreground
+  LOCATION_ACCURACY: Location.Accuracy.High, // Increased accuracy
+  // Sound settings
+  SOUNDS: {
+    COLLECT: 'collect_sound', // Sound for regular collection
+    SKIP: 'skip_sound', // Sound for skip houses
+    NEW_CUSTOMER: 'new_customer_sound' // Sound for new customers
+  }
+};
+
+// Set up notification categories for acknowledgment
+const setupNotificationCategories = async () => {
+  await Notifications.setNotificationCategoryAsync(NOTIFICATION_CATEGORIES.ROUTE_ALERT, [
+    {
+      identifier: 'acknowledge',
+      buttonTitle: 'Acknowledge',
+      options: {
+        isDestructive: false,
+        isAuthenticationRequired: false,
+        opensAppToForeground: true
+      }
+    },
+    {
+      identifier: 'navigate',
+      buttonTitle: 'Navigate',
+      options: {
+        isDestructive: false,
+        isAuthenticationRequired: false,
+        opensAppToForeground: true
+      }
+    }
+  ]);
+};
+
+// Function to play sound from URL
+const playSoundFromURL = async (soundType) => {
+  try {
+    let soundURL;
+    
+    console.log(`Attempting to play sound: ${soundType}`);
+    
+    switch(soundType) {
+      case 'skip_sound':
+        soundURL = SOUND_URLS.SKIP;
+        console.log('Playing SKIP sound');
+        break;
+      case 'new_customer_sound':
+        soundURL = SOUND_URLS.NEW_CUSTOMER;
+        console.log('Playing NEW_CUSTOMER sound');
+        break;
+      case 'collect_sound':
+        soundURL = SOUND_URLS.COLLECT;
+        console.log('Playing COLLECT sound');
+        break;
+      default:
+        console.log(`Unknown sound type: ${soundType}, using COLLECT as default`);
+        soundURL = SOUND_URLS.COLLECT;
+    }
+    
+    if (!soundURL) {
+      console.error(`No URL found for sound type: ${soundType}`);
+      return null;
+    }
+    
+    console.log(`Loading sound from URL: ${soundURL.substring(0, 50)}...`);
+    
+    // Set up audio mode for best compatibility
+    await Audio.setAudioModeAsync({
+      playsInSilentModeIOS: true,
+      staysActiveInBackground: true,
+      shouldDuckAndroid: true,
+    });
+    
+    const soundObject = new Audio.Sound();
+    await soundObject.loadAsync({ uri: soundURL });
+    
+    // Set volume to maximum
+    await soundObject.setVolumeAsync(1.0);
+    
+    await soundObject.playAsync();
+    
+    // Unload sound when finished
+    soundObject.setOnPlaybackStatusUpdate(status => {
+      if (status.didJustFinish) {
+        soundObject.unloadAsync().catch(err => {
+          console.error("Error unloading sound:", err);
+        });
+      }
+    });
+    
+    return soundObject;
+  } catch (error) {
+    console.error('Error playing sound:', error);
+    return null;
+  }
 };
 
 export const useGeofencing = (houses, enabled = false) => {
@@ -20,6 +126,8 @@ export const useGeofencing = (houses, enabled = false) => {
   const [approachingHouses, setApproachingHouses] = useState([]);
   const [isTracking, setIsTracking] = useState(false);
   const [error, setError] = useState(null);
+  const [geofenceSettings, setGeofenceSettings] = useState(DEFAULT_SETTINGS);
+  const [isNotifying, setIsNotifying] = useState(false); // Track if notification is in progress
   
   // Performance optimizations with refs
   const lastNotifications = useRef(new Map());
@@ -28,12 +136,65 @@ export const useGeofencing = (houses, enabled = false) => {
   const appState = useRef(AppState.currentState);
   const housesRef = useRef(houses);
   const enabledRef = useRef(enabled);
+  const settingsRef = useRef(geofenceSettings);
+  const notificationQueue = useRef([]);
+  
+  // Set up notification categories
+  useEffect(() => {
+    setupNotificationCategories();
+  }, []);
+  
+  // Load geofence settings from AsyncStorage
+  useEffect(() => {
+    const loadSettings = async () => {
+      try {
+        const savedSettings = await AsyncStorage.getItem('geofenceSettings');
+        if (savedSettings) {
+          const parsedSettings = JSON.parse(savedSettings);
+          // Merge with defaults to ensure all properties exist
+          const mergedSettings = {
+            ...DEFAULT_SETTINGS,
+            ...parsedSettings
+          };
+          setGeofenceSettings(mergedSettings);
+          settingsRef.current = mergedSettings;
+        }
+      } catch (error) {
+        console.error('Error loading geofence settings:', error);
+      }
+    };
+    
+    loadSettings();
+  }, []);
   
   // Update refs when props change
   useEffect(() => {
     housesRef.current = houses;
     enabledRef.current = enabled;
-  }, [houses, enabled]);
+    settingsRef.current = geofenceSettings;
+  }, [houses, enabled, geofenceSettings]);
+
+  // Function to save geofence settings
+  const saveGeofenceSettings = useCallback(async (newSettings) => {
+    try {
+      const mergedSettings = {
+        ...settingsRef.current,
+        ...newSettings
+      };
+      
+      // Save to AsyncStorage
+      await AsyncStorage.setItem('geofenceSettings', JSON.stringify(mergedSettings));
+      
+      // Update state and ref
+      setGeofenceSettings(mergedSettings);
+      settingsRef.current = mergedSettings;
+      
+      return true;
+    } catch (error) {
+      console.error('Error saving geofence settings:', error);
+      return false;
+    }
+  }, []);
 
   const calculateDistance = useCallback((lat1, lon1, lat2, lon2) => {
     // Use haversine formula for better performance over long distances
@@ -47,20 +208,25 @@ export const useGeofencing = (houses, enabled = false) => {
     const key = `${houseId}-${notificationType}`;
     const lastNotification = lastNotifications.current.get(key);
     const now = Date.now();
-    return !lastNotification || (now - lastNotification) > GEOFENCE_SETTINGS.NOTIFICATION_COOLDOWN;
+    return !lastNotification || (now - lastNotification) > settingsRef.current.NOTIFICATION_COOLDOWN;
   }, []);
 
-  const showNotification = useCallback(async (house, distance) => {
-    // Determine house status
-    const isSkip = house.status?.toLowerCase() === 'skip';
-    const isNewCustomer = house.status?.toLowerCase() === 'new customer' || house.status?.toLowerCase() === 'new';
-    const isApproaching = distance > GEOFENCE_SETTINGS.INNER_RADIUS;
-    const notificationType = isApproaching ? 'approaching' : 'arriving';
+  // Process notification queue one at a time
+  const processNotificationQueue = useCallback(async () => {
+    if (notificationQueue.current.length === 0 || isNotifying) return;
     
-    if (!shouldNotify(house.id, notificationType)) return;
-    
+    setIsNotifying(true);
     try {
-      // Get color based on status - use the correct color scheme
+      // Get the next house from the queue
+      const { house, distance } = notificationQueue.current.shift();
+      
+      // Get the status of the house - normalize to lowercase and handle different formats
+      const status = house.status?.toLowerCase() || 'collect';
+      const isSkip = status === 'skip' || status === 'skipped';
+      const isNewCustomer = status === 'new customer' || status === 'new';
+      const isCollect = !isSkip && !isNewCustomer;
+      
+      // Get color based on status
       const statusColor = isSkip ? 
         '#EF4444' :  // Red for skip 
         isNewCustomer ? 
@@ -72,15 +238,62 @@ export const useGeofencing = (houses, enabled = false) => {
         '⚠️ SKIP HOUSE' : 
         isNewCustomer ? 
           '🆕 NEW CUSTOMER' : 
-          '🏠 Regular House';
+          '🏠 Regular Collection';
            
-      const body = `${isApproaching ? 'Approaching' : 'Arriving at'}: ${house.address}
+      const body = `Alert: ${house.address}
 ${Math.round(distance)}m away${house.notes ? `\nNote: ${house.notes}` : ''}`;
 
-      // Log notification for debugging
-      console.log(`Showing notification for ${house.status} house: ${house.address}`);
+      try {
+        // Set up audio mode for best compatibility
+        await Audio.setAudioModeAsync({
+          playsInSilentModeIOS: true,
+          staysActiveInBackground: true,
+          shouldDuckAndroid: true,
+        });
+        
+        // Choose the correct sound URL based on status
+        let soundURL;
+        if (isSkip) {
+          soundURL = SOUND_URLS.SKIP;
+          console.log('Playing SKIP sound');
+        } else if (isNewCustomer) {
+          soundURL = SOUND_URLS.NEW_CUSTOMER;
+          console.log('Playing NEW_CUSTOMER sound');
+        } else {
+          soundURL = SOUND_URLS.COLLECT;
+          console.log('Playing COLLECT sound');
+        }
+        
+        console.log(`Loading sound from URL: ${soundURL.substring(0, 50)}...`);
+        
+        // Create and load the sound
+        const soundObject = new Audio.Sound();
+        await soundObject.loadAsync({ uri: soundURL });
+        
+        // Set volume to maximum
+        await soundObject.setVolumeAsync(1.0);
+        
+        // Play the sound
+        await soundObject.playAsync();
+        
+        // Ensure sound gets unloaded when finished
+        soundObject.setOnPlaybackStatusUpdate(status => {
+          if (status.didJustFinish) {
+            soundObject.unloadAsync().catch(err => {
+              console.error("Error unloading sound:", err);
+            });
+          }
+        });
+        
+        // Wait a moment to ensure the sound has started playing
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+        console.log('Sound playback started successfully');
+      } catch (error) {
+        console.error('Error playing notification sound:', error);
+      }
 
-      // Schedule the notification with more attention-grabbing properties
+      // Schedule the notification with sound disabled (we're playing it manually)
       await Notifications.scheduleNotificationAsync({
         content: {
           title,
@@ -90,26 +303,64 @@ ${Math.round(distance)}m away${house.notes ? `\nNote: ${house.notes}` : ''}`;
             status: house.status,
             distance,
             address: house.address,
-            statusColor, // Add the color for UI usage
+            statusColor,
             lat: house.lat,
             lng: house.lng
           },
-          categoryIdentifier: 'route',
-          sound: true,
-          priority: 'high',
-          vibrate: isSkip || isNewCustomer ? [0, 250, 250, 250] : undefined, // Vibrate for skip/new customer
+          categoryIdentifier: NOTIFICATION_CATEGORIES.ROUTE_ALERT,
+          sound: false, // Disable the default sound since we play our custom sound manually
+          priority: Notifications.AndroidNotificationPriority.MAX,
+          vibrate: true, // Vibrate for all notifications
+          sticky: true, // Makes the notification not auto-dismissable on Android
+          autoDismiss: false // Prevents auto-dismiss when tapped
         },
         trigger: null, // Send immediately
       });
 
       // Record notification time to prevent spam
-      const key = `${house.id}-${notificationType}`;
+      const key = `${house.id}-alert`;
       lastNotifications.current.set(key, Date.now());
+      
+      // Process the next notification after a delay
+      setTimeout(() => {
+        setIsNotifying(false);
+        processNotificationQueue();
+      }, 2500); // Wait 2.5 seconds between notifications for sound to finish
+      
     } catch (error) {
-      console.error('Error showing notification:', error);
+      console.error('Error processing notification queue:', error);
       setError('Failed to show notification');
+      setIsNotifying(false);
+      // Try to continue with the next notification
+      setTimeout(processNotificationQueue, 1000);
     }
-  }, [shouldNotify]);
+  }, []);
+  
+  // Effect to start processing the queue when items are added
+  useEffect(() => {
+    processNotificationQueue();
+  }, [processNotificationQueue]);
+
+  const showNotification = useCallback(async (house, distance) => {
+    // Determine house status
+    const status = house.status?.toLowerCase() || 'collect';
+    
+    // Use only alert distance now
+    if (!shouldNotify(house.id, 'alert')) return;
+    
+    try {
+      // Add to notification queue instead of showing immediately
+      notificationQueue.current.push({ house, distance });
+      
+      // Start processing the queue if not already running
+      if (!isNotifying) {
+        processNotificationQueue();
+      }
+    } catch (error) {
+      console.error('Error queueing notification:', error);
+      setError('Failed to queue notification');
+    }
+  }, [shouldNotify, isNotifying, processNotificationQueue]);
 
   const checkNearbyHouses = useCallback(async (location) => {
     // Get current houses from ref for performance
@@ -127,7 +378,7 @@ ${Math.round(distance)}m away${house.notes ? `\nNote: ${house.notes}` : ''}`;
         lastLocation.current.longitude
       );
       
-      if (distance < GEOFENCE_SETTINGS.MIN_DISTANCE_CHANGE) {
+      if (distance < settingsRef.current.MIN_DISTANCE_CHANGE) {
         return;
       }
     }
@@ -136,8 +387,7 @@ ${Math.round(distance)}m away${house.notes ? `\nNote: ${house.notes}` : ''}`;
     lastLocation.current = location;
 
     try {
-      const nearby = [];
-      const approaching = [];
+      const alertHouses = [];
 
       // Use for loop instead of forEach for better performance
       for (let i = 0; i < currentHouses.length; i++) {
@@ -151,56 +401,39 @@ ${Math.round(distance)}m away${house.notes ? `\nNote: ${house.notes}` : ''}`;
           parseFloat(house.lng)
         );
 
-        // Track houses within outer radius
-        if (distance <= GEOFENCE_SETTINGS.OUTER_RADIUS) {
+        // Only track houses within alert distance
+        if (distance <= settingsRef.current.ALERT_DISTANCE) {
           const houseWithDistance = { ...house, distance };
-          
-          if (distance <= GEOFENCE_SETTINGS.INNER_RADIUS) {
-            nearby.push(houseWithDistance);
-          } else {
-            approaching.push(houseWithDistance);
-          }
+          alertHouses.push(houseWithDistance);
         }
       }
 
       // Sort by distance
-      nearby.sort((a, b) => a.distance - b.distance);
-      approaching.sort((a, b) => a.distance - b.distance);
+      alertHouses.sort((a, b) => a.distance - b.distance);
 
       // Find newly detected houses - optimize comparison with Set
-      const currentNearbyIds = new Set(nearbyHouses.map(h => h.id));
-      const currentApproachingIds = new Set(approachingHouses.map(h => h.id));
+      const currentAlertIds = new Set(nearbyHouses.map(h => h.id));
       
-      const newNearby = nearby.filter(house => !currentNearbyIds.has(house.id));
-      const newApproaching = approaching.filter(house => 
-        !currentApproachingIds.has(house.id) && !currentNearbyIds.has(house.id)
-      );
+      const newAlertHouses = alertHouses.filter(house => !currentAlertIds.has(house.id));
 
       // Batch notifications for better performance
       const notificationPromises = [];
       
       // Show notifications for new nearby houses
-      for (const house of newNearby) {
+      for (const house of newAlertHouses) {
         notificationPromises.push(showNotification(house, house.distance));
-      }
-
-      // Show notifications for special houses that are approaching
-      for (const house of newApproaching) {
-        if (house.status === 'skip' || house.status === 'new customer') {
-          notificationPromises.push(showNotification(house, house.distance));
-        }
       }
       
       // Process all notifications in parallel
       await Promise.all(notificationPromises);
 
-      setNearbyHouses(nearby);
-      setApproachingHouses(approaching);
+      setNearbyHouses(alertHouses);
+      setApproachingHouses([]); // No longer using approaching houses
     } catch (error) {
       console.error('Error checking nearby houses:', error);
       setError('Failed to check nearby houses');
     }
-  }, [nearbyHouses, approachingHouses, calculateDistance, showNotification]);
+  }, [nearbyHouses, calculateDistance, showNotification]);
 
   const startTracking = useCallback(async () => {
     if (isTracking || !enabledRef.current) return;
@@ -224,11 +457,11 @@ ${Math.round(distance)}m away${house.notes ? `\nNote: ${house.notes}` : ''}`;
 
       // Configure location tracking based on permissions
       const locationConfig = {
-        accuracy: GEOFENCE_SETTINGS.LOCATION_ACCURACY,
-        distanceInterval: GEOFENCE_SETTINGS.MIN_DISTANCE_CHANGE,
+        accuracy: settingsRef.current.LOCATION_ACCURACY,
+        distanceInterval: settingsRef.current.MIN_DISTANCE_CHANGE,
         timeInterval: appState.current === 'active' 
-          ? GEOFENCE_SETTINGS.FOREGROUND_UPDATE_INTERVAL 
-          : GEOFENCE_SETTINGS.BACKGROUND_UPDATE_INTERVAL,
+          ? settingsRef.current.FOREGROUND_UPDATE_INTERVAL 
+          : settingsRef.current.BACKGROUND_UPDATE_INTERVAL,
         mayShowUserSettingsDialog: true,
       };
 
@@ -332,5 +565,8 @@ ${Math.round(distance)}m away${house.notes ? `\nNote: ${house.notes}` : ''}`;
     approachingHouses,
     isTracking,
     error,
+    settings: geofenceSettings,
+    saveSettings: saveGeofenceSettings,
+    playSound: playSoundFromURL, // Export the sound playing function
   };
 }; 

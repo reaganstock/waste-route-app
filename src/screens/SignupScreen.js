@@ -4,11 +4,9 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  KeyboardAvoidingView,
   Platform,
   Alert,
   ActivityIndicator,
-  ScrollView,
   StyleSheet,
 } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
@@ -16,6 +14,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../contexts/AuthContext';
+import KeyboardAwareView from '../components/KeyboardAwareView';
 
 export default function SignupScreen() {
   const router = useRouter();
@@ -136,9 +135,9 @@ export default function SignupScreen() {
   }
 
   return (
-    <KeyboardAvoidingView 
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+    <KeyboardAwareView 
       style={styles.container}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 50 : 0}
     >
       <View style={styles.header}>
         <TouchableOpacity 
@@ -160,7 +159,7 @@ export default function SignupScreen() {
         <Text style={styles.subtitle}>Create your account</Text>
       </View>
 
-      <ScrollView style={styles.form}>
+      <View style={styles.form}>
         {role === 'owner' && (
           <View style={styles.inputContainer}>
             <Ionicons name="business" size={20} color="#6B7280" style={styles.inputIcon} />
@@ -222,25 +221,43 @@ export default function SignupScreen() {
           />
         </View>
 
-        {/* --- Add Role Selection UI --- */}
-        <Text style={styles.roleLabel}>Select Account Type:</Text>
-        <View style={styles.roleSelectorContainer}>
-          <TouchableOpacity
-            style={[styles.roleButton, role === 'owner' && styles.roleButtonSelected]}
-            onPress={() => setRole('owner')}
-          >
-            <Ionicons name="briefcase" size={20} color={role === 'owner' ? '#fff' : '#6B7280'} style={styles.roleIcon} />
-            <Text style={[styles.roleButtonText, role === 'owner' && styles.roleButtonTextSelected]}>Business Owner</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.roleButton, role === 'driver' && styles.roleButtonSelected]}
-            onPress={() => setRole('driver')}
-          >
-            <Ionicons name="person" size={20} color={role === 'driver' ? '#fff' : '#6B7280'} style={styles.roleIcon} />
-            <Text style={[styles.roleButtonText, role === 'driver' && styles.roleButtonTextSelected]}>Employee / Driver</Text>
-          </TouchableOpacity>
+        <View style={styles.roleContainer}>
+          <Text style={styles.roleLabel}>I am:</Text>
+          <View style={styles.roleButtons}>
+            <TouchableOpacity 
+              style={[
+                styles.roleButton, 
+                role === 'owner' && styles.roleButtonActive
+              ]}
+              onPress={() => setRole('owner')}
+            >
+              <Text 
+                style={[
+                  styles.roleButtonText,
+                  role === 'owner' && styles.roleButtonTextActive
+                ]}
+              >
+                Business Owner
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={[
+                styles.roleButton, 
+                role === 'driver' && styles.roleButtonActive
+              ]}
+              onPress={() => setRole('driver')}
+            >
+              <Text 
+                style={[
+                  styles.roleButtonText,
+                  role === 'driver' && styles.roleButtonTextActive
+                ]}
+              >
+                Driver
+              </Text>
+            </TouchableOpacity>
+          </View>
         </View>
-        {/* --- End Role Selection UI --- */}
 
         <TouchableOpacity
           style={[styles.signupButton, loading && styles.signupButtonDisabled]}
@@ -254,21 +271,21 @@ export default function SignupScreen() {
             {loading ? (
               <ActivityIndicator color="#fff" />
             ) : (
-              <Text style={styles.signupButtonText}>Create Business Account</Text>
+              <Text style={styles.signupButtonText}>Create Account</Text>
             )}
           </LinearGradient>
         </TouchableOpacity>
 
         <TouchableOpacity 
-          style={styles.loginButtonLink}
-          onPress={() => router.push('/(auth)')}
+          style={styles.loginLinkButton}
+          onPress={() => router.replace('/(auth)')}
         >
-          <Text style={styles.loginText}>
-            Already have an account? <Text style={styles.loginTextBold}>Log in</Text>
+          <Text style={styles.loginLinkText}>
+            Already have an account? <Text style={styles.loginLinkTextBold}>Log in</Text>
           </Text>
         </TouchableOpacity>
-      </ScrollView>
-    </KeyboardAvoidingView>
+      </View>
+    </KeyboardAwareView>
   );
 }
 
@@ -354,15 +371,15 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
   },
-  loginButtonLink: {
+  loginLinkButton: {
     alignItems: 'center',
     marginBottom: 40,
   },
-  loginText: {
+  loginLinkText: {
     color: '#6B7280',
     fontSize: 14,
   },
-  loginTextBold: {
+  loginLinkTextBold: {
     color: '#3B82F6',
     fontWeight: '600',
   },
@@ -486,4 +503,18 @@ const styles = StyleSheet.create({
       color: '#fff',
   },
   // --- End Role Selector Styles ---
+  roleContainer: {
+    marginBottom: 20,
+  },
+  roleButtons: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  roleButtonActive: {
+    backgroundColor: '#3B82F6',
+    borderColor: '#3B82F6',
+  },
+  roleButtonTextActive: {
+    color: '#fff',
+  },
 }); 

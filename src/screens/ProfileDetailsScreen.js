@@ -17,6 +17,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
+import KeyboardAwareView from '../components/KeyboardAwareView';
 
 const InputField = ({ label, value, onChangeText, editable, icon }) => (
   <View style={styles.fieldContainer}>
@@ -171,7 +172,10 @@ const ProfileDetailsScreen = () => {
   };
 
   return (
-    <View style={styles.container}>
+    <KeyboardAwareView 
+      style={styles.container}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
+    >
       <LinearGradient
         colors={['#1a1a1a', '#000000']}
         style={StyleSheet.absoluteFill}
@@ -244,7 +248,7 @@ const ProfileDetailsScreen = () => {
             label="Email"
             value={formData.email}
             onChangeText={(text) => setFormData({ ...formData, email: text })}
-            editable={isEditing}
+            editable={false}
             icon="mail-outline"
           />
           <InputField
@@ -256,7 +260,7 @@ const ProfileDetailsScreen = () => {
           />
           <InputField
             label="Role"
-            value={formData.role}
+            value={formData.role === 'owner' ? 'Business Owner' : formData.role === 'admin' ? 'Administrator' : 'Driver'}
             editable={false}
             icon="briefcase-outline"
           />
@@ -275,7 +279,7 @@ const ProfileDetailsScreen = () => {
           />
         </View>
       </ScrollView>
-    </View>
+    </KeyboardAwareView>
   );
 };
 
