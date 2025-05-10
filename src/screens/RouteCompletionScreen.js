@@ -49,7 +49,10 @@ const RouteCompletionScreen = () => {
   const summary = params.summary ? JSON.parse(params.summary) : defaultSummary;
 
   const duration = Math.round((new Date(summary.endTime) - new Date(summary.startTime)) / (1000 * 60));
-  const efficiency = Math.round((summary.completed / (summary.total || 1)) * 100);
+  const completionRate = summary.completed / (summary.total || 1);
+  const housesPerHour = duration === 0 ? 0 : (summary.completed / (duration / 60));
+  const speedEfficiency = Math.min(housesPerHour / 60, 1); // Cap at 100%
+  const efficiency = Math.round((0.6 * completionRate + 0.4 * speedEfficiency) * 100);
   const binsPerHour = duration === 0 ? 0 : Math.round((summary.completed / (duration / 60)) * 10) / 10;
 
   const handleShare = async () => {
@@ -106,6 +109,9 @@ const RouteCompletionScreen = () => {
       <ScrollView 
         style={styles.content}
         showsVerticalScrollIndicator={false}
+        scrollEnabled={true}
+        bounces={false}
+        overScrollMode="never"
       >
         <View style={styles.congratsSection}>
           <LinearGradient
@@ -195,6 +201,11 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: 'transparent',
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
   },
   header: {
     flexDirection: 'row',
@@ -427,6 +438,7 @@ const styles = StyleSheet.create({
   },
 });
 
+export { RouteCompletionScreen };
 export default RouteCompletionScreen; 
  
  

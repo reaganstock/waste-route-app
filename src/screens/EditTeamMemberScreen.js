@@ -237,6 +237,8 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: '600',
     color: '#fff',
+    flex: 1,
+    textAlign: 'center',
   },
   backButton: {
     width: 40,

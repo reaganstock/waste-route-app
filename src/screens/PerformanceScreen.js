@@ -9,6 +9,8 @@ import {
   Dimensions,
   ActivityIndicator,
   Image,
+  Animated,
+  Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -16,32 +18,77 @@ import { supabase } from '../lib/supabase';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 
-const MetricCard = ({ title, value, icon, trend, trendValue }) => (
-  <View style={styles.metricCard}>
-    <View style={styles.metricHeader}>
-      <View style={styles.metricIcon}>
-        <Ionicons name={icon} size={24} color="#3B82F6" />
-      </View>
-      {trend && trendValue && (
-        <View style={styles.trendContainer}>
-          <Ionicons 
-            name={trend === 'up' ? 'arrow-up' : 'arrow-down'} 
-            size={16} 
-            color={trend === 'up' ? '#10B981' : '#EF4444'} 
-          />
-          <Text style={[
-            styles.trendText,
-            { color: trend === 'up' ? '#10B981' : '#EF4444' }
-          ]}>
-            {trendValue}%
-          </Text>
+const { width } = Dimensions.get('window');
+const CARD_PADDING = 16;
+const CARD_MARGIN = 8;
+const CARD_WIDTH = (width - (CARD_PADDING * 2) - (CARD_MARGIN * 2)) / 2;
+
+const MetricCard = ({ title, value, icon, trend, trendValue }) => {
+  const [scaleAnim] = useState(new Animated.Value(0.95));
+  const [opacityAnim] = useState(new Animated.Value(0));
+
+  useEffect(() => {
+    Animated.parallel([
+      Animated.spring(scaleAnim, {
+        toValue: 1,
+        tension: 100,
+        friction: 8,
+        useNativeDriver: true,
+      }),
+      Animated.timing(opacityAnim, {
+        toValue: 1,
+        duration: 500,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, []);
+
+  return (
+    <Animated.View style={[
+      styles.metricCard,
+      {
+        transform: [{ scale: scaleAnim }],
+        opacity: opacityAnim,
+      }
+    ]}>
+      <LinearGradient
+        colors={['rgba(59, 130, 246, 0.1)', 'rgba(59, 130, 246, 0.05)']}
+        style={styles.metricGradient}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+      >
+        <View style={styles.metricIcon}>
+          <LinearGradient
+            colors={['#3B82F6', '#2563EB']}
+            style={styles.iconGradient}
+          >
+            <Ionicons name={icon} size={24} color="#fff" />
+          </LinearGradient>
         </View>
-      )}
-    </View>
-    <Text style={styles.metricValue}>{value}</Text>
-    <Text style={styles.metricTitle}>{title}</Text>
-  </View>
-);
+        <Text style={styles.metricTitle}>{title}</Text>
+        <Text style={styles.metricValue}>{value}</Text>
+        {trend && (
+          <View style={[
+            styles.trendBadge,
+            { backgroundColor: trend === 'up' ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)' }
+          ]}>
+            <Ionicons
+              name={trend === 'up' ? 'trending-up' : 'trending-down'}
+              size={16}
+              color={trend === 'up' ? '#10B981' : '#EF4444'}
+            />
+            <Text style={[
+              styles.trendValue,
+              { color: trend === 'up' ? '#10B981' : '#EF4444' }
+            ]}>
+              {trendValue}%
+            </Text>
+          </View>
+        )}
+      </LinearGradient>
+    </Animated.View>
+  );
+};
 
 const PerformanceScreen = () => {
   const router = useRouter();
@@ -51,10 +98,10 @@ const PerformanceScreen = () => {
   const [error, setError] = useState(null);
   const [selectedPeriod, setSelectedPeriod] = useState('week');
   const [metrics, setMetrics] = useState({
+    totalHouses: 0,
     routesCompleted: 0,
-    housesServiced: 0,
-    efficiency: 0,
     hoursDriven: 0,
+    efficiency: 0
   });
   const [recentRoutes, setRecentRoutes] = useState([]);
 
@@ -67,71 +114,100 @@ const PerformanceScreen = () => {
       setLoading(true);
       setError(null);
 
-      // Get date range based on selected period
-      const now = new Date();
-      let startDate = new Date();
-      switch (selectedPeriod) {
-        case 'week':
-          startDate.setDate(now.getDate() - 7);
-          break;
-        case 'month':
-          startDate.setMonth(now.getMonth() - 1);
-          break;
-        case 'year':
-          startDate.setFullYear(now.getFullYear() - 1);
-          break;
-      }
-
-      // Fetch member profile and routes
+      // First fetch the member details
       const { data: memberData, error: memberError } = await supabase
         .from('profiles')
-        .select(`
-          *,
-          routes:routes(
-            id,
-            name,
-            date,
-            status,
-            completed_houses,
-            total_houses,
-            efficiency,
-            duration
-          )
-        `)
+        .select('*')
         .eq('id', id)
         .single();
 
       if (memberError) throw memberError;
-
-      // Calculate metrics
-      const periodRoutes = memberData.routes?.filter(r => 
-        new Date(r.date) >= startDate && new Date(r.date) <= now
-      ) || [];
-
-      const completedRoutes = periodRoutes.filter(r => r.status === 'completed');
-      const totalHousesServiced = completedRoutes.reduce((sum, r) => sum + (r.completed_houses || 0), 0);
-      const avgEfficiency = completedRoutes.length > 0
-        ? completedRoutes.reduce((sum, r) => sum + (r.efficiency || 0), 0) / completedRoutes.length
-        : 0;
-      const totalHours = completedRoutes.reduce((sum, r) => sum + (r.duration || 0), 0);
-
       setMember(memberData);
-      setMetrics({
-        routesCompleted: completedRoutes.length,
-        housesServiced: totalHousesServiced,
-        efficiency: Math.round(avgEfficiency),
-        hoursDriven: Math.round(totalHours),
+
+      // Get current date
+      const now = new Date();
+      let startDate;
+
+      // Set start date based on selected period
+      switch (selectedPeriod) {
+        case 'week':
+          startDate = new Date(now);
+          startDate.setDate(startDate.getDate() - 7);
+          break;
+        case 'month':
+          startDate = new Date(now);
+          startDate.setMonth(startDate.getMonth() - 1);
+          break;
+        case 'year':
+          startDate = new Date(now);
+          startDate.setFullYear(startDate.getFullYear() - 1);
+          break;
+        default:
+          startDate = new Date(now);
+          startDate.setDate(startDate.getDate() - 7);
+      }
+
+      // Fetch all completed routes for the member
+      const { data: allRoutes, error: routesError } = await supabase
+        .from('routes')
+        .select(`
+          id,
+          name,
+          date,
+          status,
+          completed_houses,
+          total_houses,
+          duration,
+          efficiency
+        `)
+        .eq('driver_id', id)
+        .eq('status', 'completed')
+        .order('date', { ascending: false });
+
+      if (routesError) throw routesError;
+
+      // Calculate all-time metrics
+      const totalHousesServiced = allRoutes.reduce((sum, route) => 
+        sum + (route.completed_houses || 0), 0);
+      const completedRoutes = allRoutes.length;
+      const totalHoursDriven = allRoutes.reduce((sum, route) => 
+        sum + (route.duration || 0), 0);
+
+      // Filter routes for the selected period (for efficiency calculation)
+      const periodRoutes = allRoutes.filter(route => {
+        const routeDate = new Date(route.date);
+        return routeDate >= startDate && routeDate <= now;
       });
 
-      // Get recent routes
-      setRecentRoutes(
-        memberData.routes
-          ?.sort((a, b) => new Date(b.date) - new Date(a.date))
-          .slice(0, 5) || []
-      );
+      // Calculate average efficiency for the period using 60/40 formula
+      let periodEfficiency = 0;
+      if (periodRoutes.length > 0) {
+        const routeEfficiencies = periodRoutes
+          .filter(route => route.completed_houses && route.total_houses && route.duration)
+          .map(route => {
+            const completionRate = route.completed_houses / route.total_houses;
+            const housesPerHour = (route.completed_houses / (route.duration / 60)) || 0;
+            const speedEfficiency = Math.min(housesPerHour / 60, 1); // Cap at 100%
+            return (0.6 * completionRate + 0.4 * speedEfficiency) * 100;
+          });
+
+        if (routeEfficiencies.length > 0) {
+          periodEfficiency = Math.round(routeEfficiencies.reduce((sum, eff) => sum + eff, 0) / routeEfficiencies.length);
+        }
+      }
+
+      setMetrics({
+        totalHouses: totalHousesServiced,
+        routesCompleted: completedRoutes,
+        hoursDriven: Number((totalHoursDriven / 60).toFixed(1)), // Convert minutes to hours with 1 decimal
+        efficiency: periodEfficiency
+      });
+
+      // Set recent routes for the timeline (from the selected period)
+      setRecentRoutes(periodRoutes.slice(0, 5));
 
     } catch (error) {
-      console.error('Error fetching performance data:', error);
+      console.error('Error fetching member data:', error);
       setError(error.message);
     } finally {
       setLoading(false);
@@ -233,8 +309,8 @@ const PerformanceScreen = () => {
             icon="checkmark-circle-outline"
           />
           <MetricCard
-            title="Houses Serviced"
-            value={metrics.housesServiced}
+            title="Total Houses"
+            value={metrics.totalHouses}
             icon="home-outline"
           />
           <MetricCard
@@ -256,7 +332,7 @@ const PerformanceScreen = () => {
               <TouchableOpacity 
                 key={route.id}
                 style={styles.timelineItem}
-                onPress={() => router.push(`/route/${route.id}`)}
+                onPress={() => router.push(`/route/${route.id}/details`)}
               >
                 <View style={styles.timelineDot} />
                 <View style={styles.timelineContent}>
@@ -325,6 +401,7 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.1)',
   },
   headerTitle: {
     fontSize: 20,
@@ -397,47 +474,52 @@ const styles = StyleSheet.create({
   metricsGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 12,
+    justifyContent: 'space-between',
+    gap: 16,
     marginBottom: 24,
   },
   metricCard: {
-    width: (Dimensions.get('window').width - 52) / 2,
-    backgroundColor: '#374151',
-    borderRadius: 12,
-    padding: 16,
+    width: (width - 56) / 2,
+    borderRadius: 16,
+    overflow: 'hidden',
+    marginBottom: 8,
   },
-  metricHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+  metricGradient: {
+    padding: 16,
     alignItems: 'center',
-    marginBottom: 12,
   },
   metricIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(59,130,246,0.1)',
+    marginBottom: 12,
+  },
+  iconGradient: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  trendContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  trendText: {
-    fontSize: 12,
-    fontWeight: '500',
+  metricTitle: {
+    color: '#9CA3AF',
+    fontSize: 14,
+    marginBottom: 8,
   },
   metricValue: {
     color: '#fff',
     fontSize: 24,
-    fontWeight: 'bold',
-    marginBottom: 4,
+    fontWeight: '600',
+    marginBottom: 12,
   },
-  metricTitle: {
-    color: '#9CA3AF',
+  trendBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    gap: 4,
+  },
+  trendValue: {
     fontSize: 12,
+    fontWeight: '600',
   },
   section: {
     marginBottom: 24,

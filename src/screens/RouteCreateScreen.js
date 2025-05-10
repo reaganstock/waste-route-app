@@ -19,11 +19,10 @@ import * as WebBrowser from 'expo-web-browser';
 import Map from '../components/Map';
 import { mockTeamMembers } from '../lib/mockData';
 import { supabase } from '../lib/supabase';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import Papa from 'papaparse';
 import { v4 as uuidv4 } from 'uuid';
 import { useAuth } from '../contexts/AuthContext';
-import { useLocalSearchParams } from 'expo-router';
 
 // Google OAuth2 credentials - you'll need to replace these with your own
 const GOOGLE_CLIENT_ID = 'YOUR_GOOGLE_CLIENT_ID';
@@ -83,6 +82,39 @@ const geocodeAddress = async (address) => {
   }
 };
 
+const getStatusColor = (status) => {
+  switch (status?.toLowerCase()) {
+    case 'collect':
+      return '#6B7280'; // grey
+    case 'skip':
+      return '#EF4444'; // red
+    case 'new customer':
+      return '#10B981'; // green
+    case 'pending':
+    default:
+      return '#3B82F6'; // blue
+  }
+};
+
+const AddressCard = ({ house, onRemove }) => (
+  <View style={[styles.addressCard, { borderLeftColor: getStatusColor(house.status) }]}>
+    <View style={styles.addressContent}>
+      <Text style={styles.addressText}>{house.address}</Text>
+      <View style={[styles.statusBadge, { backgroundColor: `${getStatusColor(house.status)}20` }]}>
+        <Text style={[styles.statusText, { color: getStatusColor(house.status) }]}>
+          {house.status}
+        </Text>
+      </View>
+      {house.notes && (
+        <Text style={styles.notesText}>{house.notes}</Text>
+      )}
+    </View>
+    <TouchableOpacity onPress={onRemove} style={styles.removeButton}>
+      <Ionicons name="close-circle" size={24} color="#EF4444" />
+    </TouchableOpacity>
+  </View>
+);
+
 const parseAddressList = (text) => {
   // Split by newlines and filter empty lines
   const addresses = text.split('\n')
@@ -93,31 +125,16 @@ const parseAddressList = (text) => {
     // Split by commas and trim each part
     const parts = address.split(',').map(part => part.trim());
     
-    // Need at least street, city, state, zip
+    // Need at least address, city, state, zip
     if (parts.length < 4) return null;
 
-    const [street, city, state, zip, ...rest] = parts;
-    const inputStatus = rest[0]?.toLowerCase() || 'pending';
-    const notes = rest[1] || '';
-
-    // Map input status to database enum values
-    let status;
-    switch (inputStatus) {
-      case 'skip':
-      case 'skipped':
-        status = 'skipped';
-        break;
-      case 'complete':
-      case 'completed':
-        status = 'completed';
-        break;
-      default:
-        status = 'pending';
-    }
+    // Format: "123 Address, City, State, Zip Code, status, notes"
+    const [street, city, state, zip, status = 'pending', ...noteParts] = parts;
+    const notes = noteParts.join(',').trim(); // Join remaining parts as notes
 
     return {
       address: `${street}, ${city}, ${state} ${zip}`,
-      status: status,
+      status: processHouseStatus(status),
       notes: notes,
       lat: null,
       lng: null
@@ -138,15 +155,37 @@ const parseGoogleSheetData = (values) => {
     .filter(house => house.address && house.lat && house.lng);
 };
 
+const processHouseStatus = (status) => {
+  // Convert status to lowercase and trim
+  const normalizedStatus = status?.toLowerCase().trim();
+  
+  // Check if it's one of our valid statuses
+  if (['skip', 'collect', 'new customer', 'pending'].includes(normalizedStatus)) {
+    return normalizedStatus;
+  }
+  
+  // Handle legacy or incorrect statuses
+  switch (normalizedStatus) {
+    case 'new':
+      return 'new customer';
+    case 'completed':
+      return 'collect';
+    case 'skipped':
+      return 'skip';
+    default:
+      return 'pending';
+  }
+};
+
 const RouteCreateScreen = React.forwardRef(({ isEditing = false, existingRoute = null, hideHeader = false, onRouteChange }, ref) => {
   const router = useRouter();
   const { user } = useAuth();
-  const { driver_id } = useLocalSearchParams();
+  const { driver } = useLocalSearchParams();
   const [name, setName] = useState(existingRoute?.name || '');
   const [date, setDate] = useState(existingRoute?.date ? new Date(existingRoute.date) : new Date());
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [drivers, setDrivers] = useState([]);
-  const [selectedDriver, setSelectedDriver] = useState(driver_id || existingRoute?.driver_id || user?.id);
+  const [selectedDriver, setSelectedDriver] = useState(driver || null);
   const [uploading, setUploading] = useState(false);
   const [houses, setHouses] = useState(existingRoute?.houses || []);
   const [addressInput, setAddressInput] = useState('');
@@ -157,6 +196,12 @@ const RouteCreateScreen = React.forwardRef(({ isEditing = false, existingRoute =
   useEffect(() => {
     fetchDrivers();
   }, []);
+
+  useEffect(() => {
+    if (driver) {
+      setSelectedDriver(driver);
+    }
+  }, [driver]);
 
   const fetchDrivers = async () => {
     try {
@@ -291,49 +336,42 @@ const RouteCreateScreen = React.forwardRef(({ isEditing = false, existingRoute =
     setHouses(prevHouses => prevHouses.filter((_, i) => i !== index));
   };
 
-  const handleCreate = async () => {
-    if (!name.trim()) {
-      Alert.alert('Error', 'Please enter a route name');
-      return;
-    }
-
-    if (houses.length === 0) {
-      Alert.alert('Error', 'Please add at least one house to the route');
-      return;
-    }
-
+  const handleCreateRoute = async () => {
     try {
-      // Create the route
+      setUploading(true);
+
+      // Create route first
       const { data: route, error: routeError } = await supabase
         .from('routes')
-        .insert([
-          {
-            name: name.trim(),
-            date,
-            driver_id: selectedDriver,
-            status: 'pending',
-            total_houses: houses.length,
-          }
-        ])
+        .insert({
+          name: name.trim(),
+          date: date.toISOString(),
+          driver_id: selectedDriver,
+          status: 'pending',
+          start_time: new Date().toISOString(),
+          total_houses: houses.length,
+          completed_houses: 0
+        })
         .select()
         .single();
 
       if (routeError) throw routeError;
 
-      // Add houses to the route
+      // Process houses data with proper status handling
+      const housesData = houses.map(house => ({
+        route_id: route.id,
+        address: house.address,
+        status: processHouseStatus(house.status),
+        notes: house.notes,
+        is_new_customer: house.status === 'new customer' || house.status === 'new',
+        lat: house.lat,
+        lng: house.lng
+      }));
+
+      // Insert houses
       const { error: housesError } = await supabase
         .from('houses')
-        .insert(
-          houses.map(house => ({
-            route_id: route.id,
-            address: house.address,
-            lat: house.lat,
-            lng: house.lng,
-            status: house.status,
-            notes: house.notes,
-            is_new_customer: house.status === 'new'
-          }))
-        );
+        .insert(housesData);
 
       if (housesError) throw housesError;
 
@@ -342,6 +380,8 @@ const RouteCreateScreen = React.forwardRef(({ isEditing = false, existingRoute =
     } catch (error) {
       console.error('Error creating route:', error);
       Alert.alert('Error', 'Failed to create route');
+    } finally {
+      setUploading(false);
     }
   };
 
@@ -405,7 +445,7 @@ const RouteCreateScreen = React.forwardRef(({ isEditing = false, existingRoute =
               styles.createButton, 
               (!name || !selectedDriver || houses.length === 0) && styles.createButtonDisabled
             ]}
-            onPress={handleCreate}
+            onPress={handleCreateRoute}
             disabled={!name || !selectedDriver || houses.length === 0 || uploading}
           >
             {uploading ? (
@@ -577,21 +617,7 @@ const RouteCreateScreen = React.forwardRef(({ isEditing = false, existingRoute =
 
               <View style={styles.housesList}>
                 {houses.map((house, index) => (
-                  <View key={`house-${index}`} style={styles.houseItem}>
-                    <View style={styles.houseItemContent}>
-                      <Text style={styles.houseAddress}>{house.address}</Text>
-                      {house.notes && (
-                        <Text style={styles.houseNotes}>{house.notes}</Text>
-                      )}
-                      <Text style={styles.houseStatus}>Status: {house.status}</Text>
-                    </View>
-                    <TouchableOpacity
-                      style={styles.removeButton}
-                      onPress={() => removeHouse(index)}
-                    >
-                      <Ionicons name="close-circle" size={20} color="#EF4444" />
-                    </TouchableOpacity>
-                  </View>
+                  <AddressCard key={`house-${index}`} house={house} onRemove={() => removeHouse(index)} />
                 ))}
               </View>
             </>
@@ -735,25 +761,41 @@ const styles = StyleSheet.create({
   housesList: {
     gap: 12,
   },
-  houseItem: {
+  addressCard: {
     backgroundColor: '#1F2937',
-    padding: 12,
-    borderRadius: 8,
-    marginBottom: 8,
+    borderRadius: 12,
+    marginBottom: 12,
+    padding: 16,
+    borderLeftWidth: 4,
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
   },
-  houseItemContent: {
+  addressContent: {
     flex: 1,
+    gap: 8,
   },
-  houseAddress: {
+  addressText: {
     color: '#fff',
     fontSize: 16,
-    marginBottom: 4,
+    fontWeight: '500',
   },
-  houseNotes: {
-    color: '#6B7280',
+  statusBadge: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 12,
+  },
+  statusText: {
     fontSize: 14,
+    fontWeight: '600',
+    textTransform: 'capitalize',
+  },
+  notesText: {
+    color: '#9CA3AF',
+    fontSize: 14,
+  },
+  removeButton: {
+    marginLeft: 12,
   },
   uploadButtons: {
     flexDirection: 'row',
@@ -807,13 +849,6 @@ const styles = StyleSheet.create({
     color: '#6B7280',
     fontSize: 12,
     marginBottom: 16,
-  },
-  removeButton: {
-    padding: 8,
-  },
-  houseStatus: {
-    color: '#6B7280',
-    fontSize: 14,
   },
   map: {
     flex: 1,

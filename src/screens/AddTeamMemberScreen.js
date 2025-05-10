@@ -14,10 +14,10 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
-import { supabase } from '../lib/supabase';
-import { useTeamMembers } from '../hooks/useTeamMembers';
-import { supabaseAdmin } from '../lib/supabaseAdmin';
 import * as Clipboard from 'expo-clipboard';
+import { useCurrentUser, useTeamMembers, useAddUserToTeam } from '../lib/convexHelpers'; 
+import { useMutation } from 'convex/react';
+import { api } from '../../convex/_generated/api';
 
 const InputField = ({ label, value, onChangeText, placeholder, keyboardType = 'default', icon, required = false }) => (
   <View style={styles.inputContainer}>
@@ -42,7 +42,11 @@ const InputField = ({ label, value, onChangeText, placeholder, keyboardType = 'd
 
 const AddTeamMemberScreen = () => {
   const router = useRouter();
-  const { createTeamMember, fetchTeamMembers } = useTeamMembers();
+  const currentUser = useCurrentUser();
+  const teamMembers = useTeamMembers(currentUser?.teamId);
+  const addUserToTeam = useAddUserToTeam();
+  const createUser = useMutation(api.users.createUser);
+  
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
     fullName: '',
@@ -65,69 +69,50 @@ const AddTeamMemberScreen = () => {
     try {
       setLoading(true);
 
-      // First check if user already exists
-      const { data: existingUser, error: checkError } = await supabase
-        .from('profiles')
-        .select('id')
-        .eq('email', formData.email)
-        .maybeSingle();
-
-      if (checkError) {
-        console.error('Check Error:', checkError);
-        throw new Error('Failed to check existing user');
+      // Check if a team ID exists
+      if (!currentUser?.teamId) {
+        throw new Error('No team ID found. Please create a team first.');
       }
 
-      if (existingUser) {
+      // Check if user with this email already exists
+      const emailExists = teamMembers?.find(member => 
+        member.email.toLowerCase() === formData.email.toLowerCase()
+      );
+
+      if (emailExists) {
         Alert.alert('Error', 'A team member with this email already exists');
+        setLoading(false);
         return;
       }
 
-      // Create user with admin API
-      const initialPassword = Math.random().toString(36).slice(-12); // Store password to show later
-      const { data, error: signUpError } = await supabaseAdmin.auth.admin.createUser({
+      // Generate a temporary password for the user
+      const initialPassword = Math.random().toString(36).slice(-12);
+      
+      // In a real implementation, you would use Clerk's API to create a user
+      // For now, we'll just create a user in Convex
+      // Note: In a production app, you would integrate with Clerk's API to send invites
+      
+      // Create user in Convex
+      const userId = await createUser({
+        name: formData.fullName,
         email: formData.email,
-        password: initialPassword,
-        email_confirm: true,
-        user_metadata: {
-          full_name: formData.fullName,
-          role: formData.role,
-        },
+        role: formData.role,
+        clerkId: `mock-clerk-id-${Date.now()}`, // In a real app, this would come from Clerk
       });
-
-      if (signUpError) {
-        throw new Error('Failed to create user account: ' + signUpError.message);
+      
+      if (!userId) {
+        throw new Error('Failed to create user');
       }
-
-      if (!data?.user) {
-        throw new Error('No user data returned');
-      }
-
-      // Create the profile using admin client
-      const { error: profileError } = await supabaseAdmin
-        .from('profiles')
-        .insert({
-          id: data.user.id,
-          full_name: formData.fullName,
-          email: formData.email,
-          phone: formData.phone || null,
-          role: formData.role,
-          status: 'active',
-          start_date: new Date()
-        });
-
-      if (profileError) {
-        console.error('Profile Error:', profileError);
-        // If profile creation fails, we should delete the user
-        await supabaseAdmin.auth.admin.deleteUser(data.user.id);
-        throw new Error('Failed to create team member profile: ' + profileError.message);
-      }
-
-      // Refresh the team members list
-      await fetchTeamMembers();
+      
+      // Add user to team
+      await addUserToTeam({
+        userId,
+        teamId: currentUser.teamId,
+      });
 
       Alert.alert(
         'Team Member Added',
-        `Team member has been created successfully.\n\nLogin Credentials:\nEmail: ${formData.email}\nPassword: ${initialPassword}\n\nPlease securely share these credentials with the team member.`,
+        `Team member has been added successfully.\n\nIn a production app, an invite email would be sent to ${formData.email}.\n\nTemporary Password: ${initialPassword}`,
         [
           {
             text: 'Copy Password',

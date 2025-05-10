@@ -14,11 +14,14 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
-import { useAuth } from '../contexts/AuthContext';
+import { useSignUp, useAuth } from '@clerk/clerk-expo';
 
 export default function SignupScreen() {
+  console.log('SignupScreen rendered');
+  
   const router = useRouter();
-  const { signUp } = useAuth();
+  const { isLoaded, signUp } = useSignUp();
+  const { signOut } = useAuth();
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
     fullName: '',
@@ -29,6 +32,13 @@ export default function SignupScreen() {
   });
 
   const handleSignup = async () => {
+    console.log('Signup attempt started');
+    
+    if (!isLoaded) {
+      Alert.alert('Error', 'Authentication is still loading');
+      return;
+    }
+
     if (!formData.fullName || !formData.email || !formData.password || !formData.confirmPassword) {
       Alert.alert('Error', 'Please fill in all fields');
       return;
@@ -44,22 +54,112 @@ export default function SignupScreen() {
       return;
     }
 
-    setLoading(true);
-
     try {
-      await signUp(
-        formData.email,
-        formData.password,
-        formData.fullName,
-        formData.role
-      );
-      Alert.alert(
-        'Success',
-        'Please check your email for verification instructions.',
-        [{ text: 'OK', onPress: () => router.push('/(auth)/sign-in') }]
-      );
+      setLoading(true);
+      
+      console.log('Starting sign-up process...');
+      
+      // First sign out of any existing session to handle single session mode
+      try {
+        console.log('Signing out of any existing session before signup');
+        await signOut();
+      } catch (signOutError) {
+        console.log('No active session to sign out from:', signOutError);
+        // Continue with sign-up even if sign-out fails
+      }
+      
+      // Start the sign-up process with Clerk
+      await signUp.create({
+        emailAddress: formData.email,
+        password: formData.password,
+      });
+
+      console.log('Sign-up created, current status:', signUp.status);
+
+      // Set the user's metadata
+      // Note: We'll set the name and role as metadata only
+      await signUp.update({
+        unsafeMetadata: {
+          fullName: formData.fullName,
+          role: formData.role,
+        },
+      });
+
+      console.log('Metadata updated, current status:', signUp.status);
+      
+      // Check if there are any missing requirements before proceeding
+      if (signUp.status === 'missing_requirements') {
+        console.log('Missing requirements detected:', signUp.missingFields);
+        
+        // Special handling for phone_number requirement
+        if (signUp.missingFields && signUp.missingFields.includes('phone_number')) {
+          console.log('Bypassing phone number requirement');
+          
+          // Proceed with email verification regardless of phone number requirement
+          await signUp.prepareEmailAddressVerification({ strategy: 'email_code' });
+          
+          // Navigate to verification screen
+          router.push({
+            pathname: '/(auth)/verify',
+            params: { email: formData.email }
+          });
+        }
+        // Handle missing fields if needed
+        else if (signUp.missingFields && signUp.missingFields.includes('email_address')) {
+          // If email verification is required, proceed with verification
+          await signUp.prepareEmailAddressVerification({ strategy: 'email_code' });
+          
+          // Navigate to verification screen
+          router.push({
+            pathname: '/(auth)/verify',
+            params: { email: formData.email }
+          });
+        }
+        // Handle case where missingFields is empty or undefined but status is still 'missing_requirements'
+        else if (!signUp.missingFields || signUp.missingFields.length === 0) {
+          console.log('Status is missing_requirements but no fields specified, proceeding with email verification');
+          
+          // Proceed with email verification
+          await signUp.prepareEmailAddressVerification({ strategy: 'email_code' });
+          
+          // Navigate to verification screen
+          router.push({
+            pathname: '/(auth)/verify',
+            params: { email: formData.email }
+          });
+        }
+        else {
+          // For other missing fields, show an alert
+          Alert.alert(
+            'Additional Information Required',
+            `Please provide: ${signUp.missingFields?.join(', ')}`,
+            [{ text: 'OK' }]
+          );
+        }
+      } else {
+        // If no missing requirements, prepare verification and navigate
+        await signUp.prepareEmailAddressVerification({ strategy: 'email_code' });
+        console.log('Verification prepared, navigating to verify screen');
+        
+        router.push({
+          pathname: '/(auth)/verify',
+          params: { email: formData.email }
+        });
+      }
+      
+      console.log('Signup successful, navigating to verify');
     } catch (error) {
-      Alert.alert('Error', error.message);
+      console.error('Signup error:', error);
+      
+      // Handle single session mode error specifically
+      if (error.message?.includes('single session mode')) {
+        Alert.alert(
+          'Session Error', 
+          'You already have an active session. Please try again, we will attempt to sign you out first.'
+        );
+      } else {
+        Alert.alert('Error', error.message || 'Failed to sign up');
+      }
     } finally {
       setLoading(false);
     }

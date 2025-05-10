@@ -13,17 +13,27 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
-import { useAuth } from '../contexts/AuthContext';
+import { useSignIn, useAuth } from '@clerk/clerk-expo';
 
 const LoginScreen = () => {
+  console.log('LoginScreen rendered');
+  
   const router = useRouter();
-  const { signIn } = useAuth();
+  const { isLoaded, signIn, setActive } = useSignIn();
+  const { signOut } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
 
   const handleLogin = async () => {
+    console.log('Login attempt started');
+    
     if (loading) return;
+    
+    if (!isLoaded) {
+      Alert.alert('Error', 'Authentication is still loading');
+      return;
+    }
     
     if (!email || !password) {
       Alert.alert('Error', 'Please fill in all fields');
@@ -32,9 +42,62 @@ const LoginScreen = () => {
 
     try {
       setLoading(true);
-      await signIn(email, password);
+      console.log('Starting sign-in process for:', email);
+      
+      // First sign out of any existing session to handle single session mode
+      try {
+        console.log('Signing out of any existing session');
+        await signOut();
+      } catch (signOutError) {
+        console.log('No active session to sign out from:', signOutError);
+        // Continue with sign-in even if sign-out fails
+      }
+      
+      // Start the sign-in process
+      const result = await signIn.create({
+        identifier: email,
+        password,
+      });
+      
+      console.log('Sign-in result status:', result.status);
+      
+      if (result.status === 'complete') {
+        // Sign in was successful
+        console.log('Sign-in complete, setting active session');
+        await setActive({ session: result.createdSessionId });
+        console.log('Session activated, redirecting to tabs');
+        console.log('Login successful, navigating to home');
+        router.replace('/(tabs)');
+      } else if (result.status === 'needs_second_factor') {
+        // Handle 2FA if implemented
+        Alert.alert('Two-factor authentication', 'Please complete the second factor authentication');
+      } else if (result.status === 'needs_identifier') {
+        Alert.alert('Error', 'Please provide a valid email address');
+      } else if (result.status === 'needs_password') {
+        Alert.alert('Error', 'Please provide your password');
+      } else {
+        // The user needs to complete additional steps
+        console.log('Sign in requires additional steps:', result);
+        Alert.alert('Error', `Unable to sign in: ${result.status}`);
+      }
     } catch (error) {
-      Alert.alert('Error', error.message);
+      console.error('Sign in error:', error);
+      
+      // Handle single session mode error specifically
+      if (error.message?.includes('single session mode')) {
+        Alert.alert(
+          'Session Error', 
+          'You already have an active session. Please try again, we will attempt to sign you out first.'
+        );
+      }
+      // Provide more specific error messages for other cases
+      else if (error.message?.includes('password')) {
+        Alert.alert('Error', 'Incorrect password. Please try again.');
+      } else if (error.message?.includes('identifier')) {
+        Alert.alert('Error', 'Email not found. Please check your email or sign up.');
+      } else {
+        Alert.alert('Error', error.message || 'Failed to sign in');
+      }
     } finally {
       setLoading(false);
     }
