@@ -28,6 +28,19 @@ import { useAuth } from '../contexts/AuthContext';
 import { LinearGradient } from 'expo-linear-gradient';
 import KeyboardAwareView from '../components/KeyboardAwareView';
 
+// Sample CSV data for testing in Expo Go
+const SAMPLE_CSV_DATA = `address,city,state,zip,status,notes
+123 Main St,Dallas,TX,75201,skip,Customer away for vacation
+456 Center Rd,Plano,TX,75023,collect,Regular pickup
+789 Oak Ave,Wylie,TX,75098,new customer,First service
+2603 Idlewood Drive,Wylie,TX,75098,collect,Behind gate code 1234
+980 Parkview Dr,McKinney,TX,75070,skip,Construction zone
+1245 Lakeside Blvd,Rockwall,TX,75087,new customer,Leave bins by garage
+8721 Preston Rd,Frisco,TX,75034,collect,Commercial property
+352 Cedar St,Allen,TX,75002,new customer,Call before arrival
+619 Westlake Dr,Murphy,TX,75094,collect,Dog in yard - beware
+4301 Boardwalk Ave,Sachse,TX,75048,skip,Customer on hold`;
+
 const MAPBOX_ACCESS_TOKEN = "pk.eyJ1IjoicmVhZ2Fuc3RvY2siLCJhIjoiY204eHZ1bTQzMDdzOTJrcHRuY2l3em05NiJ9.yMm1TND_J6jZpYJlYmfhyQ";
 
 // Simple coordinate mapping for Wylie, TX and surrounding areas
@@ -473,6 +486,70 @@ const RouteCreateScreen = React.forwardRef(({ isEditing = false, existingRoute =
     } catch (error) {
       console.error('Error uploading CSV:', error);
       Alert.alert('Error', 'Failed to upload CSV file');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  // Add this function after the handleUploadCSV function
+  const handleLoadSampleCSV = async () => {
+    try {
+      setUploading(true);
+      console.log("Loading sample CSV data...");
+      
+      // Use the pre-defined sample CSV data
+      const parsedHouses = parseCSV(SAMPLE_CSV_DATA);
+      const successfullyGeocodedHouses = [];
+      const failedAddresses = [];
+
+      // Geocode each address using Mapbox
+      for (const houseInput of parsedHouses) {
+        console.log(`Processing address: ${houseInput.address}`);
+        
+        // Add a slight delay between geocoding requests to avoid rate limits
+        if (successfullyGeocodedHouses.length > 0) {
+          await new Promise(resolve => setTimeout(resolve, 300));
+        }
+        
+        const coords = await geocodeAddress(`${houseInput.address}, ${houseInput.city}, ${houseInput.state} ${houseInput.zip}`);
+        
+        if (coords && coords.lat && coords.lng) {
+          successfullyGeocodedHouses.push({
+            address: `${houseInput.address}, ${houseInput.city}, ${houseInput.state} ${houseInput.zip}`,
+            status: processHouseStatus(houseInput.status),
+            notes: houseInput.notes,
+            lat: coords.lat,
+            lng: coords.lng,
+          });
+          console.log(`Successfully geocoded: ${houseInput.address} to ${coords.lat},${coords.lng}`);
+        } else {
+          console.warn(`Failed to geocode: ${houseInput.address}`);
+          failedAddresses.push(houseInput.address);
+        }
+      }
+
+      if (successfullyGeocodedHouses.length > 0) {
+        setHouses(prevHouses => [...prevHouses, ...successfullyGeocodedHouses]);
+        console.log(`Added ${successfullyGeocodedHouses.length} houses to the list`);
+        Alert.alert('Success', `Successfully imported ${successfullyGeocodedHouses.length} houses from sample CSV`);
+      }
+      
+      if (failedAddresses.length > 0) {
+        const message = failedAddresses.length === 1 
+          ? `Failed to geocode: ${failedAddresses[0]}`
+          : `Failed to geocode ${failedAddresses.length} addresses. The first failure was: ${failedAddresses[0]}`;
+        
+        Alert.alert('Geocoding Issues', message, [
+          { text: 'OK' },
+          { 
+            text: 'Show All Failures', 
+            onPress: () => Alert.alert('Failed Addresses', failedAddresses.join('\n\n'))
+          }
+        ]);
+      }
+    } catch (error) {
+      console.error('Error loading sample CSV:', error);
+      Alert.alert('Error', 'Failed to load sample CSV data');
     } finally {
       setUploading(false);
     }
@@ -1014,6 +1091,24 @@ const RouteCreateScreen = React.forwardRef(({ isEditing = false, existingRoute =
                   </>
                 )}
               </TouchableOpacity>
+              
+              {/* Test button for Expo development - only shows in development mode */}
+              {__DEV__ && (
+                <TouchableOpacity 
+                  style={[styles.importButton, {backgroundColor: '#10B981', marginLeft: 8}]}
+                  onPress={handleLoadSampleCSV}
+                  disabled={uploading}
+                >
+                  {uploading ? (
+                    <ActivityIndicator color="#fff" size="small" />
+                  ) : (
+                    <>
+                      <Ionicons name="flask-outline" size={20} color="#fff" />
+                      <Text style={styles.importButtonText}>Test CSV</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+              )}
             </View>
 
             <View style={styles.addressInputWrapper}>
