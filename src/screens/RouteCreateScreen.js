@@ -835,8 +835,7 @@ const RouteCreateScreen = React.forwardRef(({ isEditing = false, existingRoute =
   const getStatusOptions = () => [
     { value: 'collect', label: 'Collect', color: '#6B7280' },
     { value: 'skip', label: 'Skip', color: '#EF4444' },
-    { value: 'new customer', label: 'New Customer', color: '#10B981' },
-    { value: 'collect', label: 'Collect', color: '#3B82F6' }
+    { value: 'new customer', label: 'New Customer', color: '#10B981' }
   ];
 
   return (
