@@ -50,32 +50,29 @@ export function RootLayoutNav() {
   const [checkingOnboarding, setCheckingOnboarding] = useState(true);
   const [loading, setLoading] = useState(true);
 
-  // Helper function to add small delays to make the loading screen visible
-  const simulateDelay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-
   // Expo Router uses Error Boundaries to catch errors in the navigation tree.
   useEffect(() => {
     if (fontError) throw fontError;
   }, [fontError]);
 
-  // Initialize loading process
+  // Initialize loading process with no delays at all
   useEffect(() => {
     const initializeApp = async () => {
       try {
-        // Start with ensuring the SplashScreen is hidden
+        // Hide splash screen immediately
         await SplashScreen.hideAsync().catch(e => console.log('Error hiding splash:', e));
         
-        // Wait a bit to ensure all resources are loaded properly
-        await simulateDelay(500);
-        
-        // Check onboarding only after auth is loaded
-        if (!authLoading) {
-          await checkOnboardingStatus();
-        }
-        
-        // Final preparation and complete loading
-        await simulateDelay(300);
+        // Set loading to false right away
         setLoading(false);
+        
+        // Run onboarding check in background
+        if (!authLoading) {
+          setTimeout(() => {
+            checkOnboardingStatus().catch(e => 
+              console.log('Background onboarding check error:', e)
+            );
+          }, 100);
+        }
       } catch (error) {
         console.error('Error during app initialization:', error);
         setLoading(false);
@@ -354,24 +351,22 @@ export function RootLayoutNav() {
         const onboardingComplete = await AsyncStorage.getItem('onboarding_complete');
         console.log('Onboarding status:', onboardingComplete);
         
-        // Add a small delay to ensure Root Layout is mounted
-        setTimeout(() => {
-          // First, handle onboarding
-          if (segments[0] !== 'onboarding' && segments[0] !== '(auth)' && onboardingComplete !== 'true') {
-            console.log('Onboarding not completed, redirecting to onboarding');
-            router.replace('/onboarding');
-            return;
-          }
-          
-          // Then handle auth states
-          if (!user && segments[0] !== '(auth)' && segments[0] !== 'onboarding') {
-            console.log('User not authenticated, redirecting to auth');
-            router.replace('/(auth)');
-          } else if (user && segments[0] === '(auth)') {
-            console.log('User authenticated, redirecting to tabs');
-            router.replace('/(tabs)');
-          }
-        }, 300);
+        // Handle navigation immediately without delay
+        // First, handle onboarding
+        if (segments[0] !== 'onboarding' && segments[0] !== '(auth)' && onboardingComplete !== 'true') {
+          console.log('Onboarding not completed, redirecting to onboarding');
+          router.replace('/onboarding');
+          return;
+        }
+        
+        // Then handle auth states
+        if (!user && segments[0] !== '(auth)' && segments[0] !== 'onboarding') {
+          console.log('User not authenticated, redirecting to auth');
+          router.replace('/(auth)');
+        } else if (user && segments[0] === '(auth)') {
+          console.log('User authenticated, redirecting to tabs');
+          router.replace('/(tabs)');
+        }
       } catch (error) {
         console.error('Error checking navigation state:', error);
       }

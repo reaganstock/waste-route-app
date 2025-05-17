@@ -111,59 +111,42 @@ const AppWrapper = () => {
   const responseListener = React.useRef();
 
   useEffect(() => {
-    // Hide the Expo splash screen immediately to show our custom loading screen
+    // Hide the Expo splash screen immediately to proceed to the main app
     SplashScreen.hideAsync().catch(e => console.log('Error hiding splash:', e));
-
-    // Set a safety timeout to prevent hanging at loading screen
-    const loadingTimeout = setTimeout(() => {
-      if (!appIsReady) {
-        console.log('Safety timeout triggered - showing app anyway');
-        setAppIsReady(true);
-      }
-    }, 5000); // 5 second timeout
-
-    async function prepareApp() {
+    
+    // Set app as ready immediately - no waiting
+    setAppIsReady(true);
+    
+    // Run additional initialization in the background without blocking UI
+    async function prepareAppInBackground() {
       try {
-        // Add a small delay to make the loading screen visible
-        await simulateDelay(500);
-
-        // Check for updates
+        // Check for updates in background
         if (process.env.NODE_ENV === 'production') {
           try {
             const { isAvailable } = await Updates.checkForUpdateAsync();
             
             if (isAvailable) {
               await Updates.fetchUpdateAsync();
-              await Updates.reloadAsync();
+              // Don't reload automatically - will apply on next app launch
+              // This prevents disrupting the user experience
             }
           } catch (updateError) {
             console.warn('Update check failed:', updateError);
-            // Continue app initialization even if update check fails
           }
         }
         
-        // Register for notifications - wrap in try/catch to prevent crash
+        // Register for notifications in background
         try {
           await registerForPushNotificationsAsync();
         } catch (notifError) {
           console.warn('Notification registration failed:', notifError);
-          // Continue even if notification registration fails
         }
-        
-        // Finish initialization with a small delay
-        await simulateDelay(300);
-        
       } catch (e) {
-        console.warn('Error preparing app:', e);
-      } finally {
-        // App is initialized
-        clearTimeout(loadingTimeout); // Clear safety timeout
-        await simulateDelay(200); // Short delay before showing app
-        setAppIsReady(true);
+        console.warn('Error in background initialization:', e);
       }
     }
 
-    prepareApp();
+    prepareAppInBackground();
 
     // Set up notification listeners with error handling
     try {
@@ -190,8 +173,7 @@ const AppWrapper = () => {
     };
   }, []);
 
-  // Helper function to add small delays to make the loading screen visible
-  const simulateDelay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+  // No artificial delays needed
 
   if (!appIsReady) {
     return <LoadingScreen />;
