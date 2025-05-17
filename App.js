@@ -1,5 +1,5 @@
 import 'react-native-gesture-handler';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
 import * as Updates from 'expo-updates';
@@ -11,7 +11,6 @@ import Constants from 'expo-constants';
 import * as Device from 'expo-device';
 // This imports the Expo Router entry point
 import { RootSiblingParent } from 'react-native-root-siblings';
-import LoadingScreen from './src/components/LoadingScreen';
 import { registerRootComponent } from 'expo';
 import App from './node_modules/expo-router/entry';
 
@@ -104,20 +103,16 @@ if (Platform.OS === 'ios') {
   }
 }
 
-// Main app wrapper component that adds our loading screen
+// Main app wrapper component with instant startup
 const AppWrapper = () => {
-  const [appIsReady, setAppIsReady] = useState(false);
   const notificationListener = React.useRef();
   const responseListener = React.useRef();
 
   useEffect(() => {
-    // Hide the Expo splash screen immediately to proceed to the main app
+    // Hide the Expo splash screen immediately
     SplashScreen.hideAsync().catch(e => console.log('Error hiding splash:', e));
     
-    // Set app as ready immediately - no waiting
-    setAppIsReady(true);
-    
-    // Run additional initialization in the background without blocking UI
+    // Run initialization in the background without blocking UI
     async function prepareAppInBackground() {
       try {
         // Check for updates in background
@@ -128,7 +123,6 @@ const AppWrapper = () => {
             if (isAvailable) {
               await Updates.fetchUpdateAsync();
               // Don't reload automatically - will apply on next app launch
-              // This prevents disrupting the user experience
             }
           } catch (updateError) {
             console.warn('Update check failed:', updateError);
@@ -173,12 +167,7 @@ const AppWrapper = () => {
     };
   }, []);
 
-  // No artificial delays needed
-
-  if (!appIsReady) {
-    return <LoadingScreen />;
-  }
-
+  // Render the app immediately with no loading screen
   return (
     <SafeAreaProvider>
       <StatusBar style="light" />

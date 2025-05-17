@@ -12,7 +12,6 @@ import { FontAwesome } from '@expo/vector-icons';
 import { View } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import ErrorBoundary from '../src/components/ErrorBoundary';
-import LoadingScreen from '../src/components/LoadingScreen';
 import { router } from 'expo-router';
 
 // Get device information
@@ -473,9 +472,10 @@ export function RootLayoutNav() {
     }
   }
 
-  // Show the loading screen while the app is initializing
-  if (loading || authLoading || !fontsLoaded) {
-    return <LoadingScreen />;
+  // Skip loading screen and render the app immediately
+  if (!fontsLoaded) {
+    // Only wait for fonts to load, but don't show a loading screen
+    return null;
   }
 
   return (
