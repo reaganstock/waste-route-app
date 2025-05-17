@@ -18,7 +18,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.wasteroute.app",
-      "buildNumber": "25",
+      "buildNumber": "24",
       "jsEngine": "hermes",
       "requireFullScreen": true,
       "infoPlist": {
