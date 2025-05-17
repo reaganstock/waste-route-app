@@ -301,6 +301,7 @@ ${Math.round(distance)}m away${house.notes ? `\nNote: ${house.notes}` : ''}`;
           data: { 
             houseId: house.id, 
             status: house.status,
+            houseStatus: house.status || 'collect', // Explicitly include house status for sound
             distance,
             address: house.address,
             statusColor,
@@ -349,8 +350,12 @@ ${Math.round(distance)}m away${house.notes ? `\nNote: ${house.notes}` : ''}`;
     if (!shouldNotify(house.id, 'alert')) return;
     
     try {
-      // Add to notification queue instead of showing immediately
-      notificationQueue.current.push({ house, distance });
+      // Add to notification queue with proper house status
+      notificationQueue.current.push({ 
+        house, 
+        distance,
+        houseStatus: house.status || 'collect'
+      });
       
       // Start processing the queue if not already running
       if (!isNotifying) {
@@ -435,6 +440,7 @@ ${Math.round(distance)}m away${house.notes ? `\nNote: ${house.notes}` : ''}`;
     }
   }, [nearbyHouses, calculateDistance, showNotification]);
 
+  // Start/stop tracking based on enabled and app state
   const startTracking = useCallback(async () => {
     if (isTracking || !enabledRef.current) return;
 
@@ -447,44 +453,64 @@ ${Math.round(distance)}m away${house.notes ? `\nNote: ${house.notes}` : ''}`;
       
       // Try to get background permission for better tracking
       let backgroundPermission = false;
+      
       try {
         const { status: backgroundStatus } = await Location.requestBackgroundPermissionsAsync();
         backgroundPermission = backgroundStatus === 'granted';
-      } catch (e) {
-        // Background permission not supported or denied
-        console.warn('Background location not available:', e);
+      } catch (err) {
+        console.warn('Background location permission not available:', err);
+        // Continue without background permissions
       }
-
-      // Configure location tracking based on permissions
-      const locationConfig = {
-        accuracy: settingsRef.current.LOCATION_ACCURACY,
+      
+      // Configure for background operation
+      await Location.enableNetworkProviderAsync().catch(err => {
+        console.warn('Error enabling network provider:', err);
+      });
+      
+      // Clear any existing subscription
+      if (locationSubscription.current) {
+        locationSubscription.current.remove();
+      }
+      
+      // Set up location tracking - use accuracy based on platform and state
+      const currentState = AppState.currentState;
+      const isForeground = currentState === 'active';
+      
+      const locationOptions = {
+        accuracy: backgroundPermission 
+          ? Location.Accuracy.Balanced  // Lower accuracy in background to save battery
+          : Location.Accuracy.High,     // Higher accuracy in foreground
         distanceInterval: settingsRef.current.MIN_DISTANCE_CHANGE,
-        timeInterval: appState.current === 'active' 
+        timeInterval: isForeground 
           ? settingsRef.current.FOREGROUND_UPDATE_INTERVAL 
           : settingsRef.current.BACKGROUND_UPDATE_INTERVAL,
-        mayShowUserSettingsDialog: true,
+        foregroundService: {
+          notificationTitle: "WasteRoute Active",
+          notificationBody: "Route tracking is active",
+          notificationColor: "#3B82F6",
+        },
+        pausesUpdatesAutomatically: false,
+        // These options help with background operation
+        activityType: Location.ActivityType.AutomotiveNavigation,
+        showsBackgroundLocationIndicator: true,
       };
-
-      // Start location updates
+      
+      console.log('Starting location tracking with options:', JSON.stringify(locationOptions));
+      
       locationSubscription.current = await Location.watchPositionAsync(
-        locationConfig,
+        locationOptions,
         (location) => {
           checkNearbyHouses(location.coords);
         }
       );
-
+      
       setIsTracking(true);
       setError(null);
+      
+      console.log('Location tracking started successfully');
     } catch (error) {
-      console.error('Error starting location tracking:', error);
-      
-      // Provide a more specific error message for location permission denied
-      if (error.message === 'LOCATION_PERMISSION_DENIED') {
-        setError('LOCATION_PERMISSION_DENIED');
-      } else {
-        setError('Failed to start location tracking: ' + error.message);
-      }
-      
+      console.error('Error starting tracking:', error);
+      setError(`Failed to start tracking: ${error.message}`);
       setIsTracking(false);
     }
   }, [isTracking, checkNearbyHouses]);
