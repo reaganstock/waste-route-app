@@ -22,6 +22,7 @@ import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 import { supabase } from '../lib/supabase';
 import { useGeofencing } from '../hooks/useGeofencing';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Configure notifications
 Notifications.setNotificationHandler({
@@ -330,7 +331,7 @@ const RouteScreen = ({ routeId }) => {
   // Add a subscription to receive notifications
   useEffect(() => {
     // Listen for notifications received while app is in foreground
-    const foregroundSubscription = Notifications.addNotificationReceivedListener(notification => {
+    const foregroundSubscription = Notifications.addNotificationReceivedListener(async notification => {
       const notificationData = notification.request.content;
       const houseId = notificationData.data?.houseId;
       
@@ -352,6 +353,9 @@ const RouteScreen = ({ routeId }) => {
         // If it's a new notification with a house ID, track it
         if (houseId) {
           notifiedHousesRef.current.add(houseId);
+          // Save updated notifiedHousesRef to AsyncStorage
+          AsyncStorage.setItem(`routeNotified_${routeId}`, JSON.stringify(Array.from(notifiedHousesRef.current)))
+            .catch(e => console.error("Failed to save notified houses to storage", e));
         }
         
         // Add the new notification to the list
@@ -396,6 +400,9 @@ const RouteScreen = ({ routeId }) => {
   useEffect(() => {
     if (route) {
       notifiedHousesRef.current = new Set();
+      // Clear stored notified houses for the new route
+      AsyncStorage.removeItem(`routeNotified_${routeId}`)
+        .catch(e => console.error("Failed to remove notified houses from storage", e));
     }
   }, [route?.id]);
 
@@ -421,12 +428,44 @@ const RouteScreen = ({ routeId }) => {
   };
 
   useEffect(() => {
+    const loadStoredData = async () => {
+      if (routeId) {
+        try {
+          // Load completion data
+          const storedSelected = await AsyncStorage.getItem(`routeCompletion_${routeId}`);
+          if (storedSelected !== null) {
+            setSelectedHouses(new Set(JSON.parse(storedSelected)));
+          } else {
+            setSelectedHouses(new Set());
+          }
+
+          // Load notified houses data
+          const storedNotified = await AsyncStorage.getItem(`routeNotified_${routeId}`);
+          if (storedNotified !== null) {
+            notifiedHousesRef.current = new Set(JSON.parse(storedNotified));
+          } else {
+            notifiedHousesRef.current = new Set();
+          }
+
+        } catch (e) {
+          console.error("Failed to load stored data from storage", e);
+          setSelectedHouses(new Set());
+          notifiedHousesRef.current = new Set();
+        }
+      }
+    };
+    loadStoredData(); // Renamed from loadStoredCompletion
     fetchRouteData();
   }, [routeId]);
 
   const fetchRouteData = async () => {
     try {
       setLoading(true);
+      // It's important that setSelectedHouses from AsyncStorage has run before this might influence it.
+      // If fetchRouteData completes and sets route, selectedHouses might be reset based on DB if we are not careful.
+      // The current logic for selectedHouses in fetchRouteData based on h.status === 'completed' needs to be removed
+      // as AsyncStorage is the source of truth for completion on this screen.
+
       const { data: routeData, error: routeError } = await supabase
         .from('routes')
         .select(`
@@ -473,13 +512,17 @@ const RouteScreen = ({ routeId }) => {
         }
 
         setRoute(routeData);
-        // Set selected houses based on their current status
-        const selectedHouseIds = new Set(
-          routeData.houses
-            .filter(h => h.status === 'collect')
-            .map(h => h.id)
-        );
-        setSelectedHouses(selectedHouseIds);
+        // DO NOT set selectedHouses from routeData.houses here anymore.
+        // AsyncStorage is the source of truth for completion for RouteScreen.
+        // const initialSelectedHouseIds = new Set();
+        // if (routeData.houses) {
+        //   routeData.houses.forEach(h => {
+        //     if (h.status === 'completed' || h.status === 'completed_collect' || h.status === 'completed_new_customer') {
+        //       initialSelectedHouseIds.add(h.id);
+        //     }
+        //   });
+        // }
+        // setSelectedHouses(initialSelectedHouseIds); // REMOVED
       }
     } catch (error) {
       console.error('Error fetching route:', error);
@@ -516,7 +559,7 @@ const RouteScreen = ({ routeId }) => {
     setNotifications(prev => prev.filter(n => n.id !== id));
   };
 
-  // Update the toggleHouse function to maintain the original status and only update the selection state
+  // Update the toggleHouse function to update the house's status in Supabase
   const toggleHouse = async (houseId) => {
     try {
       const house = route.houses.find(h => h.id === houseId);
@@ -528,27 +571,37 @@ const RouteScreen = ({ routeId }) => {
       } else {
         newSelected.add(houseId);
       }
+      setSelectedHouses(newSelected);
 
-      // Update route progress in database
-      const { error: routeError } = await supabase
+      // Save to AsyncStorage
+      try {
+        await AsyncStorage.setItem(`routeCompletion_${routeId}`, JSON.stringify(Array.from(newSelected)));
+      } catch (e) {
+        console.error("Failed to save selected houses to storage", e);
+      }
+
+      // Update route's overall completed_houses count in Supabase
+      const { error: routeUpdateError } = await supabase
         .from('routes')
-        .update({ 
-          completed_houses: newSelected.size
-        })
+        .update({ completed_houses: newSelected.size })
         .eq('id', route.id);
 
-      if (routeError) throw routeError;
-
-      // Update local state
-      setSelectedHouses(newSelected);
-      setRoute(prev => ({
-        ...prev,
+      if (routeUpdateError) {
+        console.error('Error updating route completed_houses count:', routeUpdateError);
+        // Non-critical, perhaps just log
+      }
+      
+      // Update local route object's completed_houses count for immediate UI consistency if needed by other parts of screen
+      // The main 'route' state itself doesn't need house statuses changed
+      setRoute(prevRoute => ({
+        ...prevRoute,
         completed_houses: newSelected.size
       }));
 
+
     } catch (error) {
-      console.error('Error updating selection:', error);
-      Alert.alert('Error', 'Failed to update selection');
+      console.error('Error in toggleHouse:', error);
+      Alert.alert('Error', 'Failed to update selection locally.');
     }
   };
 
@@ -557,7 +610,7 @@ const RouteScreen = ({ routeId }) => {
       const allSelected = selectedHouses.size === route.houses.length;
       const newSelected = allSelected ? new Set() : new Set(route.houses.map(h => h.id));
 
-      // Update route progress
+      // Update route progress in Supabase
       const { error: routeError } = await supabase
         .from('routes')
         .update({ 
@@ -566,6 +619,13 @@ const RouteScreen = ({ routeId }) => {
         .eq('id', route.id);
 
       if (routeError) throw routeError;
+
+      // Save to AsyncStorage
+      try {
+        await AsyncStorage.setItem(`routeCompletion_${routeId}`, JSON.stringify(Array.from(newSelected)));
+      } catch (e) {
+        console.error("Failed to save selected houses to storage during toggleAll", e);
+      }
 
       // Update local state
       setSelectedHouses(newSelected);

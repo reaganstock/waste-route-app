@@ -412,69 +412,142 @@ const RouteCreateScreen = React.forwardRef(({ isEditing = false, existingRoute =
   };
 
   const handleUploadCSV = async () => {
+    setUploading(true);
+    // Ensure csvUploadProgress state exists or add it:
+    // const [csvUploadProgress, setCsvUploadProgress] = useState(0); // Add this with other states if not present
+    if (typeof setCsvUploadProgress === 'function') { // Check if setCsvUploadProgress is available
+        setCsvUploadProgress(0);
+    } else {
+        console.warn("setCsvUploadProgress function is not available. Progress bar will not work.");
+    }
+
     try {
-      setUploading(true);
       const result = await DocumentPicker.getDocumentAsync({
-        type: 'text/csv',
+        type: 'text/csv', // Can be more specific e.g. ['text/csv', 'text/comma-separated-values']
+        copyToCacheDirectory: true, // Important for some file system operations
       });
 
-      if (result.type === 'success') {
-        const fileContent = await FileSystem.readAsStringAsync(result.uri);
-        const parsedHouses = parseCSV(fileContent);
-        const successfullyGeocodedHouses = [];
-        const failedAddresses = [];
+      console.log('[CSV Upload] Document Picker result:', JSON.stringify(result, null, 2));
 
-        // Geocode each address using Mapbox
-        for (const houseInput of parsedHouses) {
-          console.log(`Processing address: ${houseInput.address}`);
-          
-          // Add a slight delay between geocoding requests to avoid rate limits
-          if (successfullyGeocodedHouses.length > 0) {
-            await new Promise(resolve => setTimeout(resolve, 300));
-          }
-          
-          const coords = await geocodeAddress(`${houseInput.address}, ${houseInput.city}, ${houseInput.state} ${houseInput.zip}`);
-          
-          if (coords && coords.lat && coords.lng) {
-            successfullyGeocodedHouses.push({
-              address: `${houseInput.address}, ${houseInput.city}, ${houseInput.state} ${houseInput.zip}`,
-              status: processHouseStatus(houseInput.status),
-              notes: houseInput.notes,
-              lat: coords.lat,
-              lng: coords.lng,
-            });
-            console.log(`Successfully geocoded: ${houseInput.address} to ${coords.lat},${coords.lng}`);
-          } else {
-            console.warn(`Failed to geocode: ${houseInput.address}`);
-            failedAddresses.push(houseInput.address);
-          }
-        }
-
-        if (successfullyGeocodedHouses.length > 0) {
-          setHouses(prevHouses => [...prevHouses, ...successfullyGeocodedHouses]);
-          console.log(`Added ${successfullyGeocodedHouses.length} houses to the list`);
-          Alert.alert('Success', `Successfully imported ${successfullyGeocodedHouses.length} houses from CSV`);
-        }
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const fileUri = result.assets[0].uri;
+        const fileName = result.assets[0].name;
+        console.log(`[CSV Upload] File URI: ${fileUri}, Name: ${fileName}`);
         
-        if (failedAddresses.length > 0) {
-          const message = failedAddresses.length === 1 
-            ? `Failed to geocode: ${failedAddresses[0]}`
-            : `Failed to geocode ${failedAddresses.length} addresses. The first failure was: ${failedAddresses[0]}`;
-          
-          Alert.alert('Geocoding Issues', message, [
-            { text: 'OK' },
-            { 
-              text: 'Show All Failures', 
-              onPress: () => Alert.alert('Failed Addresses', failedAddresses.join('\n\n'))
+        const fileContent = await FileSystem.readAsStringAsync(fileUri);
+        console.log('[CSV Upload] File Content read successfully (first 200 chars):', fileContent.substring(0,200));
+
+        Papa.parse(fileContent, {
+          header: true, // Assumes the first row of the CSV contains headers
+          skipEmptyLines: true,
+          dynamicTyping: true, // Automatically convert numbers and booleans
+          complete: async (results) => {
+            console.log('[CSV Upload] Papa.parse complete. Rows found:', results.data.length);
+            const parsedData = results.data;
+            let successfullyGeocodedHouses = [];
+            let failedAddresses = [];
+            
+            if (!parsedData || parsedData.length === 0) {
+              Alert.alert('CSV Error', 'The CSV file is empty or could not be parsed correctly. Please ensure it has headers: address, city, state, zip, status (optional), notes (optional).');
+              setUploading(false);
+              if (typeof setCsvUploadProgress === 'function') setCsvUploadProgress(0);
+              return;
             }
-          ]);
-        }
+
+            for (let i = 0; i < parsedData.length; i++) {
+              const row = parsedData[i];
+              console.log(`[CSV Upload] Processing row ${i + 1}:`, row);
+
+              // Validate required fields (adjust based on your CSV format guide)
+              // Common headers are 'address', 'city', 'state', 'zip'
+              // Handle variations in header casing by converting to lower case or being flexible
+              const address = row.address || row.Address || row.ADDRESS;
+              const city = row.city || row.City || row.CITY;
+              const state = row.state || row.State || row.STATE;
+              const zip = row.zip || row.Zip || row.ZIP || row.Zipcode || row.zipcode;
+              
+              const statusRaw = row.status || row.Status || row.STATUS;
+              const notesRaw = row.notes || row.Notes || row.NOTES;
+
+              if (!address || !city || !state || !zip) {
+                let missing = [];
+                if (!address) missing.push('address');
+                if (!city) missing.push('city');
+                if (!state) missing.push('state');
+                if (!zip) missing.push('zip');
+                console.warn(`[CSV Upload] Skipping row ${i + 1} due to missing required fields: ${missing.join(', ')}`, row);
+                failedAddresses.push(`Row ${i + 1} (Missing: ${missing.join(', ')})`);
+                if (typeof setCsvUploadProgress === 'function') {
+                    setCsvUploadProgress(((i + 1) / parsedData.length) * 100);
+                }
+                continue;
+              }
+
+              const fullAddress = `${address}, ${city}, ${state} ${zip}`;
+              
+              // Add a slight delay between geocoding requests if processing many addresses
+              if (i > 0 && i % 5 === 0) { // Example: delay every 5 addresses
+                 await new Promise(resolve => setTimeout(resolve, 500)); 
+              }
+
+              const coords = await geocodeAddress(fullAddress);
+              
+              if (coords && coords.lat && coords.lng) {
+                successfullyGeocodedHouses.push({
+                  address: fullAddress,
+                  status: processHouseStatus(statusRaw || 'collect'), // Default to 'collect' if status is missing/empty
+                  notes: notesRaw || '',
+                  lat: coords.lat,
+                  lng: coords.lng,
+                  isValid: true // Mark as valid since it's geocoded
+                });
+                console.log(`[CSV Upload] Successfully geocoded: ${fullAddress}`);
+              } else {
+                console.warn(`[CSV Upload] Failed to geocode: ${fullAddress}`);
+                failedAddresses.push(fullAddress);
+              }
+              if (typeof setCsvUploadProgress === 'function') {
+                setCsvUploadProgress(((i + 1) / parsedData.length) * 100);
+              }
+            }
+
+            if (successfullyGeocodedHouses.length > 0) {
+              setHouses(prevHouses => [...prevHouses, ...successfullyGeocodedHouses]);
+              Alert.alert('Import Successful', `Successfully imported and geocoded ${successfullyGeocodedHouses.length} addresses.`);
+            }
+            
+            if (failedAddresses.length > 0) {
+              const message = `Failed to geocode ${failedAddresses.length} addresses. The first failure was: ${failedAddresses[0]}. Please check addresses and CSV format.`;
+              Alert.alert('Geocoding Issues', message, [
+                { text: 'OK' },
+                { text: 'Show All Failures', onPress: () => Alert.alert('Failed Addresses', failedAddresses.join('\n'))}
+              ]);
+            }
+            setUploading(false);
+            if (typeof setCsvUploadProgress === 'function') setCsvUploadProgress(100); // Mark as complete
+          },
+          error: (error, file) => {
+            console.error('[CSV Upload] Papa.parse error:', error);
+            Alert.alert('CSV Parsing Error', `Failed to parse CSV: ${error.message}. Please check the file format.`);
+            setUploading(false);
+            if (typeof setCsvUploadProgress === 'function') setCsvUploadProgress(0);
+          }
+        });
+      } else {
+        console.log('[CSV Upload] Document picker cancelled or no asset selected.');
+        setUploading(false);
+        if (typeof setCsvUploadProgress === 'function') setCsvUploadProgress(0);
       }
     } catch (error) {
-      console.error('Error uploading CSV:', error);
-      Alert.alert('Error', 'Failed to upload CSV file');
-    } finally {
+      console.error('[CSV Upload] Error in handleUploadCSV:', error);
+      // Check if it's a DocumentPicker error due to permissions or other issues
+      if (error.message.includes("document picker")) {
+         Alert.alert('Document Picker Error', `Could not open document picker: ${error.message}. Please ensure storage permissions are granted.`);
+      } else {
+         Alert.alert('CSV Upload Error', `An unexpected error occurred: ${error.message}`);
+      }
       setUploading(false);
+      if (typeof setCsvUploadProgress === 'function') setCsvUploadProgress(0);
     }
   };
 

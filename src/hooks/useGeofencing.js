@@ -2,9 +2,14 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { getDistance } from 'geolib';
 import * as Notifications from 'expo-notifications';
 import * as Location from 'expo-location';
+import * as TaskManager from 'expo-task-manager';
 import { AppState } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Audio } from 'expo-av';
+
+const GEOFENCE_TASK_NAME = 'GEOFENCE_NOTIFICATION_TASK';
+const ASYNC_STORAGE_ROUTE_DATA_PREFIX = 'geofenceRouteData_';
+const ASYNC_STORAGE_NOTIFIED_HOUSES_PREFIX = 'routeNotified_';
 
 // Sound URLs from Supabase - hardcoded URLs for reliability
 const SOUND_URLS = {
@@ -33,6 +38,88 @@ const DEFAULT_SETTINGS = {
     NEW_CUSTOMER: 'new_customer_sound' // Sound for new customers
   }
 };
+
+// TaskManager Definition (Ideally in App.js or a dedicated tasks.js file)
+TaskManager.defineTask(GEOFENCE_TASK_NAME, async ({ data, error }) => {
+  if (error) {
+    console.error('[BackgroundGeofenceTask] Error:', error);
+    return TaskManager.Result.failed;
+  }
+
+  const { eventType, region } = data;
+
+  if (eventType === Location.GeofencingEventType.Enter) {
+    console.log('[BackgroundGeofenceTask] Entered region:', region.identifier);
+    const [routeId, houseIdStr] = region.identifier.split('_');
+    const houseId = parseInt(houseIdStr, 10);
+
+    if (!routeId || isNaN(houseId)) {
+      console.error('[BackgroundGeofenceTask] Invalid region identifier:', region.identifier);
+      return TaskManager.Result.failed;
+    }
+
+    try {
+      const notifiedHousesKey = `${ASYNC_STORAGE_NOTIFIED_HOUSES_PREFIX}${routeId}`;
+      const storedNotifiedHouses = await AsyncStorage.getItem(notifiedHousesKey);
+      const notifiedHousesSet = storedNotifiedHouses ? new Set(JSON.parse(storedNotifiedHouses)) : new Set();
+
+      if (notifiedHousesSet.has(houseId)) {
+        console.log(`[BackgroundGeofenceTask] House ${houseId} for route ${routeId} already notified.`);
+        return TaskManager.Result.fulfilled;
+      }
+
+      const routeDataKey = `${ASYNC_STORAGE_ROUTE_DATA_PREFIX}${routeId}`;
+      const storedRouteData = await AsyncStorage.getItem(routeDataKey);
+      if (!storedRouteData) {
+        console.error(`[BackgroundGeofenceTask] No route data found for route ${routeId}`);
+        return TaskManager.Result.failed;
+      }
+      
+      const housesForRoute = JSON.parse(storedRouteData);
+      const house = housesForRoute.find(h => h.id === houseId);
+
+      if (!house) {
+        console.error(`[BackgroundGeofenceTask] House ${houseId} not found in stored data for route ${routeId}`);
+        return TaskManager.Result.failed;
+      }
+
+      const status = house.status?.toLowerCase() || 'collect';
+      const isSkip = status === 'skip' || status === 'skipped';
+      const isNewCustomer = status === 'new customer' || status === 'new';
+      
+      let soundFilename;
+      if (isSkip) soundFilename = 'skip_sound.mp3';
+      else if (isNewCustomer) soundFilename = 'new_customer_sound.mp3';
+      else soundFilename = 'collect_sound.mp3';
+
+      const title = isSkip ? '⚠️ SKIP HOUSE' : isNewCustomer ? '🆕 NEW CUSTOMER' : '🏠 Regular Collection';
+      const body = `Alert: ${house.address}${house.notes ? `\nNote: ${house.notes}` : ''}`;
+
+      await Notifications.scheduleNotificationAsync({
+        content: {
+          title,
+          body,
+          sound: soundFilename,
+          data: { routeId, houseId, address: house.address, status: house.status },
+          categoryIdentifier: NOTIFICATION_CATEGORIES.ROUTE_ALERT,
+          priority: Notifications.AndroidNotificationPriority.MAX,
+          vibrate: true,
+        },
+        trigger: null, // Immediate
+      });
+
+      notifiedHousesSet.add(houseId);
+      await AsyncStorage.setItem(notifiedHousesKey, JSON.stringify(Array.from(notifiedHousesSet)));
+      console.log(`[BackgroundGeofenceTask] Notification scheduled for ${house.address}`);
+      
+      return TaskManager.Result.fulfilled;
+    } catch (taskError) {
+      console.error('[BackgroundGeofenceTask] Processing error:', taskError);
+      return TaskManager.Result.failed;
+    }
+  }
+  return TaskManager.Result.fulfilled; // Default for other event types
+});
 
 // Set up notification categories for acknowledgment
 const setupNotificationCategories = async () => {
@@ -121,452 +208,150 @@ const playSoundFromURL = async (soundType) => {
   }
 };
 
-export const useGeofencing = (houses, enabled = false) => {
-  const [nearbyHouses, setNearbyHouses] = useState([]);
-  const [approachingHouses, setApproachingHouses] = useState([]);
+export const useGeofencing = (housesWithRouteId, enabled = false) => {
   const [isTracking, setIsTracking] = useState(false);
   const [error, setError] = useState(null);
   const [geofenceSettings, setGeofenceSettings] = useState(DEFAULT_SETTINGS);
-  const [isNotifying, setIsNotifying] = useState(false); // Track if notification is in progress
   
-  // Performance optimizations with refs
-  const lastNotifications = useRef(new Map());
-  const locationSubscription = useRef(null);
-  const lastLocation = useRef(null);
-  const appState = useRef(AppState.currentState);
-  const housesRef = useRef(houses);
-  const enabledRef = useRef(enabled);
   const settingsRef = useRef(geofenceSettings);
-  const notificationQueue = useRef([]);
+  const housesRef = useRef(housesWithRouteId); 
+  const enabledRef = useRef(enabled);
+  const currentRouteIdRef = useRef(null);
   
-  // Set up notification categories
   useEffect(() => {
     setupNotificationCategories();
-  }, []);
-  
-  // Load geofence settings from AsyncStorage
+    // Determine currentRouteId when housesWithRouteId changes
+    if (housesWithRouteId && housesWithRouteId.length > 0 && housesWithRouteId[0].route_id) {
+        currentRouteIdRef.current = housesWithRouteId[0].route_id;
+    } else {
+        currentRouteIdRef.current = null; // Reset if no valid route_id
+    }
+    housesRef.current = housesWithRouteId;
+  }, [housesWithRouteId]);
+
   useEffect(() => {
-    const loadSettings = async () => {
-      try {
-        const savedSettings = await AsyncStorage.getItem('geofenceSettings');
-        if (savedSettings) {
-          const parsedSettings = JSON.parse(savedSettings);
-          // Merge with defaults to ensure all properties exist
-          const mergedSettings = {
-            ...DEFAULT_SETTINGS,
-            ...parsedSettings
-          };
-          setGeofenceSettings(mergedSettings);
-          settingsRef.current = mergedSettings;
-        }
-      } catch (error) {
-        console.error('Error loading geofence settings:', error);
-      }
-    };
-    
-    loadSettings();
-  }, []);
-  
-  // Update refs when props change
-  useEffect(() => {
-    housesRef.current = houses;
-    enabledRef.current = enabled;
     settingsRef.current = geofenceSettings;
-  }, [houses, enabled, geofenceSettings]);
+  }, [geofenceSettings]);
 
-  // Function to save geofence settings
-  const saveGeofenceSettings = useCallback(async (newSettings) => {
-    try {
-      const mergedSettings = {
-        ...settingsRef.current,
-        ...newSettings
-      };
-      
-      // Save to AsyncStorage
-      await AsyncStorage.setItem('geofenceSettings', JSON.stringify(mergedSettings));
-      
-      // Update state and ref
-      setGeofenceSettings(mergedSettings);
-      settingsRef.current = mergedSettings;
-      
-      return true;
-    } catch (error) {
-      console.error('Error saving geofence settings:', error);
-      return false;
-    }
-  }, []);
-
-  const calculateDistance = useCallback((lat1, lon1, lat2, lon2) => {
-    // Use haversine formula for better performance over long distances
-    return getDistance(
-      { latitude: lat1, longitude: lon1 },
-      { latitude: lat2, longitude: lon2 }
-    );
-  }, []);
-
-  const shouldNotify = useCallback((houseId, notificationType) => {
-    const key = `${houseId}-${notificationType}`;
-    const lastNotification = lastNotifications.current.get(key);
-    const now = Date.now();
-    return !lastNotification || (now - lastNotification) > settingsRef.current.NOTIFICATION_COOLDOWN;
-  }, []);
-
-  // Process notification queue one at a time
-  const processNotificationQueue = useCallback(async () => {
-    if (notificationQueue.current.length === 0 || isNotifying) return;
-    
-    setIsNotifying(true);
-    try {
-      // Get the next house from the queue
-      const { house, distance } = notificationQueue.current.shift();
-      
-      // Get the status of the house - normalize to lowercase and handle different formats
-      const status = house.status?.toLowerCase() || 'collect';
-      const isSkip = status === 'skip' || status === 'skipped';
-      const isNewCustomer = status === 'new customer' || status === 'new';
-      const isCollect = !isSkip && !isNewCustomer;
-      
-      // Get color based on status
-      const statusColor = isSkip ? 
-        '#EF4444' :  // Red for skip 
-        isNewCustomer ? 
-          '#10B981' :  // Green for new customer
-          '#6B7280';   // Grey for regular collection
-      
-      // Customize notification based on house status
-      const title = isSkip ? 
-        '⚠️ SKIP HOUSE' : 
-        isNewCustomer ? 
-          '🆕 NEW CUSTOMER' : 
-          '🏠 Regular Collection';
-           
-      const body = `Alert: ${house.address}
-${Math.round(distance)}m away${house.notes ? `\nNote: ${house.notes}` : ''}`;
-
-      try {
-        // Set up audio mode for best compatibility
-        await Audio.setAudioModeAsync({
-          playsInSilentModeIOS: true,
-          staysActiveInBackground: true,
-          shouldDuckAndroid: true,
-        });
-        
-        // Choose the correct sound URL based on status
-        let soundURL;
-        if (isSkip) {
-          soundURL = SOUND_URLS.SKIP;
-          console.log('Playing SKIP sound');
-        } else if (isNewCustomer) {
-          soundURL = SOUND_URLS.NEW_CUSTOMER;
-          console.log('Playing NEW_CUSTOMER sound');
-        } else {
-          soundURL = SOUND_URLS.COLLECT;
-          console.log('Playing COLLECT sound');
-        }
-        
-        console.log(`Loading sound from URL: ${soundURL.substring(0, 50)}...`);
-        
-        // Create and load the sound
-        const soundObject = new Audio.Sound();
-        await soundObject.loadAsync({ uri: soundURL });
-        
-        // Set volume to maximum
-        await soundObject.setVolumeAsync(1.0);
-        
-        // Play the sound
-        await soundObject.playAsync();
-        
-        // Ensure sound gets unloaded when finished
-        soundObject.setOnPlaybackStatusUpdate(status => {
-          if (status.didJustFinish) {
-            soundObject.unloadAsync().catch(err => {
-              console.error("Error unloading sound:", err);
-            });
-          }
-        });
-        
-        // Wait a moment to ensure the sound has started playing
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        
-        console.log('Sound playback started successfully');
-      } catch (error) {
-        console.error('Error playing notification sound:', error);
-      }
-
-      // Schedule the notification with sound disabled (we're playing it manually)
-      await Notifications.scheduleNotificationAsync({
-        content: {
-          title,
-          body,
-          data: { 
-            houseId: house.id, 
-            status: house.status,
-            distance,
-            address: house.address,
-            statusColor,
-            lat: house.lat,
-            lng: house.lng
-          },
-          categoryIdentifier: NOTIFICATION_CATEGORIES.ROUTE_ALERT,
-          sound: false, // Disable the default sound since we play our custom sound manually
-          priority: Notifications.AndroidNotificationPriority.MAX,
-          vibrate: true, // Vibrate for all notifications
-          sticky: true, // Makes the notification not auto-dismissable on Android
-          autoDismiss: false // Prevents auto-dismiss when tapped
-        },
-        trigger: null, // Send immediately
-      });
-
-      // Record notification time to prevent spam
-      const key = `${house.id}-alert`;
-      lastNotifications.current.set(key, Date.now());
-      
-      // Process the next notification after a delay
-      setTimeout(() => {
-        setIsNotifying(false);
-        processNotificationQueue();
-      }, 2500); // Wait 2.5 seconds between notifications for sound to finish
-      
-    } catch (error) {
-      console.error('Error processing notification queue:', error);
-      setError('Failed to show notification');
-      setIsNotifying(false);
-      // Try to continue with the next notification
-      setTimeout(processNotificationQueue, 1000);
-    }
-  }, []);
-  
-  // Effect to start processing the queue when items are added
   useEffect(() => {
-    processNotificationQueue();
-  }, [processNotificationQueue]);
-
-  const showNotification = useCallback(async (house, distance) => {
-    // Determine house status
-    const status = house.status?.toLowerCase() || 'collect';
-    
-    // Use only alert distance now
-    if (!shouldNotify(house.id, 'alert')) return;
-    
-    try {
-      // Add to notification queue instead of showing immediately
-      notificationQueue.current.push({ house, distance });
-      
-      // Start processing the queue if not already running
-      if (!isNotifying) {
-        processNotificationQueue();
-      }
-    } catch (error) {
-      console.error('Error queueing notification:', error);
-      setError('Failed to queue notification');
-    }
-  }, [shouldNotify, isNotifying, processNotificationQueue]);
-
-  const checkNearbyHouses = useCallback(async (location) => {
-    // Get current houses from ref for performance
-    const currentHouses = housesRef.current;
-    const isEnabled = enabledRef.current;
-    
-    if (!currentHouses || !isEnabled) return;
-    
-    // Skip if location hasn't changed significantly
-    if (lastLocation.current) {
-      const distance = calculateDistance(
-        location.latitude,
-        location.longitude,
-        lastLocation.current.latitude,
-        lastLocation.current.longitude
-      );
-      
-      if (distance < settingsRef.current.MIN_DISTANCE_CHANGE) {
-        return;
-      }
-    }
-    
-    // Update last location
-    lastLocation.current = location;
-
-    try {
-      const alertHouses = [];
-
-      // Use for loop instead of forEach for better performance
-      for (let i = 0; i < currentHouses.length; i++) {
-        const house = currentHouses[i];
-        if (!house.lat || !house.lng) continue;
-
-        const distance = calculateDistance(
-          location.latitude,
-          location.longitude,
-          parseFloat(house.lat),
-          parseFloat(house.lng)
-        );
-
-        // Only track houses within alert distance
-        if (distance <= settingsRef.current.ALERT_DISTANCE) {
-          const houseWithDistance = { ...house, distance };
-          alertHouses.push(houseWithDistance);
-        }
-      }
-
-      // Sort by distance
-      alertHouses.sort((a, b) => a.distance - b.distance);
-
-      // Find newly detected houses - optimize comparison with Set
-      const currentAlertIds = new Set(nearbyHouses.map(h => h.id));
-      
-      const newAlertHouses = alertHouses.filter(house => !currentAlertIds.has(house.id));
-
-      // Batch notifications for better performance
-      const notificationPromises = [];
-      
-      // Show notifications for new nearby houses
-      for (const house of newAlertHouses) {
-        notificationPromises.push(showNotification(house, house.distance));
-      }
-      
-      // Process all notifications in parallel
-      await Promise.all(notificationPromises);
-
-      setNearbyHouses(alertHouses);
-      setApproachingHouses([]); // No longer using approaching houses
-    } catch (error) {
-      console.error('Error checking nearby houses:', error);
-      setError('Failed to check nearby houses');
-    }
-  }, [nearbyHouses, calculateDistance, showNotification]);
+    enabledRef.current = enabled;
+  }, [enabled]);
 
   const startTracking = useCallback(async () => {
-    if (isTracking || !enabledRef.current) return;
+    if (isTracking || !enabledRef.current || !currentRouteIdRef.current) {
+      if (!currentRouteIdRef.current) console.warn('[useGeofencing] startTracking called without a valid routeId.');
+      return;
+    }
+    
+    const routeId = currentRouteIdRef.current;
 
     try {
-      // Request permissions
-      const { status: foregroundStatus } = await Location.requestForegroundPermissionsAsync();
-      if (foregroundStatus !== 'granted') {
-        throw new Error('LOCATION_PERMISSION_DENIED');
-      }
+      const { status: fgStatus } = await Location.requestForegroundPermissionsAsync();
+      if (fgStatus !== 'granted') throw new Error('LOCATION_FOREGROUND_PERMISSION_DENIED');
       
-      // Try to get background permission for better tracking
-      let backgroundPermission = false;
-      try {
-        const { status: backgroundStatus } = await Location.requestBackgroundPermissionsAsync();
-        backgroundPermission = backgroundStatus === 'granted';
-      } catch (e) {
-        // Background permission not supported or denied
-        console.warn('Background location not available:', e);
+      const { status: bgStatus } = await Location.requestBackgroundPermissionsAsync();
+      if (bgStatus !== 'granted') throw new Error('LOCATION_BACKGROUND_PERMISSION_DENIED');
+
+    const currentHouses = housesRef.current;
+      if (!currentHouses || currentHouses.length === 0) {
+        console.log('[useGeofencing] No houses to track.');
+        return;
       }
 
-      // Configure location tracking based on permissions
-      const locationConfig = {
-        accuracy: settingsRef.current.LOCATION_ACCURACY,
-        distanceInterval: settingsRef.current.MIN_DISTANCE_CHANGE,
-        timeInterval: appState.current === 'active' 
-          ? settingsRef.current.FOREGROUND_UPDATE_INTERVAL 
-          : settingsRef.current.BACKGROUND_UPDATE_INTERVAL,
-        mayShowUserSettingsDialog: true,
-      };
+      // Store simplified house data for the background task
+      const simplifiedHouses = currentHouses.map(h => ({ 
+        id: h.id, 
+        route_id: h.route_id, // Ensure route_id is part of house object
+        address: h.address, 
+        status: h.status, 
+        notes: h.notes,
+        lat: parseFloat(h.lat),
+        lng: parseFloat(h.lng)
+      }));
+      await AsyncStorage.setItem(`${ASYNC_STORAGE_ROUTE_DATA_PREFIX}${routeId}`, JSON.stringify(simplifiedHouses));
+      
+      // Clear previously notified houses for this route when starting fresh
+      await AsyncStorage.removeItem(`${ASYNC_STORAGE_NOTIFIED_HOUSES_PREFIX}${routeId}`);
 
-      // Start location updates
-      locationSubscription.current = await Location.watchPositionAsync(
-        locationConfig,
-        (location) => {
-          checkNearbyHouses(location.coords);
-        }
-      );
+      const regions = currentHouses.map(house => ({
+        identifier: `${routeId}_${house.id}`, // routeId_houseId
+        latitude: parseFloat(house.lat),
+        longitude: parseFloat(house.lng),
+        radius: settingsRef.current.ALERT_DISTANCE,
+        notifyOnEnter: true,
+        notifyOnExit: false, // Only care about entry for now
+      }));
 
+      await Location.startGeofencingAsync(GEOFENCE_TASK_NAME, regions);
       setIsTracking(true);
       setError(null);
-    } catch (error) {
-      console.error('Error starting location tracking:', error);
-      
-      // Provide a more specific error message for location permission denied
-      if (error.message === 'LOCATION_PERMISSION_DENIED') {
-        setError('LOCATION_PERMISSION_DENIED');
-      } else {
-        setError('Failed to start location tracking: ' + error.message);
-      }
-      
+      console.log(`[useGeofencing] Started geofencing for ${regions.length} regions on route ${routeId}.`);
+
+    } catch (err) {
+      console.error('[useGeofencing] Error starting geofencing:', err);
+      setError(err.message);
       setIsTracking(false);
-    }
-  }, [isTracking, checkNearbyHouses]);
-
-  const stopTracking = useCallback(async () => {
-    if (!isTracking) return;
-
-    try {
-      if (locationSubscription.current) {
-        await locationSubscription.current.remove();
-        locationSubscription.current = null;
-      }
-
-      setIsTracking(false);
-      setNearbyHouses([]);
-      setApproachingHouses([]);
-      setError(null);
-    } catch (error) {
-      console.error('Error stopping location tracking:', error);
-      setError('Failed to stop tracking');
     }
   }, [isTracking]);
 
-  // Watch for app state changes to adjust location update frequency
-  useEffect(() => {
-    const subscription = AppState.addEventListener('change', nextAppState => {
-      if (
-        appState.current === 'active' && 
-        nextAppState.match(/inactive|background/)
-      ) {
-        // App is going to background - adjust tracking for battery savings
-        if (locationSubscription.current) {
-          stopTracking().then(() => {
-            if (enabledRef.current) {
-              startTracking();
-            }
-          });
-        }
-      }
-      
-      if (
-        appState.current.match(/inactive|background/) && 
-        nextAppState === 'active'
-      ) {
-        // App is coming to foreground - restore normal tracking
-        if (locationSubscription.current) {
-          stopTracking().then(() => {
-            if (enabledRef.current) {
-              startTracking();
-            }
-          });
-        }
-      }
-      
-      appState.current = nextAppState;
-    });
+  const stopTracking = useCallback(async () => {
+    if (!isTracking) return;
+    
+    const routeId = currentRouteIdRef.current;
 
-    return () => {
-      subscription.remove();
-    };
-  }, [stopTracking, startTracking]);
+    try {
+      await Location.stopGeofencingAsync(GEOFENCE_TASK_NAME);
+      if (routeId) {
+        // Optionally clear stored route data for geofencing if route is definitively stopped/completed
+        // await AsyncStorage.removeItem(`${ASYNC_STORAGE_ROUTE_DATA_PREFIX}${routeId}`);
+        // Don't clear notified_houses here, as that's per-route session handled by RouteScreen
+      }
+      setIsTracking(false);
+      setError(null);
+      console.log('[useGeofencing] Stopped geofencing task.');
+    } catch (err) {
+      console.error('[useGeofencing] Error stopping geofencing:', err);
+      setError(err.message);
+    }
+  }, [isTracking]);
 
-  // Start/stop tracking based on enabled prop
+  // Start/stop tracking based on enabled prop and availability of routeId
   useEffect(() => {
-    if (enabled) {
+    if (enabled && currentRouteIdRef.current) {
       startTracking();
     } else {
-      stopTracking();
+      stopTracking(); // Will do nothing if not tracking
     }
 
+    // Cleanup: stop geofencing when the component unmounts or if houses/enabled changes to stop
     return () => {
-      stopTracking();
+      Location.hasStartedGeofencingAsync(GEOFENCE_TASK_NAME).then(hasStarted => {
+        if (hasStarted) {
+          Location.stopGeofencingAsync(GEOFENCE_TASK_NAME)
+            .then(() => console.log('[useGeofencing] Cleaned up geofencing task on unmount/dependency change.'))
+            .catch(e => console.error('[useGeofencing] Error cleaning up geofencing task:', e));
+        }
+      });
     };
-  }, [enabled, startTracking, stopTracking]);
+  }, [enabled, startTracking, stopTracking]); // startTracking/stopTracking dependencies ensure they are fresh
+
+  // Note: nearbyHouses, approachingHouses, processNotificationQueue, showNotification, checkNearbyHouses are removed
+  // as the core notification logic is now handled by the background task.
+  // The UI on RouteScreen will now primarily react to notifications received via Notifications.addNotificationReceivedListener,
+  // which are triggered by the background task.
 
   return {
-    nearbyHouses,
-    approachingHouses,
-    isTracking,
-    error,
-    settings: geofenceSettings,
-    saveSettings: saveGeofenceSettings,
-    playSound: playSoundFromURL, // Export the sound playing function
+    isTracking, // Indicates if geofencing has been initiated
+    error,      // Any error messages
+    settings: geofenceSettings, // Current settings (e.g., ALERT_DISTANCE)
+    saveSettings: async () => {}, // Placeholder, saveSettings logic can be re-added if needed
+    playSound: playSoundFromURL, // Kept if foreground sound playing is still desired for other purposes
+    // Explicitly not returning nearbyHouses/approachingHouses as they are no longer managed directly by this hook's foreground logic
   };
-}; 
+};
+
+// Reminder: Ensure this file, especially TaskManager.defineTask,
+// is imported early in your app lifecycle, e.g., in App.js or _layout.tsx.
+// If useGeofencing is the only place importing TaskManager and defining the task,
+// the task might not be registered if the hook isn't used immediately at app start.
+// For Expo Router, you might register tasks in your root _layout.tsx. 

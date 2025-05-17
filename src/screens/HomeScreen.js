@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
@@ -83,8 +83,13 @@ const ActionButton = ({ icon, title, color, onPress }) => (
 const RouteCard = ({ route, isActive, router }) => {
   const { user } = useAuth();
   const isAssignedDriver = route.driver_id === user?.id;
-  const progressPercent = route.total_houses > 0 
-    ? Math.round((route.completed_houses / route.total_houses) * 100) 
+
+  // Revert to using route.completed_houses from Supabase
+  const completedHousesCount = route.completed_houses || 0;
+  const totalHousesCount = route.total_houses || (route.houses ? route.houses.length : 0); // total_houses is usually set on route creation
+
+  const progressPercent = totalHousesCount > 0 
+    ? Math.round((completedHousesCount / totalHousesCount) * 100) 
     : 0;
   
   // Get gradient colors based on route status
@@ -216,7 +221,7 @@ const RouteCard = ({ route, isActive, router }) => {
           <View style={styles.routeStat}>
             <Ionicons name="checkmark-circle-outline" size={16} color="#94A3B8" />
             <Text style={styles.routeStatText}>
-              {route.completed_houses || 0} Completed
+              {completedHousesCount} Completed
             </Text>
           </View>
           
