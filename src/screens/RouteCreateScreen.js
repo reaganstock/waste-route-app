@@ -219,7 +219,6 @@ const RouteCreateScreen = React.forwardRef(({ isEditing = false, existingRoute =
   const [loadingDrivers, setLoadingDrivers] = useState(false);
   const [selectedDriver, setSelectedDriver] = useState(driver_id || existingRoute?.driver_id || user?.id);
   const [uploading, setUploading] = useState(false);
-  const [csvUploadProgress, setCsvUploadProgress] = useState(0);
   const [houses, setHouses] = useState(existingRoute?.houses || []);
   const [addressInput, setAddressInput] = useState('');
   const isAdmin = user?.user_metadata?.role === 'admin';
@@ -413,112 +412,69 @@ const RouteCreateScreen = React.forwardRef(({ isEditing = false, existingRoute =
   };
 
   const handleUploadCSV = async () => {
-    setCsvUploadProgress(0);
-    setUploading(true);
     try {
+      setUploading(true);
       const result = await DocumentPicker.getDocumentAsync({
         type: 'text/csv',
-        copyToCacheDirectory: true,
       });
 
-      console.log('[CSV Upload] Document Picker result:', result);
+      if (result.type === 'success') {
+        const fileContent = await FileSystem.readAsStringAsync(result.uri);
+        const parsedHouses = parseCSV(fileContent);
+        const successfullyGeocodedHouses = [];
+        const failedAddresses = [];
 
-      if (!result.canceled && result.assets && result.assets.length > 0) {
-        const fileUri = result.assets[0].uri;
-        console.log('[CSV Upload] File URI:', fileUri);
-        const fileContent = await FileSystem.readAsStringAsync(fileUri);
-        console.log('[CSV Upload] File Content read successfully.');
-
-        Papa.parse(fileContent, {
-          header: true,
-          skipEmptyLines: true,
-          complete: async (parsedResults) => {
-            console.log('[CSV Upload] PapaParse complete. Rows found:', parsedResults.data.length);
-            console.log('[CSV Upload] Parsed data:', JSON.stringify(parsedResults.data, null, 2));
-
-            const newHouses = [];
-            let successfullyGeocodedCount = 0;
-            let failedGeocodeCount = 0;
-
-            for (let i = 0; i < parsedResults.data.length; i++) {
-              const row = parsedResults.data[i];
-              console.log(`[CSV Upload] Processing row ${i + 1}:`, row);
-
-              // Calculate and set progress
-              const progress = ((i + 1) / parsedResults.data.length) * 100;
-              setCsvUploadProgress(progress);
-
-              const address = row.address?.trim();
-              const city = row.city?.trim();
-              const state = row.state?.trim();
-              const zip = row.zip?.trim();
-              const status = row.status?.trim() || 'collect'; // Default to 'collect'
-              const notes = row.notes?.trim() || '';
-
-              if (address && city && state && zip) {
-                const fullAddress = `${address}, ${city}, ${state} ${zip}`;
-                console.log(`[CSV Upload] Attempting to geocode: "${fullAddress}"`);
-
-                // Introduce a small delay to avoid hitting rate limits too quickly
-                await new Promise(resolve => setTimeout(resolve, 200)); // 200ms delay
-
-                const geocoded = await geocodeAddress(fullAddress);
-
-                if (geocoded && geocoded.lat && geocoded.lng) {
-                  newHouses.push({
-                    address: fullAddress,
-                    lat: geocoded.lat,
-                    lng: geocoded.lng,
-                    status: processHouseStatus(status),
-                    notes: notes,
-                  });
-                  successfullyGeocodedCount++;
-                  console.log(`[CSV Upload] Successfully geocoded and added: "${fullAddress}"`);
-                } else {
-                  failedGeocodeCount++;
-                  console.warn(`[CSV Upload] Geocoding failed for: "${fullAddress}". Adding with null lat/lng.`);
-                  // Optionally, add with null lat/lng or skip
-                  newHouses.push({
-                    address: fullAddress,
-                    lat: null,
-                    lng: null,
-                    status: processHouseStatus(status),
-                    notes: notes,
-                  });
-                }
-              } else {
-                failedGeocodeCount++;
-                console.warn('[CSV Upload] Skipping row due to missing address components:', row);
-              }
-            }
-
-            setHouses(prevHouses => [...prevHouses, ...newHouses]);
-            console.log(`[CSV Upload] Processing complete. ${successfullyGeocodedCount} addresses successfully geocoded. ${failedGeocodeCount} addresses failed or were skipped.`);
-            if (failedGeocodeCount > 0) {
-                Alert.alert("CSV Import Notice", `${successfullyGeocodedCount} addresses were added. ${failedGeocodeCount} addresses could not be geocoded or had missing address fields. Please check their details manually.`);
-            } else if (successfullyGeocodedCount > 0) {
-                Alert.alert("CSV Import Successful", `${successfullyGeocodedCount} addresses were successfully imported and geocoded.`);
-            } else {
-                Alert.alert("CSV Import Issue", "No valid addresses could be processed from the CSV. Please check the file format and content.");
-            }
-          },
-          error: (error) => {
-            console.error('[CSV Upload] PapaParse error:', error);
-            Alert.alert('Error Parsing CSV', 'Could not parse the CSV file. Please ensure it is a valid CSV. ' + error.message);
+        // Geocode each address using Mapbox
+        for (const houseInput of parsedHouses) {
+          console.log(`Processing address: ${houseInput.address}`);
+          
+          // Add a slight delay between geocoding requests to avoid rate limits
+          if (successfullyGeocodedHouses.length > 0) {
+            await new Promise(resolve => setTimeout(resolve, 300));
           }
-        });
-      } else if (result.canceled) {
-        console.log('[CSV Upload] Document picker canceled by user.');
-      } else {
-        console.log('[CSV Upload] No assets found or other issue with document picker result.');
-        Alert.alert('Error Reading File', 'Could not read the selected file.');
+          
+          const coords = await geocodeAddress(`${houseInput.address}, ${houseInput.city}, ${houseInput.state} ${houseInput.zip}`);
+          
+          if (coords && coords.lat && coords.lng) {
+            successfullyGeocodedHouses.push({
+              address: `${houseInput.address}, ${houseInput.city}, ${houseInput.state} ${houseInput.zip}`,
+              status: processHouseStatus(houseInput.status),
+              notes: houseInput.notes,
+              lat: coords.lat,
+              lng: coords.lng,
+            });
+            console.log(`Successfully geocoded: ${houseInput.address} to ${coords.lat},${coords.lng}`);
+          } else {
+            console.warn(`Failed to geocode: ${houseInput.address}`);
+            failedAddresses.push(houseInput.address);
+          }
+        }
+
+        if (successfullyGeocodedHouses.length > 0) {
+          setHouses(prevHouses => [...prevHouses, ...successfullyGeocodedHouses]);
+          console.log(`Added ${successfullyGeocodedHouses.length} houses to the list`);
+          Alert.alert('Success', `Successfully imported ${successfullyGeocodedHouses.length} houses from CSV`);
+        }
+        
+        if (failedAddresses.length > 0) {
+          const message = failedAddresses.length === 1 
+            ? `Failed to geocode: ${failedAddresses[0]}`
+            : `Failed to geocode ${failedAddresses.length} addresses. The first failure was: ${failedAddresses[0]}`;
+          
+          Alert.alert('Geocoding Issues', message, [
+            { text: 'OK' },
+            { 
+              text: 'Show All Failures', 
+              onPress: () => Alert.alert('Failed Addresses', failedAddresses.join('\n\n'))
+            }
+          ]);
+        }
       }
     } catch (error) {
-      console.error('Error during CSV upload:', error);
-      Alert.alert('Upload Error', `An unexpected error occurred: ${error.message}`);
+      console.error('Error uploading CSV:', error);
+      Alert.alert('Error', 'Failed to upload CSV file');
     } finally {
       setUploading(false);
-      setCsvUploadProgress(0);
     }
   };
 
@@ -1044,15 +1000,13 @@ const RouteCreateScreen = React.forwardRef(({ isEditing = false, existingRoute =
               <Text style={styles.inputLabel}>Add Addresses</Text>
             
             <View style={styles.buttonRow}>
-              <TouchableOpacity
+              <TouchableOpacity 
                 style={styles.importButton}
                 onPress={handleUploadCSV}
                 disabled={uploading}
               >
-                {uploading && csvUploadProgress === 0 ? (
+                {uploading ? (
                   <ActivityIndicator color="#fff" size="small" />
-                ) : uploading && csvUploadProgress > 0 ? (
-                  <Text style={styles.importButtonText}>Processing...</Text>
                 ) : (
                   <>
                     <Ionicons name="document-text-outline" size={20} color="#fff" />
@@ -1061,17 +1015,6 @@ const RouteCreateScreen = React.forwardRef(({ isEditing = false, existingRoute =
                 )}
               </TouchableOpacity>
             </View>
-
-            {uploading && csvUploadProgress > 0 && (
-              <View style={styles.progressContainer}>
-                <Text style={styles.progressText}>
-                  Importing: {Math.round(csvUploadProgress)}%
-                </Text>
-                <View style={styles.progressBarBackground}>
-                  <View style={[styles.progressBarFill, { width: `${csvUploadProgress}%` }]} />
-                </View>
-              </View>
-            )}
 
             <View style={styles.addressInputWrapper}>
               <Text style={styles.inputLabel}>Enter addresses below (one per line)</Text>
@@ -1900,28 +1843,5 @@ const styles = StyleSheet.create({
   csvNewCell: {
     color: '#10B981',
     fontWeight: '500',
-  },
-  progressContainer: {
-    marginVertical: 10,
-    paddingHorizontal: 16,
-  },
-  progressText: {
-    color: '#D1D5DB',
-    fontSize: 12,
-    marginBottom: 4,
-    textAlign: 'center',
-  },
-  progressBarBackground: {
-    height: 10,
-    backgroundColor: '#1F2937',
-    borderRadius: 5,
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: '#4B5563',
-  },
-  progressBarFill: {
-    height: '100%',
-    backgroundColor: '#3B82F6',
-    borderRadius: 4,
   },
 });
