@@ -92,9 +92,7 @@
       "supabaseUrl": "https://ppumccuvuckqrozhygew.supabase.co",
       "supabaseAnonKey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBwdW1jY3V2dWNrcXJvemh5Z2V3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDMzMTM0MzUsImV4cCI6MjA1ODg4OTQzNX0.piRot1i-3iYFrrBnPZVYeJTi60GUS_HrkKxUWSJRvw0"
     },
-    "runtimeVersion": {
-      "policy": "appVersion"
-    },
+    "runtimeVersion": "1.0.4",
     "updates": {
       "enabled": true,
       "fallbackToCacheTimeout": 0,
