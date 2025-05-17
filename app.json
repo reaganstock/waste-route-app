@@ -34,7 +34,7 @@
         "NSPhotoLibraryUsageDescription": "Photos are used only for setting your profile picture, which helps team members identify you on the Waste Route platform. Your photos are never shared with third parties.",
         "UIRequiresFullScreen": true,
         "UIStatusBarHidden": false,
-        "UIViewControllerBasedStatusBarAppearance": true,
+        "UIViewControllerBasedStatusBarAppearance": false,
         "LSApplicationQueriesSchemes": [
           "maps",
           "mapkit"
