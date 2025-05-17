@@ -22,23 +22,13 @@ import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 import { supabase } from '../lib/supabase';
 import { useGeofencing } from '../hooks/useGeofencing';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import Constants from 'expo-constants';
-
-// Sound URLs from Supabase - hardcoded URLs for reliability
-const SOUND_URLS = {
-  COLLECT: 'https://ppumccuvuckqrozhygew.supabase.co/storage/v1/object/sign/audio/11L-persistent_collect_s-1744674206365.mp3?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1cmwiOiJhdWRpby8xMUwtcGVyc2lzdGVudF9jb2xsZWN0X3MtMTc0NDY3NDIwNjM2NS5tcDMiLCJpYXQiOjE3NDQ2NzQyMzMsImV4cCI6MTc3NjIxMDIzM30.ahZhzmmCRU_84v3jVBVKo4WUVPnyPgs0TnIuXsfGFKQ',
-  SKIP: 'https://ppumccuvuckqrozhygew.supabase.co/storage/v1/object/sign/audio/11L-2._Skip_Notification-1744664804277.mp3?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1cmwiOiJhdWRpby8xMUwtMi5fU2tpcF9Ob3RpZmljYXRpb24tMTc0NDY2NDgwNDI3Ny5tcDMiLCJpYXQiOjE3NDQ2NzMzOTAsImV4cCI6MTc3NjIwOTM5MH0.AthBAnV2Z3I4yLxpb6ERQkrOK037Xu1TzTT24dJTSsg',
-  NEW_CUSTOMER: 'https://ppumccuvuckqrozhygew.supabase.co/storage/v1/object/sign/audio/11L-3._New_Customer_Noti-1744664868116.mp3?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1cmwiOiJhdWRpby8xMUwtMy5fTmV3X0N1c3RvbWVyX05vdGktMTc0NDY2NDg2ODExNi5tcDMiLCJpYXQiOjE3NDQ2NzM0MDMsImV4cCI6MTc3NjIwOTQwM30.36EHR9eio54dwbkpePPLxzw_dzTEftBYtLcBSFLYm4s'
-};
 
 // Configure notifications
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldShowAlert: true,
-    shouldPlaySound: true,
+    shouldPlaySound: false, // Disable default sound, we'll play our own
     shouldSetBadge: false,
-    priority: Notifications.AndroidNotificationPriority.MAX
   }),
 });
 
@@ -483,31 +473,13 @@ const RouteScreen = ({ routeId }) => {
         }
 
         setRoute(routeData);
-        // Set selected houses based on their current status in the database
-        // This ensures we pick up any changes that happened when the app was closed
+        // Set selected houses based on their current status
         const selectedHouseIds = new Set(
           routeData.houses
             .filter(h => h.status === 'collect')
             .map(h => h.id)
         );
         setSelectedHouses(selectedHouseIds);
-        
-        // Update route completed_houses count if it doesn't match selected houses
-        if (routeData.completed_houses !== selectedHouseIds.size) {
-          const { error: updateError } = await supabase
-            .from('routes')
-            .update({
-              completed_houses: selectedHouseIds.size
-            })
-            .eq('id', routeId);
-            
-          if (updateError) {
-            console.error('Error updating route completed_houses count:', updateError);
-          } else {
-            // Update local state with correct count
-            routeData.completed_houses = selectedHouseIds.size;
-          }
-        }
       }
     } catch (error) {
       console.error('Error fetching route:', error);
@@ -517,78 +489,26 @@ const RouteScreen = ({ routeId }) => {
     }
   };
 
-  // Update showNotification to respect phoneNotifications setting and ensure it works in background
-  const showNotification = async (message, data = {}) => {
-    const notificationId = Date.now();
-    
+  // Update showNotification to respect phoneNotifications setting
+  const showNotification = (message) => {
     // Always add to on-screen notifications
-    setNotifications(prev => [...prev, { id: notificationId, message }]);
+    setNotifications(prev => [...prev, { id: Date.now(), message }]);
 
     // Only show phone notification if enabled
     if (phoneNotifications) {
-      // Play appropriate sound based on house status
-      if (data.houseStatus) {
-        try {
-          // Load and play the appropriate sound
-          const { Audio } = await import('expo-av');
-          
-          // Configure audio mode
-          await Audio.setAudioModeAsync({
-            playsInSilentModeIOS: true,
-            staysActiveInBackground: true,
-            shouldDuckAndroid: true,
-          });
-          
-          let soundURL;
-          const status = data.houseStatus.toLowerCase();
-          
-          if (status === 'skip') {
-            soundURL = SOUND_URLS.SKIP;
-          } else if (status === 'new customer') {
-            soundURL = SOUND_URLS.NEW_CUSTOMER;
-          } else {
-            soundURL = SOUND_URLS.COLLECT;
-          }
-          
-          if (soundURL) {
-            const soundObject = new Audio.Sound();
-            await soundObject.loadAsync({ uri: soundURL });
-            await soundObject.setVolumeAsync(1.0);
-            await soundObject.playAsync();
-            
-            // Automatically unload sound when finished
-            soundObject.setOnPlaybackStatusUpdate(playbackStatus => {
-              if (playbackStatus.didJustFinish) {
-                soundObject.unloadAsync().catch(console.error);
-              }
-            });
-          }
-        } catch (error) {
-          console.error('Error playing notification sound:', error);
-        }
-      }
-      
-      // Schedule the notification
-      await Notifications.scheduleNotificationAsync({
-        content: {
-          title: 'WasteRoute Update',
-          body: message,
-          sound: 'default',
-          data: {
-            ...data,
-            timestamp: notificationId
-          },
-          priority: Notifications.AndroidNotificationPriority.MAX,
-          sticky: true, // Make notification persist on Android
-          autoDismiss: false // Prevent auto-dismiss when tapped
-        },
-        trigger: null, // Show immediately
-      });
+    Notifications.scheduleNotificationAsync({
+      content: {
+        title: 'WasteRoute Update',
+        body: message,
+        sound: true,
+      },
+        trigger: null,
+    });
     }
 
-    // Auto-dismiss after 5 seconds (only in-app notifications)
+    // Auto-dismiss after 5 seconds
     setTimeout(() => {
-      setNotifications(prev => prev.filter(n => n.id !== notificationId));
+      setNotifications(prev => prev.filter(n => n.id !== Date.now()));
     }, 5000);
   };
 
@@ -596,7 +516,7 @@ const RouteScreen = ({ routeId }) => {
     setNotifications(prev => prev.filter(n => n.id !== id));
   };
 
-  // Update the toggleHouse function to update both the local state and the house status in the database to ensure progress syncing when leaving the app.
+  // Update the toggleHouse function to maintain the original status and only update the selection state
   const toggleHouse = async (houseId) => {
     try {
       const house = route.houses.find(h => h.id === houseId);
@@ -608,17 +528,6 @@ const RouteScreen = ({ routeId }) => {
       } else {
         newSelected.add(houseId);
       }
-
-      // Update house status in database to 'collected' if selected
-      // This ensures the status persists even when leaving the app
-      const { error: houseError } = await supabase
-        .from('houses')
-        .update({ 
-          status: newSelected.has(houseId) ? 'collect' : house.status 
-        })
-        .eq('id', houseId);
-
-      if (houseError) throw houseError;
 
       // Update route progress in database
       const { error: routeError } = await supabase
@@ -634,12 +543,7 @@ const RouteScreen = ({ routeId }) => {
       setSelectedHouses(newSelected);
       setRoute(prev => ({
         ...prev,
-        completed_houses: newSelected.size,
-        houses: prev.houses.map(h => 
-          h.id === houseId
-            ? { ...h, status: newSelected.has(houseId) ? 'collect' : h.status }
-            : h
-        )
+        completed_houses: newSelected.size
       }));
 
     } catch (error) {
@@ -652,20 +556,6 @@ const RouteScreen = ({ routeId }) => {
     try {
       const allSelected = selectedHouses.size === route.houses.length;
       const newSelected = allSelected ? new Set() : new Set(route.houses.map(h => h.id));
-
-      // Update all houses status in the database
-      // This ensures the status persists when leaving the app
-      const houseUpdates = route.houses.map(house => ({
-        id: house.id,
-        status: allSelected ? house.status : 'collect'
-      }));
-
-      // Batch update all houses
-      const { error: housesError } = await supabase
-        .from('houses')
-        .upsert(houseUpdates, { onConflict: 'id' });
-
-      if (housesError) throw housesError;
 
       // Update route progress
       const { error: routeError } = await supabase
@@ -681,11 +571,7 @@ const RouteScreen = ({ routeId }) => {
       setSelectedHouses(newSelected);
       setRoute(prev => ({
         ...prev,
-        completed_houses: allSelected ? 0 : route.houses.length,
-        houses: prev.houses.map(h => ({
-          ...h,
-          status: allSelected ? h.status : 'collect'
-        }))
+        completed_houses: allSelected ? 0 : route.houses.length
       }));
 
     } catch (error) {
@@ -844,16 +730,6 @@ const RouteScreen = ({ routeId }) => {
         );
         return false;
       }
-
-      // Configure notification handler for background notifications
-      Notifications.setNotificationHandler({
-        handleNotification: async () => ({
-          shouldShowAlert: true,
-          shouldPlaySound: true,
-          shouldSetBadge: true,
-          priority: Notifications.AndroidNotificationPriority.MAX
-        }),
-      });
 
       // Configure notification categories/actions
       await Notifications.setNotificationCategoryAsync('route', [

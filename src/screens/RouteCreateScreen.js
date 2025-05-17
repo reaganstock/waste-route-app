@@ -53,7 +53,7 @@ const parseCSV = (content) => {
       });
       return house;
     })
-    .filter(house => house.address && house.lat && house.lng);
+    .filter(house => house.address && house.city && house.state && house.zip);
 };
 
 const geocodeAddress = async (address) => {
@@ -132,7 +132,7 @@ const parseAddressList = (text) => {
     const state = parts[2];
     const zip = parts[3];
     // Status is the 5th part (index 4), notes start from 6th (index 5)
-    const statusPart = parts.length > 4 ? parts[4] : 'pending';
+    const statusPart = parts.length > 4 ? parts[4] : 'collect';
     const notes = parts.length > 5 ? parts.slice(5).join(', ').trim() : '';
 
     // Basic validation
@@ -184,22 +184,9 @@ const parseAddressList = (text) => {
   });
 };
 
-const parseGoogleSheetData = (values) => {
-  // Skip header row and filter out empty rows
-  return values.slice(1)
-    .filter(row => row.length > 0)
-    .map(row => ({
-      address: row[0] || '',
-      lat: row[1] || '',
-      lng: row[2] || '',
-      notes: row[3] || ''
-    }))
-    .filter(house => house.address && house.lat && house.lng);
-};
-
 const processHouseStatus = (status) => {
   // Convert status to lowercase and trim
-  const normalizedStatus = status ? status.toLowerCase().trim() : 'pending';
+  const normalizedStatus = status ? status.toLowerCase().trim() : 'collect';
   
   console.log("Processing status:", status, "->", normalizedStatus);
   
@@ -217,7 +204,7 @@ const processHouseStatus = (status) => {
     case 'skipped':
       return 'skip';
     default:
-      return 'pending';
+      return 'collect';
   }
 };
 
@@ -234,7 +221,6 @@ const RouteCreateScreen = React.forwardRef(({ isEditing = false, existingRoute =
   const [uploading, setUploading] = useState(false);
   const [houses, setHouses] = useState(existingRoute?.houses || []);
   const [addressInput, setAddressInput] = useState('');
-  const [isLoadingGoogleSheet, setIsLoadingGoogleSheet] = useState(false);
   const isAdmin = user?.user_metadata?.role === 'admin';
   const isOwner = user?.user_metadata?.role === 'owner';
   const [notes, setNotes] = useState(existingRoute?.notes || '');
@@ -435,74 +421,60 @@ const RouteCreateScreen = React.forwardRef(({ isEditing = false, existingRoute =
       if (result.type === 'success') {
         const fileContent = await FileSystem.readAsStringAsync(result.uri);
         const parsedHouses = parseCSV(fileContent);
-        setHouses(prevHouses => [...prevHouses, ...parsedHouses]);
-      }
-    } catch (error) {
-      Alert.alert('Error', 'Failed to upload CSV file');
-    } finally {
-      setUploading(false);
-    }
-  };
+        const successfullyGeocodedHouses = [];
+        const failedAddresses = [];
 
-  const handleGoogleSheetImport = async () => {
-    try {
-      setIsLoadingGoogleSheet(true);
-      
-      // Construct Google OAuth2 URL
-      const scope = encodeURIComponent('https://www.googleapis.com/auth/spreadsheets.readonly');
-      const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${GOOGLE_CLIENT_ID}&redirect_uri=${GOOGLE_REDIRECT_URI}&response_type=token&scope=${scope}`;
-      
-      // Open web browser for authentication
-      const result = await WebBrowser.openAuthSessionAsync(authUrl, GOOGLE_REDIRECT_URI);
-      
-      if (result.type === 'success') {
-        // Extract access token from URL
-        const accessToken = result.url.match(/access_token=([^&]*)/)[1];
-        
-        // Show sheet picker (you'll need to implement this UI)
-        const sheetId = await new Promise((resolve) => {
-          Alert.prompt(
-            'Enter Sheet ID',
-            'Please enter the Google Sheet ID',
-            [
-              {
-                text: 'Cancel',
-                onPress: () => resolve(null),
-                style: 'cancel',
-              },
-              {
-                text: 'OK',
-                onPress: (sheetId) => resolve(sheetId),
-              },
-            ],
-            'plain-text'
-          );
-        });
-
-        if (!sheetId) return;
-
-        // Fetch sheet data
-        const response = await fetch(
-          `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/A:D`,
-          {
-            headers: {
-              Authorization: `Bearer ${accessToken}`,
-            },
+        // Geocode each address using Mapbox
+        for (const houseInput of parsedHouses) {
+          console.log(`Processing address: ${houseInput.address}`);
+          
+          // Add a slight delay between geocoding requests to avoid rate limits
+          if (successfullyGeocodedHouses.length > 0) {
+            await new Promise(resolve => setTimeout(resolve, 300));
           }
-        );
+          
+          const coords = await geocodeAddress(`${houseInput.address}, ${houseInput.city}, ${houseInput.state} ${houseInput.zip}`);
+          
+          if (coords && coords.lat && coords.lng) {
+            successfullyGeocodedHouses.push({
+              address: `${houseInput.address}, ${houseInput.city}, ${houseInput.state} ${houseInput.zip}`,
+              status: processHouseStatus(houseInput.status),
+              notes: houseInput.notes,
+              lat: coords.lat,
+              lng: coords.lng,
+            });
+            console.log(`Successfully geocoded: ${houseInput.address} to ${coords.lat},${coords.lng}`);
+          } else {
+            console.warn(`Failed to geocode: ${houseInput.address}`);
+            failedAddresses.push(houseInput.address);
+          }
+        }
 
-        const data = await response.json();
+        if (successfullyGeocodedHouses.length > 0) {
+          setHouses(prevHouses => [...prevHouses, ...successfullyGeocodedHouses]);
+          console.log(`Added ${successfullyGeocodedHouses.length} houses to the list`);
+          Alert.alert('Success', `Successfully imported ${successfullyGeocodedHouses.length} houses from CSV`);
+        }
         
-        if (data.values) {
-          const parsedHouses = parseGoogleSheetData(data.values);
-          setHouses(prevHouses => [...prevHouses, ...parsedHouses]);
+        if (failedAddresses.length > 0) {
+          const message = failedAddresses.length === 1 
+            ? `Failed to geocode: ${failedAddresses[0]}`
+            : `Failed to geocode ${failedAddresses.length} addresses. The first failure was: ${failedAddresses[0]}`;
+          
+          Alert.alert('Geocoding Issues', message, [
+            { text: 'OK' },
+            { 
+              text: 'Show All Failures', 
+              onPress: () => Alert.alert('Failed Addresses', failedAddresses.join('\n\n'))
+            }
+          ]);
         }
       }
     } catch (error) {
-      Alert.alert('Error', 'Failed to import from Google Sheets');
-      console.error(error);
+      console.error('Error uploading CSV:', error);
+      Alert.alert('Error', 'Failed to upload CSV file');
     } finally {
-      setIsLoadingGoogleSheet(false);
+      setUploading(false);
     }
   };
 
@@ -798,7 +770,7 @@ const RouteCreateScreen = React.forwardRef(({ isEditing = false, existingRoute =
     const house = houses[index];
     setEditingHouseIndex(index);
     setEditingHouseAddress(house.address);
-    setEditingHouseStatus(house.status || 'pending');
+    setEditingHouseStatus(house.status || 'collect');
     setEditingHouseNotes(house.notes || '');
     setEditModalVisible(true);
   };
@@ -833,7 +805,7 @@ const RouteCreateScreen = React.forwardRef(({ isEditing = false, existingRoute =
           address: house.address,
           lat: house.lat,
           lng: house.lng,
-          status: house.status || 'pending',
+          status: house.status || 'collect',
           notes: house.notes || '',
           is_new_customer: house.status === 'new customer' || false,
           estimated_time: house.estimated_time || 5.00,
@@ -864,7 +836,7 @@ const RouteCreateScreen = React.forwardRef(({ isEditing = false, existingRoute =
     { value: 'collect', label: 'Collect', color: '#6B7280' },
     { value: 'skip', label: 'Skip', color: '#EF4444' },
     { value: 'new customer', label: 'New Customer', color: '#10B981' },
-    { value: 'pending', label: 'Pending', color: '#3B82F6' }
+    { value: 'collect', label: 'Collect', color: '#3B82F6' }
   ];
 
   return (
@@ -1031,20 +1003,6 @@ const RouteCreateScreen = React.forwardRef(({ isEditing = false, existingRoute =
             <View style={styles.buttonRow}>
               <TouchableOpacity 
                 style={styles.importButton}
-                onPress={handleGoogleSheetImport}
-                disabled={isLoadingGoogleSheet}
-              >
-                {isLoadingGoogleSheet ? (
-                  <ActivityIndicator color="#fff" size="small" />
-                ) : (
-                  <>
-                    <Ionicons name="logo-google" size={20} color="#fff" />
-                    <Text style={styles.importButtonText}>Google Sheet</Text>
-                  </>
-                )}
-              </TouchableOpacity>
-              <TouchableOpacity 
-                style={styles.importButton}
                 onPress={handleUploadCSV}
                 disabled={uploading}
               >
@@ -1063,7 +1021,7 @@ const RouteCreateScreen = React.forwardRef(({ isEditing = false, existingRoute =
               <Text style={styles.inputLabel}>Enter addresses below (one per line)</Text>
               <TextInput
                 style={styles.addressInput}
-                placeholder="123 Main St, Dallas, TX, 75201 [, status] [, notes]"
+                placeholder="123 Main St, Dallas, TX, 75201, skip/collect/new customer, notes"
                 placeholderTextColor="#6B7280"
                 value={addressInput}
                 onChangeText={setAddressInput}
@@ -1090,7 +1048,7 @@ const RouteCreateScreen = React.forwardRef(({ isEditing = false, existingRoute =
                 )}
               </TouchableOpacity>
               <Text style={styles.helperText}>
-                Format: Street, City, State, ZIP [, Status] [, Notes]{'\n'}
+                Format: address, city, state, zip, status, notes{'\n'}
                 Status can be: collect, skip, or new customer
               </Text>
             </View>
@@ -1193,7 +1151,7 @@ const RouteCreateScreen = React.forwardRef(({ isEditing = false, existingRoute =
                   Enter addresses in the following format:
                 </Text>
                 <Text style={styles.codeExample}>
-                  123 Main Street, Dallas TX, 75201, skip/collect/new customer, notes
+                  address, city, state, zip, status, notes
                 </Text>
                 
                 <Text style={styles.modalSubtitle}>Status Options:</Text>
@@ -1209,6 +1167,52 @@ const RouteCreateScreen = React.forwardRef(({ isEditing = false, existingRoute =
                   <View style={[styles.statusDot, { backgroundColor: '#10B981' }]} />
                   <Text style={styles.statusItemText}>new customer - New customer</Text>
                 </View>
+
+                <Text style={styles.modalSubtitle}>CSV Import Format</Text>
+                <Text style={styles.modalText}>
+                  Create a CSV file like this example:
+                </Text>
+                <View style={styles.csvExampleContainer}>
+                  <View style={styles.csvRow}>
+                    <Text style={[styles.csvCell, styles.csvHeaderCell]}>address</Text>
+                    <Text style={[styles.csvCell, styles.csvHeaderCell]}>city</Text>
+                    <Text style={[styles.csvCell, styles.csvHeaderCell]}>state</Text>
+                    <Text style={[styles.csvCell, styles.csvHeaderCell]}>zip</Text>
+                    <Text style={[styles.csvCell, styles.csvHeaderCell]}>status</Text>
+                    <Text style={[styles.csvCell, styles.csvHeaderCell]}>notes</Text>
+                  </View>
+                  <View style={[styles.csvRow, styles.csvDataRow]}>
+                    <Text style={styles.csvCell}>123 Main St</Text>
+                    <Text style={styles.csvCell}>Dallas</Text>
+                    <Text style={styles.csvCell}>TX</Text>
+                    <Text style={styles.csvCell}>75201</Text>
+                    <Text style={[styles.csvCell, styles.csvSkipCell]}>skip</Text>
+                    <Text style={styles.csvCell}>Customer away</Text>
+                  </View>
+                  <View style={[styles.csvRow, styles.csvDataRow]}>
+                    <Text style={styles.csvCell}>456 Center Rd</Text>
+                    <Text style={styles.csvCell}>Plano</Text>
+                    <Text style={styles.csvCell}>TX</Text>
+                    <Text style={styles.csvCell}>75023</Text>
+                    <Text style={[styles.csvCell, styles.csvCollectCell]}>collect</Text>
+                    <Text style={styles.csvCell}>Regular pickup</Text>
+                  </View>
+                  <View style={[styles.csvRow, styles.csvDataRow, styles.csvLastRow]}>
+                    <Text style={styles.csvCell}>789 Oak Ave</Text>
+                    <Text style={styles.csvCell}>Wylie</Text>
+                    <Text style={styles.csvCell}>TX</Text>
+                    <Text style={styles.csvCell}>75098</Text>
+                    <Text style={[styles.csvCell, styles.csvNewCell]}>new customer</Text>
+                    <Text style={styles.csvCell}>First service</Text>
+                  </View>
+                </View>
+
+                <Text style={styles.modalText}>
+                  Important:
+                </Text>
+                <Text style={styles.tipText}>• Create in Excel/Google Sheets and export as CSV</Text>
+                <Text style={styles.tipText}>• All addresses are automatically geocoded</Text>
+                <Text style={styles.tipText}>• Valid status values: collect, skip, new customer</Text>
 
                 <Text style={styles.modalSubtitle}>Tips:</Text>
                 <Text style={styles.tipText}>• You can add multiple addresses by entering one per line</Text>
@@ -1795,4 +1799,50 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
   },
-}); 
+  csvExampleContainer: {
+    backgroundColor: '#2D3748',
+    padding: 16,
+    borderRadius: 12,
+    marginVertical: 12,
+    borderWidth: 1,
+    borderColor: '#4B5563',
+  },
+  csvRow: {
+    flexDirection: 'row',
+    marginBottom: 8,
+    paddingBottom: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#4B5563',
+  },
+  csvCell: {
+    color: '#E5E7EB',
+    flex: 1,
+    paddingHorizontal: 4,
+    fontSize: 12,
+  },
+  csvHeaderCell: {
+    fontWeight: 'bold',
+    color: '#60A5FA',
+    fontSize: 13,
+  },
+  csvDataRow: {
+    marginTop: 0,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  csvLastRow: {
+    borderBottomWidth: 0,
+    marginBottom: 0,
+  },
+  csvSkipCell: {
+    color: '#EF4444',
+    fontWeight: '500',
+  },
+  csvCollectCell: {
+    color: '#6B7280',
+    fontWeight: '500',
+  },
+  csvNewCell: {
+    color: '#10B981',
+    fontWeight: '500',
+  },
+});
