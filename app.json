@@ -2,7 +2,7 @@
   "expo": {
     "name": "WasteRoute",
     "slug": "waste-route-app",
-    "version": "1.0.2",
+    "version": "1.0.4",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
@@ -18,7 +18,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.wasteroute.app",
-      "buildNumber": "16",
+      "buildNumber": "24",
       "jsEngine": "hermes",
       "requireFullScreen": true,
       "infoPlist": {
