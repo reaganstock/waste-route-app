@@ -238,21 +238,54 @@ export const useGeofencing = (housesWithRouteId, enabled = false) => {
   }, [enabled]);
 
   const startTracking = useCallback(async () => {
-    if (isTracking || !enabledRef.current || !currentRouteIdRef.current) {
-      if (!currentRouteIdRef.current) console.warn('[useGeofencing] startTracking called without a valid routeId.');
+    if (!enabledRef.current) {
+      console.log('[useGeofencing] startTracking: bailing because enabledRef.current is false.');
       return;
     }
+    if (!currentRouteIdRef.current) {
+      console.warn('[useGeofencing] startTracking: bailing because currentRouteIdRef.current is null.');
+      return;
+    }
+    // Re-instated isTracking check, but allow to proceed if not tracking yet to ensure permissions are checked/re-checked.
+    // This allows calling startTracking to ensure permissions even if it was previously stopped.
+    // if (isTracking) {
+    //   console.log('[useGeofencing] startTracking: already tracking, permissions should be set. Bailing permission re-check.');
+    //   return;
+    // }
     
+    console.log('[useGeofencing] Attempting to start tracking...');
     const routeId = currentRouteIdRef.current;
+    console.log(`[useGeofencing] Current routeId: ${routeId}`);
 
     try {
-      const { status: fgStatus } = await Location.requestForegroundPermissionsAsync();
-      if (fgStatus !== 'granted') throw new Error('LOCATION_FOREGROUND_PERMISSION_DENIED');
-      
-      const { status: bgStatus } = await Location.requestBackgroundPermissionsAsync();
-      if (bgStatus !== 'granted') throw new Error('LOCATION_BACKGROUND_PERMISSION_DENIED');
+      console.log('[useGeofencing] Checking initial permission status before request...');
+      const initialFgPermissions = await Location.getForegroundPermissionsAsync();
+      const initialBgPermissions = await Location.getBackgroundPermissionsAsync();
+      console.log(`[useGeofencing] Initial Foreground Permissions: ${JSON.stringify(initialFgPermissions)}`);
+      console.log(`[useGeofencing] Initial Background Permissions: ${JSON.stringify(initialBgPermissions)}`);
 
-    const currentHouses = housesRef.current;
+      console.log('[useGeofencing] Requesting foreground permissions...');
+      const fgPermissionResponse = await Location.requestForegroundPermissionsAsync();
+      console.log(`[useGeofencing] Foreground permission request response: ${JSON.stringify(fgPermissionResponse)}`);
+      if (fgPermissionResponse.status !== 'granted') {
+        console.error('[useGeofencing] Foreground location permission was not granted.');
+        setError('LOCATION_FOREGROUND_PERMISSION_DENIED');
+        throw new Error('LOCATION_FOREGROUND_PERMISSION_DENIED');
+      }
+
+      console.log('[useGeofencing] Requesting background permissions...');
+      const bgPermissionResponse = await Location.requestBackgroundPermissionsAsync();
+      console.log(`[useGeofencing] Background permission request response: ${JSON.stringify(bgPermissionResponse)}`);
+      if (bgPermissionResponse.status !== 'granted') {
+        console.error('[useGeofencing] Background location permission was not granted.');
+        setError('LOCATION_BACKGROUND_PERMISSION_DENIED');
+        throw new Error('LOCATION_BACKGROUND_PERMISSION_DENIED');
+      }
+      
+      const notifiedHousesKey = `${ASYNC_STORAGE_NOTIFIED_HOUSES_PREFIX}${routeId}`;
+      await AsyncStorage.removeItem(notifiedHousesKey);
+
+      const currentHouses = housesRef.current;
       if (!currentHouses || currentHouses.length === 0) {
         console.log('[useGeofencing] No houses to track.');
         return;
@@ -270,9 +303,6 @@ export const useGeofencing = (housesWithRouteId, enabled = false) => {
       }));
       await AsyncStorage.setItem(`${ASYNC_STORAGE_ROUTE_DATA_PREFIX}${routeId}`, JSON.stringify(simplifiedHouses));
       
-      // Clear previously notified houses for this route when starting fresh
-      await AsyncStorage.removeItem(`${ASYNC_STORAGE_NOTIFIED_HOUSES_PREFIX}${routeId}`);
-
       const regions = currentHouses.map(house => ({
         identifier: `${routeId}_${house.id}`, // routeId_houseId
         latitude: parseFloat(house.lat),
@@ -282,21 +312,21 @@ export const useGeofencing = (housesWithRouteId, enabled = false) => {
         notifyOnExit: false, // Only care about entry for now
       }));
 
+      console.log(`[useGeofencing] Starting geofencing for ${regions.length} regions on route ${routeId}.`);
       await Location.startGeofencingAsync(GEOFENCE_TASK_NAME, regions);
       setIsTracking(true);
       setError(null);
-      console.log(`[useGeofencing] Started geofencing for ${regions.length} regions on route ${routeId}.`);
-
+      console.log(`[useGeofencing] Successfully started geofencing for route ${routeId}.`);
     } catch (err) {
-      console.error('[useGeofencing] Error starting geofencing:', err);
-      setError(err.message);
+      console.error('[useGeofencing] Error in startTracking:', err);
+      setError(err.message || 'Failed to start geofencing. Please check permissions.');
       setIsTracking(false);
     }
-  }, [isTracking]);
+  }, [isTracking, geofenceSettings]); // Added geofenceSettings to deps, as it's used via settingsRef
 
   const stopTracking = useCallback(async () => {
     if (!isTracking) return;
-    
+
     const routeId = currentRouteIdRef.current;
 
     try {
